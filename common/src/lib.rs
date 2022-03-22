@@ -15,6 +15,7 @@ mod graph_entities;
 pub mod lru_slab;
 pub mod math;
 pub mod node;
+pub mod node_string;
 mod plane;
 pub mod proto;
 mod sim_config;
