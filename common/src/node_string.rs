@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::dodeca::Side;
 
@@ -37,9 +37,7 @@ pub struct NodeString {
 
 impl NodeString {
     pub fn new() -> Self {
-        Self {
-            path: vec![],
-        }
+        Self { path: vec![] }
     }
 
     pub fn append(&mut self, new_segment: Side) {
@@ -101,7 +99,10 @@ impl Default for NodeString {
 
 #[cfg(test)]
 mod tests {
-    use crate::dodeca::Side;
+    use crate::{
+        dodeca::Side,
+        graph::{Graph, NodeId},
+    };
 
     use super::NodeString;
 
@@ -129,5 +130,66 @@ mod tests {
             }
         }
         count
+    }
+
+    #[test]
+    fn test_no_overlap() {
+        let mut graph = Graph::<()>::default();
+        let mut ns = NodeString::new();
+        test_no_overlap_recursive(&mut graph, NodeId::ROOT, &mut ns, 9);
+    }
+
+    fn test_no_overlap_recursive(g: &mut Graph<()>, node: NodeId, ns: &mut NodeString, len: u32) {
+        if len == 0 {
+            return;
+        }
+
+        for side in Side::iter() {
+            if ns.has_child(side) {
+                assert!(
+                    g.neighbor(node, side).is_none(),
+                    "Reached a graph node twice: {:?}",
+                    ns
+                );
+
+                let neighbor = g.ensure_neighbor(node, side);
+
+                ns.append(side);
+                test_no_overlap_recursive(g, neighbor, ns, len - 1);
+                ns.backtrack();
+            }
+        }
+    }
+
+    #[test]
+    fn test_append_simplifies() {
+        let ns = NodeString::new();
+        test_append_simplifies_recursive(&ns, 7)
+    }
+
+    fn test_append_simplifies_recursive(ns: &NodeString, len: u32) {
+        if len == 0 {
+            return;
+        }
+
+        for side in Side::iter() {
+            let mut ns_clone = ns.clone();
+            ns_clone.append(side);
+            assert_simple(&ns_clone);
+            test_append_simplifies_recursive(&ns_clone, len - 1);
+        }
+    }
+
+    fn assert_simple(ns: &NodeString) {
+        for i in 0..ns.len() {
+            let test_ns = NodeString {
+                path: ns.path[0..i].to_vec(),
+            };
+            assert!(
+                test_ns.has_child(ns.path[i]),
+                "Node string not simple: {:?}",
+                ns
+            );
+        }
     }
 }
