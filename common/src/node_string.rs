@@ -232,16 +232,16 @@ mod tests {
 
         for side in Side::iter() {
             if ns.has_child(side) {
+                ns.append(side);
+
                 if let Some(old_neighbor) = g.neighbor(node, side) {
                     assert!(
                         g.get(old_neighbor).is_none(), /* Assert we haven't seen this node yet. It's fine if it has already been created as a side-effect of ensure_neighbor */
                         "Reached a graph node twice: {:?} vs {:?}",
-                        ns,
-                        g.get(old_neighbor)
+                        ns.path,
+                        g.get(old_neighbor).as_ref().unwrap().path
                     );
                 }
-
-                ns.append(side);
 
                 let neighbor = g.ensure_neighbor(node, side);
                 *g.get_mut(neighbor) = Some(ns.clone());
