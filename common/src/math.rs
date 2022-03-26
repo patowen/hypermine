@@ -65,6 +65,19 @@ pub fn translate_along<N: RealField>(v: &na::Unit<na::Vector3<N>>, distance: N) 
               bg * v.x,                   bg * v.y,             bg * v.z,        g)
 }
 
+/// Get a matrix to translate a point at a given position by the given displacement vector, which should be tangent
+/// to the hyperboloid model.
+pub fn translate_point_by_displacement<N: RealField>(p: &na::Vector4<N>, v: &na::Vector4<N>) -> na::Matrix4<N> {
+    let two = na::convert::<_, N>(2.0);
+    let norm = mip(v, v).sqrt() / two;
+    let p2 = p * norm.cosh() + v * norm.sinhc() / two;
+    reflect_about_normalized_point(&p2) * reflect_about_normalized_point(p)
+}
+
+fn reflect_about_normalized_point<N: RealField>(p: &na::Vector4<N>) -> na::Matrix4<N> {
+    na::Matrix4::<N>::identity() + (*p * p.transpose() * i31::<N>()) * na::convert::<_, N>(2.0)
+}
+
 /// 4D reflection around a normal vector; length is not significant (so long as it's nonzero)
 pub fn euclidean_reflect<N: RealField>(v: &na::Vector4<N>) -> na::Matrix4<N> {
     na::Matrix4::identity() - v * v.transpose() * (na::convert::<_, N>(2.0) / v.norm_squared())
@@ -195,6 +208,11 @@ mod tests {
         assert_abs_diff_eq!(
             translate(&o, &a),
             translate_along(&direction, distance),
+            epsilon = 1e-5
+        );
+        assert_abs_diff_eq!(
+            translate_along(&direction, distance),
+            translate_point_by_displacement::<f64>(&o, &((a-o).normalize() * distance)),
             epsilon = 1e-5
         );
     }
