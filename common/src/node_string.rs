@@ -42,9 +42,11 @@ Notation:
 * A!=B === not (A=B)
 * a<b === a has priority over b. (Justification: view priority as a rank) Note, if a<b, then a$b, as priority is not defined for non-commuting characters
 * a<=b === a<b or a=b
-* a$b === a and b commute (including equality). Note that this is NOT an equivalence relation.
+* a$b === a and b commute (including equality). Note that this is NOT an equivalence relation, but it is symmetric.
 * a$A === a commutes with everything in A. Elements within A do NOT have to mutually commute.
-* A~B === A and B correspond to the same group element in the relevant right-angled Coxeter group
+* A~B === A and B correspond to the same group element in the relevant right-angled Coxeter group.
+    Note that this is an equivalence relation, so rules related to equivalence relations will be taken as given.
+    We also take group theory rules as given, such as associativity, identity (``), and inverse, so some steps will be skipped based on that.
 
 Definition of "append":
     AaB + a = AB iff `a` strongly slots into AaB before aB
@@ -57,6 +59,15 @@ Definition of "strongly slots": `a` strongly slots into AB before B iff
 Definition of "weakly slots": `a` weakly slots into AB before B iff
     * a$B, and
     * B != bC with b<a (Note: If B is nonempty, this is equivalent to B = bC with a<=b)
+
+Definition of the "@" symbol (Note: the notation for this signifies simplifying a node string)
+    * @(``) = `` (that is, the base case of this recursive definition is that simplifying an empty string gives the empty string)
+    * @(Aa) = @A+a (this part of the definition is stating that elements are appended one at a time)
+
+Definition of "~" (equivalence in Coxeter group)
+    * AB ~ AaaB (Reflecting about the same element twice does nothing)
+    * If a$b, then AB ~ AababB (Going all the way around a vertex does nothing)
+    * For any given A, you can find any B~A with a finite number of applications of the above rules (This proof is not formal, so this is just to allow an induction proof to work.)
 
 Lemma 1: The "append" rules are well-defined (as in, there's exactly one option)
 Proof of lemma:
@@ -105,9 +116,21 @@ Proof of lemma:
         Therefore, in Case 2, A+a is simple.
     Therefore, A+a is simple for all `a`, completing the proof of lemma 2.
 
+Lemma 3: If a$A, then aA ~ Aa
+    To show that a$b implies ab ~ ba, use the following equivalence chain: ab ~ a(abab)b ~ (aa)ba(aa) ~ ba
+    This can be used as the inductive step for the full lemma. The base case (empty A) is trivial, so we'll skip it.
+    Inductive step: Assume true for A and prove for Ab: To be explicit, the assumption is that a$A implies aA ~ Aa
+        To prove for Ab, start with a$Ab. In other words, a$A and a$b. Then, we have aAb ~ Aab (by assumption) ~ Aba (by the initial thing we showed). This completes the inductive step, and the proof.
+
+Lemma 4: The "append" rules do not change the node being pointed to. That is, A+a ~ Aa
+    Case 1: Suppose we have AaB + a = AB with `a` strongly slotting into AaB before aB. In this case, we want to show that AB ~ AaBa
+        Then, `a` also weakly slots into AaB before aB, which means that a$B. By Lemma 3, then, we have aB ~ Ba.
+        This gives AaBa ~ AaaB ~ AB, completing the proof of this case.
+    Case 2: Suppose we have AC + a = AaC with `a` strongly slotting into AC before C. In this case, we want to show that AaC ~ ACa
+        With the exact same reasoning as before, we have aC ~ Ca. This gives us AaC ~ ACa immediately, completing the full proof.
+
 TODO: What still needs to be proven:
-    1. The "append" rules do not change the node being pointed to. That is, A+a ~ Aa. This is quite easy to show.
-    2. If A~B where A and B are simple strings, then A=B. By the regional division geometric intuition, this can likely be accepted without proof, but a proof would be good to be more certain.
+    If A~B where A and B are simple strings, then A=B. By the regional division geometric intuition, this can likely be accepted without proof, but a proof would be good to be more certain.
 */
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
