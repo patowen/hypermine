@@ -37,7 +37,8 @@ Notation:
 * A or `A` === string or substring (uppercase) (Backticks used to resolve potential ambiguity)
 * a or `a` === generator (lowercase) (Backticks used to resolve potential ambiguity)
 * @A or @(A) === simplified version of A based on "append" rules. "@" has precedence over concatenation
-* A+a === A after appending a using simplification rules. Note: @(Aa) = @A+a. Concatenation has precedence over "+"
+* A+a === A after appending `a` using simplification rules. Note: @(Aa) = @A+a. Concatenation has precedence over "+"
+* A+B === A after appending all generators in B one at a time using simplification rules. Note: @(AB) = @A+B. Concatenation has precedence over "+"
 * A=B === A and B are the same string (same generators in the same order)
 * A!=B === not (A=B)
 * a<b === a has priority over b. (Justification: view priority as a rank) Note, if a<b, then a$b, as priority is not defined for non-commuting characters
@@ -163,11 +164,11 @@ Proof outline:
         2. @(Aabab) = @A for all A and for all a$b
     For an example of why this is sufficient, (1) shows that @(AaaB) = @(@(Aaa)B) = @(@(A)B) = @(AB), so having `aa` inserted at the end does not sacrifice generality.
     These two things can actually be reduced to two simpler things by applying earlier lemmas:
-        1. A+a+a = A for all A, a where A is simple
-        2. A+a+b+a+b = A for all a, b where a$b and a!=b, and for all A where A is simple (restricting to a!=b is allowed because otherwise, we're covered by A+a+a = A)
+        1. A+aa = A for all A, a where A is simple
+        2. A+abab = A for all A, a, b where a$b and a!=b and A is simple (restricting to a!=b is allowed because otherwise, we're covered by A+aa = A)
     Based on the recursive definition of "~", an inductive proof would be relatively trivial and is omitted for brevity.
 Proof of lemma:
-    Part 1: Proof that A+a+a = A for all A, a where A is simple.
+    Part 1: Proof that A+aa = A for all A, a where A is simple.
         Case 1: Suppose A = BaC, where BaC + a = BC (first part of the append definition). We want to show that BC + a = BaC = A.
             We know by the "append" definition that `a` strongly slots into BaC before aC. It directly follows that a$C. Since BaC is simple, that shows by the simple slot lemma that `a` strongly slots into BC before C.
             C does not start with A, because that would create a forbidden substring `aa` in A. Hence, BC + a = BaC = A, finishing case 1.
@@ -175,10 +176,32 @@ Proof of lemma:
             We know by the "append" definition that `a` strongly slots into BC before C. It directly follows that a$C.
             As a$a and a<=a, we immediately have that `a` weakly slots into BaC before aC. By the strong slot stability lemma, `a` strongly slots into BaC before aC, proving that BaC + a = BC = A.
         These two cases complete part 1 of the proof.
-    Part 2: Proof that A+a+b+a+b for all a, b where a$b and a!=b, and for all A where A is simple
-        Case 1: A = BaCbD and A+a = BCbD and A+a+b = BCD. We want to show that BCD+a+b = BaCbD.
-        Case 2: A = BbCaD and A+a = BbCD and A+a+b = BCD. We want to show that BCD+a+b = BbCaD.
-        6 more cases. TODO: Find a nicer proof.
+    Part 2: Proof that A+abab = A for all A, a, b where a$b and a!=b and A is simple (This part is a lot more informal because the approach changed last-minute to avoid an 8-case proof)
+        To prove this, we introduce the concept of a generator's slot. TODO: See if the rest of the proof can be refactored with this concept whether this can make this proof more formal without being more verbose.
+        The main idea is that any simple string A has a unique slot for each generator (e.g. `a` and `b`). This slot can be filled or empty.
+            The slot for a generator `a` in A is filled if `a` strongly slots into A before a substring that starts with `a`. Otherwise, it is empty.
+        Part 1 of the proof of the uniqueness of simplification lemma effectively demonstrated that repeatedly appending a generator toggles its slot between full and empty but doesn't move it.
+        To prove Part 2, we want to show that appending `b`, which toggles `b`'s slot, doesn't move `a`'s slot.
+        There is potential ambiguity if `a`'s slot and `b`'s slot are both empty: Which is before the other? For the purpose of this proof, the higher-priority generator is first.
+        Case 1: `a`'s slot is before `b`'s slot.
+            Since a$b, and the strong slot stability lemma holds, unless the two slots are adjacent, there is nothing changing that can cause `a`'s slot to move.
+            If the two slots are adjacent, then in all scenarios, we're forced to have a<b due to the fact that `a`'s slot is before `b`'s slot.
+                By the definition of "weakly slots" and simple string, there cannot be a generator `c` after `b`'s slot with c<b
+                If `b` toggles from full to empty, then `a`'s slot does not move because `a` still weakly slots to the same location, as any possible generator `c` after `a`'s slot would have b<=c, so a<=c (because a<=b)
+                If `b` toggles from empty to full, then `a`'s slot does not move because `a` weakly slots before `b`.
+        Case 2: `a`'s slot is after `b`'s slot.
+            If `b` toggles from full to empty, there is no reason for `a`'s slot to move because a$b, which means that `b` wasn't blocking `a` from moving earlier.
+            If `b` toggles from empty to full, this could only potentially cause `a`'s slot to move if a<b, in which case `a`'s slot would have the potential to move right before `b`. Consider this case:
+                The two slots cannot be adjacent, since we would be forced to have b<a, which would not cause `a`'s slot to move.
+                In this case `a` commutes with `b` and everything after it. One of these generators is right after `b` but before `a`. Call it `c`.
+                We have b<=c (by definition of weakly slots for `b`), and we have a<b, so by transitivity, a<c.
+                However, since `a` commutes with `c` and everything after it, and a<c, `a`'s original slot would have been incorrect, since there would have been an earlier valid slot.
+                This contradiction means that `a`'s slot can't have moved after all.
+        These two cases cover everything.
+        If we append with A+abab, all that will do is toggle the `a` slot and the `b` slot twice without moving either of them. This means that A+abab = A
+
+Final theorem: @A = @B if and only if A~B
+This follows directly from the uniqueness of simplification lemma and the correctness of simplification lemma
 */
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
