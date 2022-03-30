@@ -69,7 +69,9 @@ Definition of "~" (equivalence in Coxeter group)
     * If a$b, then AB ~ AababB (Going all the way around a vertex does nothing)
     * For any given A, you can find any B~A with a finite number of applications of the above rules (This proof is not formal, so this is just to allow an induction proof to work.)
 
-Lemma 1: The "append" rules are well-defined (as in, there's exactly one option)
+Definition: A is simple iff A does not contain the forbidden substring bAa where a<=b and a$b and a$A
+
+Lemma: The "append" rules are well-defined (as in, there's exactly one option)
 Proof of lemma:
     For every string, there is exactly one location in any string A that some generator `a` can strongly slot into.
     Proof:
@@ -79,9 +81,7 @@ Proof of lemma:
     C either starts with `a`, or it doesn't. (An empty C is seen as not starting with `a`). Both of these cases reach one branch of the definition of "append".
     Therefore, "append" is well defined, so it's not an abuse of notation to say A+a=B for some A, a, and B.
 
-Definition: A is simple iff A does not contain the forbidden substring bAa where a<=b and a$b and a$A
-
-Lemma 2: The "append" rules turn any simple string into some simple string
+Simplification Lemma: The "append" rules turn any simple string into some simple string (This also shows that for any A, @A is simple, and this won't be explicitly proven.)
 Proof of lemma:
     Assume A is simple. WTS: A+a is simple for all `a`
     Case 1: A = BaC with a$C
@@ -114,23 +114,60 @@ Proof of lemma:
             Since A is simple, dFc cannot be a forbidden substring. We have c$F and c$d because c$D, so this means that d<c (because (not c<=d) and d$c).
             a<=d and d<c and a$c, so by the transitive property of priority, a<c. This contradicts the fact that c<a. This completes the proof by contradiction.
         Therefore, in Case 2, A+a is simple.
-    Therefore, A+a is simple for all `a`, completing the proof of lemma 2.
+    Therefore, A+a is simple for all `a`, completing the proof of the lemma.
 
-Lemma 3: If a$A, then aA ~ Aa
+Idempotence of Simplification Lemma: If A is simple, @A = A. A direct corollary of this lemma is that @@A = @A.
+Proof of lemma:
+     We just need to show that if Aa is simple, then A+a = Aa. The lemma will follow by induction with a trivial base case.
+     To do this, we show that `a` can only weakly slot into A at the very end. (It follows immediately that `a` can also only strongly slot into A at the very end, forcing the append rules to yield A+a = Aa)
+        Suppose, by way of contradiction, that A=BbC, and `a` weakly slots into BbC before bC. By definition, a$bC and a<=b. Since a$bC, that means that a$b and a$C.
+        However, Aa=BbCa, and bCa is a forbidden substring because a<=b and a$b and a$C. This contradicts the fact that Aa is simple, proving the lemma.
+
+Commutivity Lemma: If a$A, then aA ~ Aa
+Proof of lemma:
     To show that a$b implies ab ~ ba, use the following equivalence chain: ab ~ a(abab)b ~ (aa)ba(aa) ~ ba
     This can be used as the inductive step for the full lemma. The base case (empty A) is trivial, so we'll skip it.
     Inductive step: Assume true for A and prove for Ab: To be explicit, the assumption is that a$A implies aA ~ Aa
         To prove for Ab, start with a$Ab. In other words, a$A and a$b. Then, we have aAb ~ Aab (by assumption) ~ Aba (by the initial thing we showed). This completes the inductive step, and the proof.
 
-Lemma 4: The "append" rules do not change the node being pointed to. That is, A+a ~ Aa
+Correctness of Simplification Lemma: The "append" rules do not change the node being pointed to. That is, A+a ~ Aa
+Proof of lemma:
     Case 1: Suppose we have AaB + a = AB with `a` strongly slotting into AaB before aB. In this case, we want to show that AB ~ AaBa
-        Then, `a` also weakly slots into AaB before aB, which means that a$B. By Lemma 3, then, we have aB ~ Ba.
+        Then, `a` also weakly slots into AaB before aB, which means that a$B. By the commutivity lemma, then, we have aB ~ Ba.
         This gives AaBa ~ AaaB ~ AB, completing the proof of this case.
     Case 2: Suppose we have AC + a = AaC with `a` strongly slotting into AC before C. In this case, we want to show that AaC ~ ACa
         With the exact same reasoning as before, we have aC ~ Ca. This gives us AaC ~ ACa immediately, completing the full proof.
 
-TODO: What still needs to be proven:
-    If A~B where A and B are simple strings, then A=B. By the regional division geometric intuition, this can likely be accepted without proof, but a proof would be good to be more certain.
+Strong Slot Stability Lemma: If `a` strongly slots into AB before B, and `a` weakly slots into AC before C, then `a` strongly slots into AC before C.
+    Let A = DbE. We just need to show that `a` doesn't weakly slot any earlier into AC, that is, `a` doesn't weakly slot into DbEC before bEC.
+    Suppose by way of contradiction that `a` weakly slots into DbEC before bEC. Then a<=b and a$bEC.
+    However, since `a` strongly slots into AB before B, we have a$B which implies a$bEB.
+    Since a<=b and a$bEB, that means `a` weakly slots into DbEB (=AB) before bEB, contradicting the fact that `a` strongly slots into AB before B. This completes the proof.
+
+Uniqueness of Simplification Lemma: If A~B, then @A = @B.
+Proof outline:
+    The proof takes advantage of the fact for all A, B, the following holds: @(AB) = @(@(A)B). This can be shown via induction with the idempotence of simplification lemma.
+    To prove this, we need to show two things.
+        1. @(Aaa) = @A for all A, a
+        2. @(Aabab) = @A for all A and for all a$b
+    For an example of why this is sufficient, (1) shows that @(AaaB) = @(@(Aaa)B) = @(@(A)B) = @(AB), so having `aa` inserted at the end does not sacrifice generality.
+    These two things can actually be reduced to two simpler things by applying earlier lemmas:
+        1. A+a+a = A for all A, a where A is simple
+        2. A+a+b+a+b = A for all a, b where a$b and a!=b, and for all A where A is simple (restricting to a!=b is allowed because otherwise, we're covered by A+a+a = A)
+    Based on the recursive definition of "~", an inductive proof would be relatively trivial and is omitted for brevity.
+Proof of lemma:
+    Part 1: Proof that A+a+a = A for all A, a where A is simple.
+        Case 1: Suppose A = BaC, where BaC + a = BC (first part of the append definition). We want to show that BC + a = BaC = A.
+            We know by the "append" definition that `a` strongly slots into BaC before aC. It directly follows that `a` weakly slots into BaC before aC, which means that a$C.
+            Split C further into bD so that A = BabD. Since A is simple, we know that a<=b. It follows from that and from a$C that `a` weakly slots into BC before C.
+            By the strong slot stability lemma, we have that `a` strongly slots into BC before C, proving that BC + a = BaC = A, finishing case 1.
+                Side node, we are assuming here that C doesn't start with `a`, but that is clear by the fact that A would then have two `a`s in a row, a forbidden substring.
+        Case 2: Suppose A = BC, and BC + a = BaC (second part of the append definition). We want to show that BaC + a = BC = A
+            We know by the "append" definition that `a` strongly slots into BC before C, and C does not start with `a`. It directly follows that `a` weakly slots into BC before C, which means that a$C.
+            As a$a and a<=a, we immediately have that `a` weakly slots into BaC before aC. By the strong slot stability lemma, we have that `a` strongly slots into BaC before aC, proving that BaC + a = BC = A.
+        These two cases complete part 1 of the proof.
+    Part 2: Proof that A+a+b+a+b for all a, b where a$b and a!=b, and for all A where A is simple
+        TODO
 */
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
