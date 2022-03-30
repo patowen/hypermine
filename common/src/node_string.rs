@@ -139,10 +139,21 @@ Proof of lemma:
         With the exact same reasoning as before, we have aC ~ Ca. This gives us AaC ~ ACa immediately, completing the full proof.
 
 Strong Slot Stability Lemma: If `a` strongly slots into AB before B, and `a` weakly slots into AC before C, then `a` strongly slots into AC before C.
+Proof of lemma:
     Let A = DbE. We just need to show that `a` doesn't weakly slot any earlier into AC, that is, `a` doesn't weakly slot into DbEC before bEC.
     Suppose by way of contradiction that `a` weakly slots into DbEC before bEC. Then a<=b and a$bEC.
     However, since `a` strongly slots into AB before B, we have a$B which implies a$bEB.
     Since a<=b and a$bEB, that means `a` weakly slots into DbEB (=AB) before bEB, contradicting the fact that `a` strongly slots into AB before B. This completes the proof.
+
+Simple Slot Lemma: If AaB is a simple string, and a$B, then `a` strongly slots into AB before B.
+Proof of lemma:
+    First, we want to show that `a` weakly slots into AB before B.
+        Suppose by way of contradiction that `a` does not weakly slot into AB before B.
+        Since we know that a$B, this means that the other part of the "weakly slot" definition must fail.
+        In other words, B = bC with b<a. However, this would mean that AaB = AabC, creating the forbidden string `ab` with b<=a and b$a. This shows that `a` must weakly slot into AB before B.
+    Next, we show that `a` cannot weakly slot any earlier.
+        Suppose by way of contradiction that we can: That is, if we let CbD = A, then `a` weakly slots into CbDB before bDB.
+        This would mean that a$bDB and a<=b. But then, AaB = CbDaB would have the forbidden string bDa, making AaB not simple. This shows that `a` must strongly slot into AB before B, completing the proof.
 
 Uniqueness of Simplification Lemma: If A~B, then @A = @B.
 Proof outline:
@@ -158,16 +169,16 @@ Proof outline:
 Proof of lemma:
     Part 1: Proof that A+a+a = A for all A, a where A is simple.
         Case 1: Suppose A = BaC, where BaC + a = BC (first part of the append definition). We want to show that BC + a = BaC = A.
-            We know by the "append" definition that `a` strongly slots into BaC before aC. It directly follows that `a` weakly slots into BaC before aC, which means that a$C.
-            Split C further into bD so that A = BabD. Since A is simple, we know that a<=b. It follows from that and from a$C that `a` weakly slots into BC before C.
-            By the strong slot stability lemma, we have that `a` strongly slots into BC before C, proving that BC + a = BaC = A, finishing case 1.
-                Side node, we are assuming here that C doesn't start with `a`, but that is clear by the fact that A would then have two `a`s in a row, a forbidden substring.
+            We know by the "append" definition that `a` strongly slots into BaC before aC. It directly follows that a$C. Since BaC is simple, that shows by the simple slot lemma that `a` strongly slots into BC before C.
+            C does not start with A, because that would create a forbidden substring `aa` in A. Hence, BC + a = BaC = A, finishing case 1.
         Case 2: Suppose A = BC, and BC + a = BaC (second part of the append definition). We want to show that BaC + a = BC = A
-            We know by the "append" definition that `a` strongly slots into BC before C, and C does not start with `a`. It directly follows that `a` weakly slots into BC before C, which means that a$C.
-            As a$a and a<=a, we immediately have that `a` weakly slots into BaC before aC. By the strong slot stability lemma, we have that `a` strongly slots into BaC before aC, proving that BaC + a = BC = A.
+            We know by the "append" definition that `a` strongly slots into BC before C. It directly follows that a$C.
+            As a$a and a<=a, we immediately have that `a` weakly slots into BaC before aC. By the strong slot stability lemma, `a` strongly slots into BaC before aC, proving that BaC + a = BC = A.
         These two cases complete part 1 of the proof.
     Part 2: Proof that A+a+b+a+b for all a, b where a$b and a!=b, and for all A where A is simple
-        TODO
+        Case 1: A = BaCbD and A+a = BCbD and A+a+b = BCD. We want to show that BCD+a+b = BaCbD.
+        Case 2: A = BbCaD and A+a = BbCD and A+a+b = BCD. We want to show that BCD+a+b = BbCaD.
+        6 more cases. TODO: Find a nicer proof.
 */
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
