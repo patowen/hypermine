@@ -222,30 +222,30 @@ Definition of boundary: A boundary is an entity defined by a Coxeter group eleme
         - Geometrically, this boundary separates the two regions defined by the group elements A and Ag.
             - You can verify this by applying it to the left of A and getting Ag, and applying it to the left of Ag and getting A.
 
-Definition of distance: The distance between two Coxeter group elements d(A,B) is the minimum number of generator applications needed to get from one group element to the other
-    - Formally, this can be defined recursively. Take any group element A. We iteratively build up a set of all nodes at distance n from A, notated D(A, n) as follows:
-        - D(A, 0) = {A}
-        - D(A, n+1) = {Bg | g is a generator && B is in D(A, n) && Bg is not in D(A, m) for any m <= n}
-    - For clarity, d(A, B) = n if B is in D(A, n). It is possible to prove that d(A, B) = d(B, A), and that distance obeys the triangle inequality, but because of the intuition, this is taken as given.
-    - It is easy to prove that nodes of opposite parity have odd distance, and nodes of equal parity have even distance.
+Definition of distance: The distance to a Coxeter group element d(A) is the minimum number of generator applications needed to specify A (get from 1 to A)
+    - Formally, this can be defined recursively. We iteratively build up a set of all nodes at distance n, notated D(n) as follows:
+        - D(0) = {1}
+        - D(n+1) = {Ag | g is a generator && A is in D(n) && Ag is not in D(m) for any m <= n}
+    - For clarity, d(A) = n iff A is in D(n). It is possible to prove that d(A) = d(A^-1), and that d(AB) <= d(A) + d(B), but because of the intuition, this is taken as given.
+    - It is easy to prove that odd nodes have odd distance, and even nodes have even distance.
 
 Definition of outside/inside: A coxeter group element is outside a boundary if the region it represents (where it transforms the origin) is on the same side of the boundary as the origin. Otherwise, it is inside the boundary.
     - This definition has the intuition of the Poincare disk, since points closer to the edge of the disk are "inside" the circle defined by the boundary.
-    - Formally, if a boundary is represented by a group element A, then a group element B is outside the boundary A iff d(1, B) < d(A, B)
-        - Note that we cannot have d(1, B) = d(A, B) because A and 1 have opposite parity (A is odd and 1 is even), so one distance will be odd, and the other distance will be even.
-        - This means that we could have used d(1, B) <= d(A, B) in the definition. Both such definitions can be assumed equivalent.
+    - Formally, if a boundary is represented by a group element A, then a group element B is outside the boundary A iff d(B) < d(AB)
+        - Note that we cannot have d(B) = d(AB) because B and AB have opposite parity (A is odd), so one distance will be odd, and the other distance will be even.
+        - This means that we could have used d(B) <= d(AB) in the definition. Both such definitions can be assumed equivalent.
 
 Now we start talking about strings instead of group elements. We also start to use the fact that the Coxeter group we're interested in is right-angled:
 
 Definition: A string `A` is simple iff `A` does not contain the forbidden substring hAg where g<=h and g$A
 
-Simple string distance lemma (SSDL): Given a simple string A, d(1, A) is equal to the length of the string A, denoted len(A).
+Simple string distance lemma (SSDL): Given a simple string A, d(A) is equal to the length of the string A, denoted len(A).
     - Proof by induction.
     - Base case: A = 1 (the empty string)
-        - Trivial because d(1, 1) = len(1) = 0
-    - Inductive step: Prove for Ag for some generator g given that d(1, A) = len(A)
-        - By IH, parity, and the triangle inequality, d(1, Ag) = len(A) + 1 or d(1, Ag) = len(A) - 1
-        - If d(1, Ag) = len(A) + 1, we're done, as len(Ag) = len(A) + 1. Therefore, we want to show that the other case cannot hold.
+        - Trivial because d(1) = len(1) = 0
+    - Inductive step: Prove for Ag for some generator g given that d(A) = len(A)
+        - By IH, parity, and the triangle inequality, d(Ag) = len(A) + 1 or d(Ag) = len(A) - 1
+        - If d(Ag) = len(A) + 1, we're done, as len(Ag) = len(A) + 1. Therefore, we want to show that the other case cannot hold.
         - TODO: This is hard.
 
 Simple string boundary lemma (SSBL): Given a simple string Ag, the following properties hold:
