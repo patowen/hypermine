@@ -204,6 +204,64 @@ Final theorem: @A = @B if and only if A~B
 This follows directly from the uniqueness of simplification lemma and the correctness of simplification lemma
 */
 
+/*
+Proof attempt 2:
+
+Some Context:
+
+Any Coxeter group element has a parity property, as it can be either odd or even. This can be seen in two ways:
+    - The isometry represented by a Coxeter group element can contain a reflection (odd) or just consist of a translation/rotation (even)
+    - All relators have an even number of generator elements, so any string representing a particular group element has the same parity as the group element itself. No identity can change the parity.
+
+Definition of boundary: A boundary is an entity defined by a Coxeter group element that represents a reflection
+    - All boundaries use an odd group element, as even group elements have no reflection component
+    - Not all odd group elements represent boundaries, as some represent glide reflections instead of reflections
+    - In pure group theory terms, a boundary B is represented by an odd group element of the form AgA^-1 where g is a generator.
+        - It follows directly that any such group element is odd.
+        - It also follows that B = B^-1, since BB = AgA^-1AgA^-1 = AggA^-1 = AA^-1 = 1
+        - Geometrically, this boundary separates the two regions defined by the group elements A and Ag.
+            - You can verify this by applying it to the left of A and getting Ag, and applying it to the left of Ag and getting A.
+
+Definition of distance: The distance between two Coxeter group elements d(A,B) is the minimum number of generator applications needed to get from one group element to the other
+    - Formally, this can be defined recursively. Take any group element A. We iteratively build up a set of all nodes at distance n from A, notated D(A, n) as follows:
+        - D(A, 0) = {A}
+        - D(A, n+1) = {Bg | g is a generator && B is in D(A, n) && Bg is not in D(A, m) for any m <= n}
+    - For clarity, d(A, B) = n if B is in D(A, n). It is possible to prove that d(A, B) = d(B, A), and that distance obeys the triangle inequality, but because of the intuition, this is taken as given.
+    - It is easy to prove that nodes of opposite parity have odd distance, and nodes of equal parity have even distance.
+
+Definition of outside/inside: A coxeter group element is outside a boundary if the region it represents (where it transforms the origin) is on the same side of the boundary as the origin. Otherwise, it is inside the boundary.
+    - This definition has the intuition of the Poincare disk, since points closer to the edge of the disk are "inside" the circle defined by the boundary.
+    - Formally, if a boundary is represented by a group element A, then a group element B is outside the boundary A iff d(1, B) < d(A, B)
+        - Note that we cannot have d(1, B) = d(A, B) because A and 1 have opposite parity (A is odd and 1 is even), so one distance will be odd, and the other distance will be even.
+        - This means that we could have used d(1, B) <= d(A, B) in the definition. Both such definitions can be assumed equivalent.
+
+Now we start talking about strings instead of group elements. We also start to use the fact that the Coxeter group we're interested in is right-angled:
+
+Definition: A string `A` is simple iff `A` does not contain the forbidden substring hAg where g<=h and g$h and g$A
+
+Simple string boundary lemma (SSBL): Given a simple string Ag, the following properties hold:
+    - Property 1: A is outside the boundary AgA^-1
+    - Property 2: AgB is inside the boundary AgA^-1 for all B
+    - Property 3: AgB is outside the boundary AhA^-1 for all B and for all generators h with g<h
+
+    TODO: Proof
+
+Simple string confluence lemma (SSCL): Two different simple strings cannot correspond to the same group element.
+    - Proof sketch: Given any two distinct simple strings, find a boundary that separates their corresponding group elements.
+    - Take any two different simple strings. They will either be of the forms A and AgB or of the forms AgB and AhC with g and h not equal. (This is just a way of finding where they first differ)
+    - Case 1: A and AgB
+        - By SSBL Property 1, A is outside the boundary AgA^-1
+        - By SSBL Property 2, AgB is inside the boundary AgA^-1
+        - As A and AgB are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
+    - Case 2: AgB and AhC with g and h not equal. Without loss of generality, assume g<h
+        - By SSBL Property 3, AgB is outside the boundary AhA^-1
+        - By SSBL Property 2, AhC is inside the boundary AhA^-1
+        - As AgB and AhC are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
+    - QED
+
+TODO: Finish proof (should be trivial from here)
+*/
+
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub struct NodeString {
     path: Vec<Side>,
