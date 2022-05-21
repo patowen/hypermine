@@ -237,12 +237,22 @@ Definition of outside/inside: A coxeter group element is outside a boundary if t
 
 Now we start talking about strings instead of group elements. We also start to use the fact that the Coxeter group we're interested in is right-angled:
 
-Definition: A string `A` is simple iff `A` does not contain the forbidden substring hAg where g<=h and g$h and g$A
+Definition: A string `A` is simple iff `A` does not contain the forbidden substring hAg where g<=h and g$A
+
+Simple string distance lemma (SSDL): Given a simple string A, d(1, A) is equal to the length of the string A, denoted len(A).
+    - Proof by induction.
+    - Base case: A = 1 (the empty string)
+        - Trivial because d(1, 1) = len(1) = 0
+    - Inductive step: Prove for Ag for some generator g given that d(1, A) = len(A)
+        - By IH, parity, and the triangle inequality, d(1, Ag) = len(A) + 1 or d(1, Ag) = len(A) - 1
+        - If d(1, Ag) = len(A) + 1, we're done, as len(Ag) = len(A) + 1. Therefore, we want to show that the other case cannot hold.
+        - TODO: This is hard.
 
 Simple string boundary lemma (SSBL): Given a simple string Ag, the following properties hold:
     - Property 1: A is outside the boundary AgA^-1
-    - Property 2: AgB is inside the boundary AgA^-1 for all B
-    - Property 3: AgB is outside the boundary AhA^-1 for all B and for all generators h with g<h
+    - Property 2: AgB, if simple, is inside the boundary AgA^-1 for all B
+    - Property 3: AgB, if simple, is outside the boundary AhA^-1 for all B and for all generators h<g
+        TODO: Property 3 is not quite correct, since the node string hg is a counterexample. hg is inside hhh, not outside as stated
 
     TODO: Proof
 
@@ -253,8 +263,8 @@ Simple string confluence lemma (SSCL): Two different simple strings cannot corre
         - By SSBL Property 1, A is outside the boundary AgA^-1
         - By SSBL Property 2, AgB is inside the boundary AgA^-1
         - As A and AgB are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
-    - Case 2: AgB and AhC with g and h not equal. Without loss of generality, assume g<h
-        - By SSBL Property 3, AgB is outside the boundary AhA^-1
+    - Case 2: AgB and AhC with g and h not equal. Without loss of generality, assume h<g
+        - By SSBL Property 3, AgB is outside the boundary AhA^-1 (TODO: Property 3 needs revising, so this argument also needs revision)
         - By SSBL Property 2, AhC is inside the boundary AhA^-1
         - As AgB and AhC are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
     - QED
