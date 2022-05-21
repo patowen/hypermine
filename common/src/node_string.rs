@@ -246,13 +246,12 @@ Simple string distance lemma (SSDL): Given a simple string A, d(A) is equal to t
     - Inductive step: Prove for Ag for some generator g given that d(A) = len(A)
         - By IH, parity, and the triangle inequality, d(Ag) = len(A) + 1 or d(Ag) = len(A) - 1
         - If d(Ag) = len(A) + 1, we're done, as len(Ag) = len(A) + 1. Therefore, we want to show that the other case cannot hold.
-        - TODO: This is hard.
+        - TODO: This is hard; Likely need SSBL to be proven at the same time.
 
 Simple string boundary lemma (SSBL): Given a simple string Ag, the following properties hold:
     - Property 1: A is outside the boundary AgA^-1
     - Property 2: AgB, if simple, is inside the boundary AgA^-1 for all B
-    - Property 3: AgB, if simple, is outside the boundary AhA^-1 for all B and for all generators h<g
-        TODO: Property 3 is not quite correct, since the node string hg is a counterexample. hg is inside hhh, not outside as stated
+    - Property 3: AgB, if simple, is on the same side of the boundary AhA^-1 as A for all B and for all generators h<g
 
     TODO: Proof
 
@@ -264,8 +263,9 @@ Simple string confluence lemma (SSCL): Two different simple strings cannot corre
         - By SSBL Property 2, AgB is inside the boundary AgA^-1
         - As A and AgB are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
     - Case 2: AgB and AhC with g and h not equal. Without loss of generality, assume h<g
-        - By SSBL Property 3, AgB is outside the boundary AhA^-1 (TODO: Property 3 needs revising, so this argument also needs revision)
+        - By SSBL Property 1, A is outside the boundary AhA^-1
         - By SSBL Property 2, AhC is inside the boundary AhA^-1
+        - By SSBL Property 3, AgB is outside the boundary AhA^-1 because A is
         - As AgB and AhC are on opposite sides of the boundary AgA^-1, they cannot correspond to the same group element.
     - QED
 
