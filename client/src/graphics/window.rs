@@ -330,11 +330,7 @@ impl SwapchainMgr {
             x.format == desired_format.format && x.color_space == desired_format.color_space
         };
 
-        if (surface_formats.len() != 1
-            || (surface_formats[0].format != vk::Format::UNDEFINED
-                || surface_formats[0].color_space != desired_format.color_space))
-            && !surface_formats.iter().any(desirable_format)
-        {
+        if !surface_formats.iter().any(desirable_format) {
             panic!("no suitable surface format: {:?}", surface_formats);
         }
 
