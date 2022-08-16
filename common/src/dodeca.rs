@@ -149,6 +149,18 @@ impl Vertex {
         ]) * na::Matrix4::new_scaling(0.5)
     }
 
+    // not sure if this should be powered with a static reference.
+    /// Generates a matrix representing the vector of the vertex's x, y, and z coordinates from the refernce frame of the chunk corner
+    pub fn chunk_to_node_unscaled(self) -> na::Matrix4<f64> {
+        let [a, b, c] = self.canonical_sides();
+        na::Matrix4::from_columns(&[
+            { let temp = a.reflection() * math::origin() - math::origin(); temp / math::mip(&temp, &temp).sqrt() },
+            { let temp = b.reflection() * math::origin() - math::origin(); temp / math::mip(&temp, &temp).sqrt() },
+            { let temp = c.reflection() * math::origin() - math::origin(); temp / math::mip(&temp, &temp).sqrt() },
+            { let temp = self.chunk_to_node() * na::Vector4::new(1.0, 1.0, 1.0, 1.0); temp / (-math::mip(&temp, &temp)).sqrt() },
+            ])
+    }
+
     /// Transform from hyperbolic node space to euclidean chunk coordinates
     pub fn node_to_chunk(self) -> na::Matrix4<f64> {
         self.chunk_to_node().try_inverse().unwrap()

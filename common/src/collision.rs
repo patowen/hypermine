@@ -1,5 +1,5 @@
 use crate::node::DualGraph;
-use crate::{dodeca::Vertex, graph::NodeId};
+use crate::{dodeca::{Vertex, Side}, graph::NodeId, math};
 use std::fmt;
 
 /*
@@ -157,6 +157,7 @@ impl BoundingBox {
 // translated_position should be the object position in the node coordinates of the chunk.
 // node can be easily factored out if it stops being convienent.
 impl ChunkBoundingBox {
+    #[rustfmt::skip]
     pub fn get_chunk_bounding_box(
         node: NodeId,
         chunk: Vertex,
@@ -164,47 +165,54 @@ impl ChunkBoundingBox {
         radius: f64,
         dimension: u8,
     ) -> Option<Self> {
-        let euclidean_position = {
-            let temp = chunk.node_to_chunk() * translated_position;
-            temp.xyz() / temp[3]
-        };
+        let chunk_positioning = chunk.chunk_to_node_unscaled();
 
-        let mut min_xyz = na::Vector3::<u32>::new(0_u32, 0_u32, 0_u32);
-        let mut max_xyz = na::Vector3::<u32>::new(0_u32, 0_u32, 0_u32);
+        let cube_to_klein = ((-math::mip(&(Side::A.reflection() * Side::B.reflection() * Side::C.reflection() * math::origin()), &math::origin())).acosh() / 2.0).tanh() / 3.0f64.sqrt();
 
-        // It's important to note that euclidean_position is measured as chunk lengths, and radius is measured in absolute units.
-        // By coincidence, an absolute unit is approximately a chunk's diameter, and only because of that there is no unit conversion here.
+        let sinh_radius = radius.sinh();
 
-        // verify at least one box corner is within the chunk
-        if euclidean_position
-            .iter()
-            .all(|n| n + radius > 0_f64 && n - radius < 1_f64)
-        {
-            min_xyz.x =
-                ((euclidean_position.x - radius).max(0_f64) * dimension as f64).floor() as u32;
-            max_xyz.x =
-                ((euclidean_position.x + radius).min(1_f64) * dimension as f64).ceil() as u32;
+        // position of entity relative to chunk corner.
+        let chunk_relative_position = chunk_positioning * translated_position;
+        
+        // positions of the theoretical outer corners in the klein metric
+        let divisor = chunk_relative_position[3].powi(2) + sinh_radius.powi(2);
+        
+        let klein_x_min = (chunk_relative_position[0] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
+        let klein_x_max = (chunk_relative_position[0] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
+        let klein_y_min = (chunk_relative_position[1] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
+        let klein_y_max = (chunk_relative_position[1] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
+        let klein_z_min = (chunk_relative_position[2] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
+        let klein_z_max = (chunk_relative_position[2] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
 
-            min_xyz.y =
-                ((euclidean_position.y - radius).max(0_f64) * dimension as f64).floor() as u32;
-            max_xyz.y =
-                ((euclidean_position.y + radius).min(1_f64) * dimension as f64).ceil() as u32;
+        // using the fact that the klien metric scales linearly with the cubic chunk space, we can tranlate the klein coordinates
+        // of the bounding box to chunk coordinates. 
+        let cube_x_min = 1.0 - klein_x_max / cube_to_klein;
+        let cube_x_max = 1.0 - klein_x_min / cube_to_klein;
+        let cube_y_min = 1.0 - klein_y_max / cube_to_klein;
+        let cube_y_max = 1.0 - klein_y_min / cube_to_klein;
+        let cube_z_min = 1.0 - klein_z_max / cube_to_klein;
+        let cube_z_max = 1.0 - klein_z_min / cube_to_klein;
 
-            min_xyz.z =
-                ((euclidean_position.z - radius).max(0_f64) * dimension as f64).floor() as u32;
-            max_xyz.z =
-                ((euclidean_position.z + radius).min(1_f64) * dimension as f64).ceil() as u32;
+        if cube_x_min < 1.0 && cube_x_max > 0.0 && cube_y_min < 1.0 && cube_y_max > 0.0 && cube_z_min < 1.0 && cube_z_max > 0.0 {
             Some(ChunkBoundingBox {
                 node,
                 chunk,
-                min_xyz,
-                max_xyz,
+                min_xyz: na::Vector3::<u32>::new(
+                    (cube_x_min.max(0.0) * dimension as f64).floor() as u32,
+                    (cube_y_min.max(0.0) * dimension as f64).floor() as u32,
+                    (cube_z_min.max(0.0) * dimension as f64).floor() as u32,
+                ),
+                max_xyz: na::Vector3::<u32>::new(
+                    (cube_x_max.min(1.0) * dimension as f64).ceil() as u32,
+                    (cube_y_max.min(1.0) * dimension as f64).ceil() as u32,
+                    (cube_z_max.min(1.0) * dimension as f64).ceil() as u32,
+                ),
                 dimension,
             })
         } else {
             None
         }
-    }
+}
 
     pub fn every_voxel(&self) -> impl Iterator<Item = u32> + '_ {
         let lwm = (self.dimension as u32) + 2;
