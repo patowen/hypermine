@@ -154,14 +154,19 @@ impl Vertex {
         ])
     }
 
-    /// Generates a matrix representing the vector of the vertex's x, y, and z coordinates from the reference frame of the chunk corner
+    /// Transform from hyperbolic node space to euclidean chunk coordinates
+    pub fn node_to_chunk(self) -> na::Matrix4<f64> {
+        self.chunk_to_node().try_inverse().unwrap()
+    }
+
+    /// Transform from cube-centric coordinates to dodeca-centric coordinates
     pub fn dual_to_node(self) -> &'static na::Matrix4<f64> {
         &DUAL_TO_NODE[self as usize]
     }
 
-    /// Transform from hyperbolic node space to euclidean chunk coordinates
-    pub fn node_to_chunk(self) -> na::Matrix4<f64> {
-        self.chunk_to_node().try_inverse().unwrap()
+    /// Transform from dodeca-centric coordinates to cube-centric coordinates
+    pub fn node_to_dual(self) -> &'static na::Matrix4<f64> {
+        &NODE_TO_DUAL[self as usize]
     }
 
     /// Convenience method for `self.chunk_to_node().determinant() < 0`.
@@ -249,6 +254,11 @@ lazy_static! {
             result[i] = na::Matrix4::from_columns(&[*a.normal(), *b.normal(), *c.normal(), vertex_position]);
         }
         result
+    };
+
+    /// Transform that converts from dodeca-centric coordinates to cube-centric coordinates
+    static ref NODE_TO_DUAL: [na::Matrix4<f64>; VERTEX_COUNT] = {
+        DUAL_TO_NODE.map(|m| m.try_inverse().unwrap())
     };
 
     /// Vertex shared by 3 sides

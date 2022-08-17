@@ -1,9 +1,5 @@
 use crate::node::DualGraph;
-use crate::{
-    dodeca::{Side, Vertex},
-    graph::NodeId,
-    math,
-};
+use crate::{dodeca::Vertex, graph::NodeId};
 use std::fmt;
 
 /*
@@ -169,14 +165,11 @@ impl ChunkBoundingBox {
         radius: f64,
         dimension: u8,
     ) -> Option<Self> {
-        let chunk_positioning = chunk.dual_to_node().try_inverse().unwrap();
-
-        let cube_to_klein = ((-math::mip(&(Side::A.reflection() * Side::B.reflection() * Side::C.reflection() * math::origin()), &math::origin())).acosh() / 2.0).tanh() / 3.0f64.sqrt();
-
+        let cube_to_klein = (5.0f64.sqrt() - 2.0).sqrt();
         let sinh_radius = radius.sinh();
 
         // position of entity relative to chunk corner.
-        let chunk_relative_position = chunk_positioning * translated_position;
+        let chunk_relative_position = chunk.node_to_dual() * translated_position;
 
         // positions of the theoretical outer corners in the klein metric
         let divisor = chunk_relative_position[3].powi(2) + sinh_radius.powi(2);
