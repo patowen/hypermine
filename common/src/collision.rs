@@ -1,5 +1,9 @@
 use crate::node::DualGraph;
-use crate::{dodeca::{Vertex, Side}, graph::NodeId, math};
+use crate::{
+    dodeca::{Side, Vertex},
+    graph::NodeId,
+    math,
+};
 use std::fmt;
 
 /*
@@ -165,7 +169,7 @@ impl ChunkBoundingBox {
         radius: f64,
         dimension: u8,
     ) -> Option<Self> {
-        let chunk_positioning = chunk.chunk_to_node_unscaled();
+        let chunk_positioning = chunk.dual_to_node().try_inverse().unwrap();
 
         let cube_to_klein = ((-math::mip(&(Side::A.reflection() * Side::B.reflection() * Side::C.reflection() * math::origin()), &math::origin())).acosh() / 2.0).tanh() / 3.0f64.sqrt();
 
@@ -173,16 +177,16 @@ impl ChunkBoundingBox {
 
         // position of entity relative to chunk corner.
         let chunk_relative_position = chunk_positioning * translated_position;
-        
+
         // positions of the theoretical outer corners in the klein metric
         let divisor = chunk_relative_position[3].powi(2) + sinh_radius.powi(2);
-        
-        let klein_x_min = (chunk_relative_position[0] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
-        let klein_x_max = (chunk_relative_position[0] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
-        let klein_y_min = (chunk_relative_position[1] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
-        let klein_y_max = (chunk_relative_position[1] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
-        let klein_z_min = (chunk_relative_position[2] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
-        let klein_z_max = (chunk_relative_position[2] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
+
+        let klein_x_min = (-chunk_relative_position[0] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
+        let klein_x_max = (-chunk_relative_position[0] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
+        let klein_y_min = (-chunk_relative_position[1] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
+        let klein_y_max = (-chunk_relative_position[1] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
+        let klein_z_min = (-chunk_relative_position[2] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
+        let klein_z_max = (-chunk_relative_position[2] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
 
         // using the fact that the klien metric scales linearly with the cubic chunk space, we can tranlate the klein coordinates
         // of the bounding box to chunk coordinates. 
@@ -360,11 +364,11 @@ mod tests {
                 // Getting the correct estimation for the number of voxels can be tricky
                 let expected_voxel_count = (radius * 2.0 * CHUNK_SIZE_F).powf(3.0); // value to display
                 let minimum_expected_voxel_count =
-                    ((((radius * CHUNK_SIZE_F) - 1_f64).powf(3.0) / margin_of_error).floor() * 8_f64 )
-                        as i32;
+                    ((((radius * CHUNK_SIZE_F) - 1_f64).powf(3.0) / margin_of_error).floor()
+                        * 8_f64) as i32;
                 let maximum_expected_voxel_count =
-                    ((((radius * CHUNK_SIZE_F) + 1_f64).powf(3.0)  * margin_of_error).ceil() * 20_f64)
-                        as i32;
+                    ((((radius * CHUNK_SIZE_F) + 1_f64).powf(3.0) * margin_of_error).ceil()
+                        * 20_f64) as i32;
 
                 let position = central_chunk.chunk_to_node()
                     * na::Vector4::new(
