@@ -157,7 +157,6 @@ impl BoundingBox {
 // translated_position should be the object position in the node coordinates of the chunk.
 // node can be easily factored out if it stops being convienent.
 impl ChunkBoundingBox {
-    #[rustfmt::skip]
     pub fn get_chunk_bounding_box(
         node: NodeId,
         chunk: Vertex,
@@ -174,42 +173,37 @@ impl ChunkBoundingBox {
         // positions of the theoretical outer corners in the klein metric
         let divisor = chunk_relative_position[3].powi(2) + sinh_radius.powi(2);
 
-        let klein_x_min = (-chunk_relative_position[0] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
-        let klein_x_max = (-chunk_relative_position[0] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[0].powi(2)).sqrt()) / divisor;
-        let klein_y_min = (-chunk_relative_position[1] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
-        let klein_y_max = (-chunk_relative_position[1] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[1].powi(2)).sqrt()) / divisor;
-        let klein_z_min = (-chunk_relative_position[2] * chunk_relative_position[3] - sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
-        let klein_z_max = (-chunk_relative_position[2] * chunk_relative_position[3] + sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[2].powi(2)).sqrt()) / divisor;
+        let mut voxel_min = [0.0; 3];
+        let mut voxel_max = [0.0; 3];
+        let chunk_to_voxel = dimension as f64;
+        #[rustfmt::skip]
+        for i in 0..3 {
+            let center = chunk_relative_position[i] * chunk_relative_position[3];
+            let displacement = sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[i].powi(2)).sqrt();
+            voxel_min[i] = ((1.0 - (center + displacement) / divisor / cube_to_klein) * chunk_to_voxel).max(0.0).floor();
+            voxel_max[i] = ((1.0 - (center - displacement) / divisor / cube_to_klein) * chunk_to_voxel).min(chunk_to_voxel).ceil();
 
-        // using the fact that the klien metric scales linearly with the cubic chunk space, we can tranlate the klein coordinates
-        // of the bounding box to chunk coordinates. 
-        let cube_x_min = 1.0 - klein_x_max / cube_to_klein;
-        let cube_x_max = 1.0 - klein_x_min / cube_to_klein;
-        let cube_y_min = 1.0 - klein_y_max / cube_to_klein;
-        let cube_y_max = 1.0 - klein_y_min / cube_to_klein;
-        let cube_z_min = 1.0 - klein_z_max / cube_to_klein;
-        let cube_z_max = 1.0 - klein_z_min / cube_to_klein;
+            if voxel_min[i] >= chunk_to_voxel || voxel_max[i] <= 0.0 {
+                return None;
+            }
+        };
 
-        if cube_x_min < 1.0 && cube_x_max > 0.0 && cube_y_min < 1.0 && cube_y_max > 0.0 && cube_z_min < 1.0 && cube_z_max > 0.0 {
-            Some(ChunkBoundingBox {
-                node,
-                chunk,
-                min_xyz: na::Vector3::<u32>::new(
-                    (cube_x_min.max(0.0) * dimension as f64).floor() as u32,
-                    (cube_y_min.max(0.0) * dimension as f64).floor() as u32,
-                    (cube_z_min.max(0.0) * dimension as f64).floor() as u32,
-                ),
-                max_xyz: na::Vector3::<u32>::new(
-                    (cube_x_max.min(1.0) * dimension as f64).ceil() as u32,
-                    (cube_y_max.min(1.0) * dimension as f64).ceil() as u32,
-                    (cube_z_max.min(1.0) * dimension as f64).ceil() as u32,
-                ),
-                dimension,
-            })
-        } else {
-            None
-        }
-}
+        Some(ChunkBoundingBox {
+            node,
+            chunk,
+            min_xyz: na::Vector3::<u32>::new(
+                voxel_min[0] as u32,
+                voxel_min[1] as u32,
+                voxel_min[2] as u32,
+            ),
+            max_xyz: na::Vector3::<u32>::new(
+                voxel_max[0] as u32,
+                voxel_max[1] as u32,
+                voxel_max[2] as u32,
+            ),
+            dimension,
+        })
+    }
 
     pub fn every_voxel(&self) -> impl Iterator<Item = u32> + '_ {
         let lwm = (self.dimension as u32) + 2;

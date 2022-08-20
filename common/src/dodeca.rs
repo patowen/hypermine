@@ -251,7 +251,7 @@ lazy_static! {
             let vertex_position = math::lorentz_normalize(
                 &(math::origin() - (a.normal() + b.normal() + c.normal()) * mip_origin_normal),
             );
-            result[i] = na::Matrix4::from_columns(&[*a.normal(), *b.normal(), *c.normal(), vertex_position]);
+            result[i] = na::Matrix4::from_columns(&[-a.normal(), -b.normal(), -c.normal(), vertex_position]);
         }
         result
     };
