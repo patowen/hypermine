@@ -169,6 +169,14 @@ impl Vertex {
         &NODE_TO_DUAL[self as usize]
     }
 
+    /// Scale factor used in conversion from cube-centric coordinates to euclidean chunk coordinates.
+    /// Scaling the x, y, and z components of a vector in cube-centric coordinates by this value
+    /// and dividing them by the w coordinate will yield chunk coordinates, but reflected such that 0
+    /// and 1 are swapped for each coordinate.
+    pub fn dual_to_chunk_factor() -> f64 {
+        (2.0 + 5.0f64.sqrt()).sqrt()
+    }
+
     /// Convenience method for `self.chunk_to_node().determinant() < 0`.
     pub fn parity(self) -> bool {
         CHUNK_TO_NODE_PARITY[self as usize]

@@ -1,3 +1,4 @@
+use crate::math;
 use crate::node::DualGraph;
 use crate::{dodeca::Vertex, graph::NodeId};
 use std::fmt;
@@ -164,29 +165,38 @@ impl ChunkBoundingBox {
         radius: f64,
         dimension: u8,
     ) -> Option<Self> {
-        let cube_to_klein = (5.0f64.sqrt() - 2.0).sqrt();
+        // The following code computes the bounds of the minimum-size bounding box that contains a sphere of the given
+        // radius centered at translated_position. Computing this requires solving a quadratic equation, whose solution
+        // was used to write this code. Not all intermediate values used in the computation have any intrinsic meaning.
+
+        // Position of entity relative to chunk corner
+        let chunk_position = chunk.node_to_dual() * translated_position;
+
         let sinh_radius = radius.sinh();
-
-        // position of entity relative to chunk corner.
-        let chunk_relative_position = chunk.node_to_dual() * translated_position;
-
-        // positions of the theoretical outer corners in the klein metric
-        let divisor = chunk_relative_position[3].powi(2) + sinh_radius.powi(2);
+        let common_factor = 1.0 / (chunk_position[3].powi(2) + sinh_radius.powi(2))
+            * Vertex::dual_to_chunk_factor();
 
         let mut voxel_min = [0.0; 3];
         let mut voxel_max = [0.0; 3];
-        let chunk_to_voxel = dimension as f64;
-        #[rustfmt::skip]
+        let dimension_float = dimension as f64;
         for i in 0..3 {
-            let center = chunk_relative_position[i] * chunk_relative_position[3];
-            let displacement = sinh_radius * (chunk_relative_position[3].powi(2) + sinh_radius.powi(2) - chunk_relative_position[i].powi(2)).sqrt();
-            voxel_min[i] = ((1.0 - (center + displacement) / divisor / cube_to_klein) * chunk_to_voxel).max(0.0).floor();
-            voxel_max[i] = ((1.0 - (center - displacement) / divisor / cube_to_klein) * chunk_to_voxel).min(chunk_to_voxel).ceil();
+            let aabb_center = chunk_position[i] * chunk_position[3];
+            let aabb_width = sinh_radius
+                * (chunk_position[3].powi(2) + sinh_radius.powi(2) - chunk_position[i].powi(2))
+                    .sqrt();
 
-            if voxel_min[i] >= chunk_to_voxel || voxel_max[i] <= 0.0 {
+            voxel_min[i] = ((1.0 - (aabb_center + aabb_width) * common_factor).max(0.0)
+                * dimension_float)
+                .floor();
+
+            voxel_max[i] = ((1.0 - (aabb_center - aabb_width) * common_factor).min(1.0)
+                * dimension_float)
+                .ceil();
+
+            if voxel_min[i] >= dimension_float || voxel_max[i] <= 0.0 {
                 return None;
             }
-        };
+        }
 
         Some(ChunkBoundingBox {
             node,
