@@ -165,7 +165,7 @@ impl Sim {
                 for &(id, orientation) in &msg.character_orientations {
                     match self.entity_ids.get(&id) {
                         None => debug!(%id, "character orientation update for unknown entity"),
-                        Some(&entity) => match self.world.get_mut::<Character>(entity) {
+                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
                             Ok(mut ch) => {
                                 ch.orientation = orientation;
                             }
@@ -194,7 +194,7 @@ impl Sim {
 
         match self.entity_ids.get(&id) {
             None => debug!(%id, "position update for unknown entity"),
-            Some(&entity) => match self.world.get_mut::<Position>(entity) {
+            Some(&entity) => match self.world.get::<&mut Position>(entity) {
                 Ok(mut pos) => {
                     if id_is_character {
                         let p0 = node_transform * pos.local * math::origin();
@@ -272,7 +272,7 @@ impl Sim {
         let params = self.params.as_ref().unwrap();
         let local_velocity = self
             .world
-            .get_mut::<Position>(self.local_character.unwrap())
+            .get::<&mut Position>(self.local_character.unwrap())
             .unwrap()
             .local
             .try_inverse()
@@ -324,7 +324,7 @@ impl Sim {
     fn destroy(&mut self, entity: Entity) {
         let id = *self
             .world
-            .get::<EntityId>(entity)
+            .get::<&EntityId>(entity)
             .expect("destroyed nonexistent entity");
         self.entity_ids.remove(&id);
         self.destroy_idless(entity);
@@ -332,7 +332,7 @@ impl Sim {
 
     /// Destroy an entity without an EntityId mapped
     fn destroy_idless(&mut self, entity: Entity) {
-        if let Ok(position) = self.world.get::<Position>(entity) {
+        if let Ok(position) = self.world.get::<&Position>(entity) {
             self.graph_entities.remove(position.node, entity);
         }
         self.world
@@ -352,7 +352,7 @@ impl Sim {
 
         // eventually this should be expanded to work on every entity with a physics property, but for now it is just the player
         match self.local_character {
-            Some(entity) => match self.world.get_mut::<Position>(entity) {
+            Some(entity) => match self.world.get::<&mut Position>(entity) {
                 Ok(character_position) => {
                     // starting with simpler method for testing purposese
                     let is_colliding = self.check_collision(*character_position);

@@ -33,8 +33,8 @@ pub struct BoundingBox {
 fn chunk_from_location(location: na::Vector4<f64>) -> Vertex {
     let epsilon = 0.001;
     for v in Vertex::iter() {
-        let pos = (v.node_to_chunk() * location).xyz();
-        if (pos.x >= -epsilon) && (pos.y >= -epsilon) && (pos.z >= -epsilon) {
+        let pos = v.node_to_chunk() * location;
+        if (pos.x <= pos.w + epsilon) && (pos.y <= pos.w + epsilon) && (pos.z <= pos.w + epsilon) {
             return v;
         }
     }
@@ -264,9 +264,9 @@ mod tests {
     #[test]
     fn proper_chunks_20() {
         proper_chunks_generic(
-            0.4 / CHUNK_SIZE_F,
-            0.4 / CHUNK_SIZE_F,
-            0.4 / CHUNK_SIZE_F,
+            1.0 - 0.4 / CHUNK_SIZE_F,
+            1.0 - 0.4 / CHUNK_SIZE_F,
+            1.0 - 0.4 / CHUNK_SIZE_F,
             20,
         );
     }
@@ -281,9 +281,9 @@ mod tests {
     #[test]
     fn proper_chunks_8() {
         proper_chunks_generic(
-            1.0 - 0.4 / CHUNK_SIZE_F,
-            1.0 - 0.4 / CHUNK_SIZE_F,
-            1.0 - 0.4 / CHUNK_SIZE_F,
+            0.4 / CHUNK_SIZE_F,
+            0.4 / CHUNK_SIZE_F,
+            0.4 / CHUNK_SIZE_F,
             8,
         );
     }
@@ -297,9 +297,9 @@ mod tests {
         let central_chunk = Vertex::C; // arbitrary vertex
         let position = central_chunk.chunk_to_node()
             * na::Vector4::new(
-                1.0 - 0.4 / CHUNK_SIZE_F,
-                1.0 - 0.4 / CHUNK_SIZE_F,
-                1.0 - 0.4 / CHUNK_SIZE_F,
+                0.4 / CHUNK_SIZE_F,
+                0.4 / CHUNK_SIZE_F,
+                0.4 / CHUNK_SIZE_F,
                 1.0,
             );
 
@@ -320,9 +320,9 @@ mod tests {
     #[test]
     fn proper_chunks_10() {
         proper_chunks_generic(
-            1.0 - 0.5 / CHUNK_SIZE_F,
-            0.25 / CHUNK_SIZE_F,
-            0.25 / CHUNK_SIZE_F,
+            0.5 / CHUNK_SIZE_F,
+            1.0 - 0.25 / CHUNK_SIZE_F,
+            1.0 - 0.25 / CHUNK_SIZE_F,
             10,
         );
     }
@@ -330,7 +330,7 @@ mod tests {
     // place a small bounding box right between the center of a dodecaherdral face and the node center. There should be exactly 5 chunks in contact.
     #[test]
     fn proper_chunks_5() {
-        proper_chunks_generic(0.4 / CHUNK_SIZE_F, 0.4 / CHUNK_SIZE_F, 0.5, 5);
+        proper_chunks_generic(1.0 - 0.4 / CHUNK_SIZE_F, 1.0 - 0.4 / CHUNK_SIZE_F, 0.5, 5);
     }
 
     // place bounding boxes in a variety of places with a variety of sizes and make sure the amount of voxels contained within are roughly what you would
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn chunk_from_location_proper_chunk() {
         for central_chunk in Vertex::iter() {
-            let chunk_coords = na::Vector3::new(1_u32, 1_u32, 1_u32);
+            let chunk_coords = na::Vector3::new(0_u32, 0_u32, 0_u32);
 
             let position = central_chunk.chunk_to_node()
                 * na::Vector4::new(
