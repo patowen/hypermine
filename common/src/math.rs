@@ -6,7 +6,7 @@
 use na::{RealField, Scalar};
 use serde::{Deserialize, Serialize};
 
-/// A point on the surface of the 3D hyperboloid in Minkowski coordinates with an implicit w
+/// A point on the surface of the 3D hyperboloid in Minkowski coordinates with an implicit double-u
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 #[repr(C)]
 pub struct HPoint<N: Scalar>(na::Vector3<N>);
