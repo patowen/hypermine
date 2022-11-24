@@ -11,7 +11,8 @@ lazy_static! {
         Side::B => enum_map! { Side::A | Side::C => true, _ => false },
         Side::C => enum_map! { Side::B | Side::D => true, _ => false },
         Side::D => enum_map! { Side::C | Side::E => true, _ => false },
-        Side::E => enum_map! { Side::D | Side::A => true, _ => false },
+        Side::E => enum_map! { Side::D | Side::F => true, _ => false },
+        Side::F => enum_map! { Side::E | Side::A => true, _ => false },
     };
     static ref PENTA: Penta = Penta::compute();
 }
@@ -23,12 +24,13 @@ pub enum Side {
     C = 2,
     D = 3,
     E = 4,
+    F = 5,
 }
 
 impl Side {
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
         use Side::*;
-        [A, B, C, D, E].iter().cloned()
+        [A, B, C, D, E, F].iter().cloned()
     }
 
     #[inline]
@@ -53,13 +55,14 @@ pub enum Vertex {
     BC = 1,
     CD = 2,
     DE = 3,
-    EA = 4,
+    EF = 4,
+    FA = 5,
 }
 
 impl Vertex {
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
         use Vertex::*;
-        [AB, BC, CD, DE, EA].iter().cloned()
+        [AB, BC, CD, DE, EF, FA].iter().cloned()
     }
 
     #[inline]
@@ -126,7 +129,7 @@ impl Penta {
         // Order 4 pentagonal tiling
         // Note: Despite being constants, they are not really configurable, as the rest of the code
         // depends on them being set to their current values, NUM_SIDES = 5 and ORDER = 4
-        const NUM_SIDES: usize = 5;
+        const NUM_SIDES: usize = 6;
         const ORDER: usize = 4;
 
         let side_angle = TAU as f32or64 / NUM_SIDES as f32or64;
@@ -143,15 +146,17 @@ impl Penta {
             Vertex::BC => [Side::B, Side::C],
             Vertex::CD => [Side::C, Side::D],
             Vertex::DE => [Side::D, Side::E],
-            Vertex::EA => [Side::E, Side::A],
+            Vertex::EF => [Side::E, Side::F],
+            Vertex::FA => [Side::F, Side::A],
         };
 
         let vertex_adjacent_vertices: EnumMap<Vertex, [Vertex; 2]> = enum_map! {
-            Vertex::AB => [Vertex::BC, Vertex::EA],
+            Vertex::AB => [Vertex::BC, Vertex::FA],
             Vertex::BC => [Vertex::CD, Vertex::AB],
             Vertex::CD => [Vertex::DE, Vertex::BC],
-            Vertex::DE => [Vertex::EA, Vertex::CD],
-            Vertex::EA => [Vertex::AB, Vertex::DE],
+            Vertex::DE => [Vertex::EF, Vertex::CD],
+            Vertex::EF => [Vertex::FA, Vertex::DE],
+            Vertex::FA => [Vertex::AB, Vertex::EF],
         };
 
         let mut normals: EnumMap<Side, na::Vector3<f32or64>> = EnumMap::default();
@@ -184,8 +189,9 @@ impl Penta {
 
         let penta_to_square = square_to_penta.map(|_, m| m.iso_inverse());
 
-        let voxel_to_square_factor = ((5.0 as f32or64).sqrt() - 2.0).sqrt();
-        let square_to_voxel_factor = ((5.0 as f32or64).sqrt() + 2.0).sqrt();
+        // I've modified this part to not care how many squares meet at a vertex.
+        let voxel_to_square_factor = (penta_to_square[Vertex::BC] * na::Vector3::z()).x / (penta_to_square[Vertex::BC] * na::Vector3::z()).z;
+        let square_to_voxel_factor = 1.0 / voxel_to_square_factor;
 
         for (vertex, mat) in voxel_to_penta.iter_mut() {
             let reflector0 = &normals[vertex_sides[vertex][0]];

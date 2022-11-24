@@ -74,7 +74,8 @@ impl<'a> RenderPass<'a> {
         self.draw_chunk(node, Vertex::BC)?;
         self.draw_chunk(node, Vertex::CD)?;
         self.draw_chunk(node, Vertex::DE)?;
-        self.draw_chunk(node, Vertex::EA)?;
+        self.draw_chunk(node, Vertex::EF)?;
+        self.draw_chunk(node, Vertex::FA)?;
         Ok(())
     }
 
@@ -107,11 +108,12 @@ impl<'a> RenderPass<'a> {
         let chunk_data = self.tessellation.chunk_data(node, vertex);
 
         let hue = match vertex {
-            Vertex::AB => Color::from_hue(0.0),
-            Vertex::BC => Color::from_hue(0.2),
-            Vertex::CD => Color::from_hue(0.4),
-            Vertex::DE => Color::from_hue(0.6),
-            Vertex::EA => Color::from_hue(0.8),
+            Vertex::AB => Color::from_hue(0.0/6.0),
+            Vertex::BC => Color::from_hue(1.0/6.0),
+            Vertex::CD => Color::from_hue(2.0/6.0),
+            Vertex::DE => Color::from_hue(3.0/6.0),
+            Vertex::EF => Color::from_hue(4.0/6.0),
+            Vertex::FA => Color::from_hue(5.0/6.0),
         };
 
         let inverted_hue = hue.inverted();
