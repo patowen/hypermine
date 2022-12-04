@@ -44,6 +44,33 @@ pub fn project_ortho<N: RealField + Copy>(
     v - n * mip(n, v)
 }
 
+// TODO: Gram-Schmidt should be faster as long as there's an initial guess to use.
+pub fn triangle_normal<N: RealField + Copy>(
+    v0: &na::Vector4<N>,
+    v1: &na::Vector4<N>,
+    v2: &na::Vector4<N>,
+) -> na::Vector4<N> {
+    // The algorithm is basically the same as the "determinant" algorithm for the cross product.
+    // Some minus signs are added for Minkowski considerations.
+    let x = v0[1] * v1[2] * v2[3] + v0[2] * v1[3] * v2[1] + v0[3] * v1[1] * v2[2]
+        - v0[1] * v1[3] * v2[2]
+        - v0[2] * v1[1] * v2[3]
+        - v0[3] * v1[2] * v2[1];
+    let y = -(v0[0] * v1[2] * v2[3] + v0[2] * v1[3] * v2[0] + v0[3] * v1[0] * v2[2]
+        - v0[0] * v1[3] * v2[2]
+        - v0[2] * v1[0] * v2[3]
+        - v0[3] * v1[2] * v2[0]);
+    let z = v0[0] * v1[1] * v2[3] + v0[1] * v1[3] * v2[0] + v0[3] * v1[0] * v2[1]
+        - v0[0] * v1[3] * v2[1]
+        - v0[1] * v1[0] * v2[3]
+        - v0[3] * v1[1] * v2[0];
+    let w = -(v0[0] * v1[1] * v2[2] + v0[1] * v1[2] * v2[0] + v0[2] * v1[0] * v2[1]
+        - v0[0] * v1[2] * v2[1]
+        - v0[1] * v1[0] * v2[2]
+        - v0[2] * v1[1] * v2[0]);
+    na::Vector4::new(x, y, z, -w)
+}
+
 /// Point reflection around `p`
 pub fn reflect<N: RealField + Copy>(p: &na::Vector4<N>) -> na::Matrix4<N> {
     na::Matrix4::<N>::identity()

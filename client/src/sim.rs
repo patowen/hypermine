@@ -5,12 +5,12 @@ use hecs::Entity;
 use tracing::{debug, error, trace};
 
 use crate::{
+    capsule_chunk_ray_tracer::CapsuleChunkRayTracer,
     chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle},
     graph_ray_tracer, net,
     point_chunk_ray_tracer::PointChunkRayTracer,
     prediction::PredictedMotion,
     single_block_sphere_collision_checker::SingleBlockSphereCollisionChecker,
-    sphere_chunk_ray_tracer::SphereChunkRayTracer,
     Net,
 };
 use common::{
@@ -845,7 +845,7 @@ impl PlayerPhysicsPass<'_> {
         if !graph_ray_tracer::trace_ray(
             &self.sim.graph,
             self.sim.params.as_ref().unwrap().chunk_size as usize,
-            &SphereChunkRayTracer {
+            &CapsuleChunkRayTracer {
                 radius: self.sim.radius,
             },
             self.sim.position_node,
