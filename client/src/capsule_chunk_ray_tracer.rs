@@ -123,6 +123,11 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
 
     fn trace_ray_for_point(&mut self, point: &na::Vector4<f64>) {
         self.trace_ray_for_sphere_point(point);
+
+        let lower_point = self.get_lower_point(point);
+        self.trace_ray_for_sphere_point(&lower_point);
+
+        self.trace_ray_for_sphere_segment(point, &lower_point);
     }
 
     fn get_lower_point(&mut self, point: &na::Vector4<f64>) -> na::Vector4<f64> {
