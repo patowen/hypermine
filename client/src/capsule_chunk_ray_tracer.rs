@@ -102,6 +102,29 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
         // Compute triangle normal
         let normal = math::lorentz_normalize(&math::triangle_normal(vertex0, vertex1, vertex2));
         self.trace_ray_for_sphere_polygon(&normal, [vertex0, vertex1, vertex2, vertex3]);
+
+        let lower_vertex0 = self.get_lower_point(vertex0);
+        let lower_vertex1 = self.get_lower_point(vertex1);
+        let lower_vertex2 = self.get_lower_point(vertex2);
+        let lower_vertex3 = self.get_lower_point(vertex3);
+
+        self.trace_ray_for_sphere_polygon(
+            &math::lorentz_normalize(&math::triangle_normal(
+                &lower_vertex0,
+                &lower_vertex1,
+                &lower_vertex2,
+            )),
+            [&lower_vertex0, &lower_vertex1, &lower_vertex2],
+        );
+        self.trace_ray_for_sphere_polygon(
+            &math::lorentz_normalize(&math::triangle_normal(
+                &lower_vertex0,
+                &lower_vertex2,
+                &lower_vertex3,
+            )),
+            [&lower_vertex0, &lower_vertex2, &lower_vertex3],
+        );
+        self.trace_ray_for_sphere_segment(&lower_vertex0, &lower_vertex2);
     }
 
     fn trace_ray_for_segment(
@@ -116,9 +139,19 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
 
         self.trace_ray_for_sphere_segment(&lower_endpoint0, &lower_endpoint1);
 
-        let normal = math::lorentz_normalize(&math::triangle_normal(endpoint0, endpoint1, &lower_endpoint1));
-        self.trace_ray_for_sphere_polygon(&normal, [endpoint0, endpoint1, &lower_endpoint1, &lower_endpoint0]);
-        self.trace_ray_for_sphere_polygon(&(-normal), [endpoint1, endpoint0, &lower_endpoint0, &lower_endpoint1]);
+        let normal = math::lorentz_normalize(&math::triangle_normal(
+            endpoint0,
+            endpoint1,
+            &lower_endpoint1,
+        ));
+        self.trace_ray_for_sphere_polygon(
+            &normal,
+            [endpoint0, endpoint1, &lower_endpoint1, &lower_endpoint0],
+        );
+        self.trace_ray_for_sphere_polygon(
+            &(-normal),
+            [endpoint1, endpoint0, &lower_endpoint0, &lower_endpoint1],
+        );
     }
 
     fn trace_ray_for_point(&mut self, point: &na::Vector4<f64>) {

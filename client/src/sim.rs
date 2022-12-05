@@ -66,6 +66,7 @@ pub struct Sim {
     jump_speed: f64,
     max_cos_slope: f64,
     radius: f64,
+    height: f64,
 }
 
 impl Sim {
@@ -105,6 +106,7 @@ impl Sim {
             jump_speed: 0.4,
             max_cos_slope: 0.5,
             radius: 0.02,
+            height: 0.04,
         }
     }
 
@@ -248,7 +250,9 @@ impl Sim {
             self.params.as_ref().unwrap().chunk_size as usize,
             &PointChunkRayTracer {},
             self.position_node,
-            &(self.position_local * na::Vector4::w()),
+            &(self.position_local
+                * math::translate_along(&na::Vector3::y_axis(), self.height)
+                * na::Vector4::w()),
             &(self.position_local
                 * self.get_orientation().cast().to_homogeneous()
                 * -na::Vector4::z()),
@@ -557,7 +561,9 @@ impl Sim {
 
     pub fn view(&self) -> Position {
         Position {
-            local: self.position_local.cast::<f32>() * self.get_orientation().to_homogeneous(),
+            local: self.position_local.cast::<f32>()
+                * math::translate_along(&na::Vector3::y_axis(), self.height as f32)
+                * self.get_orientation().to_homogeneous(),
             node: self.position_node,
         }
     }
@@ -847,7 +853,7 @@ impl PlayerPhysicsPass<'_> {
             self.sim.params.as_ref().unwrap().chunk_size as usize,
             &CapsuleChunkRayTracer {
                 radius: self.sim.radius,
-                height: self.sim.radius * 2.0, // TODO: Make height separately configured
+                height: self.sim.height,
             },
             self.sim.position_node,
             &(self.sim.position_local * na::Vector4::w()),
