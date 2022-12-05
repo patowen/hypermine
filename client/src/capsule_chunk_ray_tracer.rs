@@ -81,11 +81,11 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
             self.trace_ray_for_sides(coord_axis);
         }
 
-        /*for coord_axis in 0..3 {
+        for coord_axis in 0..3 {
             self.trace_ray_for_edges(coord_axis);
         }
 
-        self.trace_ray_for_vertices();*/
+        /*self.trace_ray_for_vertices();*/
     }
 
     fn trace_ray_for_triangle(
@@ -94,30 +94,37 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
         vertex1: &na::Vector4<f64>,
         vertex2: &na::Vector4<f64>,
     ) {
-        self.trace_ray_for_sphere_triangle(vertex0, vertex1, vertex2);
-    }
-
-    fn trace_ray_for_sphere_triangle(
-        &mut self,
-        vertex0: &na::Vector4<f64>,
-        vertex1: &na::Vector4<f64>,
-        vertex2: &na::Vector4<f64>,
-    ) {
         // Compute triangle normal
         let normal = math::lorentz_normalize(&math::triangle_normal(vertex0, vertex1, vertex2));
-        if math::mip(self.dir, &normal) >= 0.0 {
+        self.trace_ray_for_sphere_polygon(&normal, [vertex0, vertex1, vertex2]);
+    }
+
+    fn trace_ray_for_segment(
+        &mut self,
+        endpoint0: &na::Vector4<f64>,
+        endpoint1: &na::Vector4<f64>,
+    ) {
+        self.trace_ray_for_sphere_segment(endpoint0, endpoint1);
+    }
+
+    fn trace_ray_for_sphere_polygon<const N: usize>(
+        &mut self,
+        normal: &na::Vector4<f64>,
+        vertices: [&na::Vector4<f64>; N],
+    ) {
+        if math::mip(self.dir, normal) >= 0.0 {
             return;
         }
 
         let t_candidate =
-            find_intersection_one_vector(self.pos, self.dir, &normal, self.radius.sinh());
+            find_intersection_one_vector(self.pos, self.dir, normal, self.radius.sinh());
 
         if !(t_candidate >= 0.0 && t_candidate < self.handle.t()) {
             return;
         }
 
         let new_pos = self.pos + self.dir * t_candidate;
-        let projected_pos = math::project_ortho(&new_pos, &normal);
+        let projected_pos = math::project_ortho(&new_pos, normal);
 
         // Check if inside the triangle. Project to 2D by removing w coordinate and largest of xyz in the normal.
         let largest_xyz_coord = (0..3)
@@ -139,11 +146,40 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
                 == normal[largest_xyz_coord].signum()
         };
 
-        if is_on_correct_side(vertex1, vertex2)
-            && is_on_correct_side(vertex2, vertex0)
-            && is_on_correct_side(vertex0, vertex1)
-        {
-            self.handle.update(t_candidate, [0, 0, 0], 0, 0, normal);
+        if (0..N).all(|n| is_on_correct_side(vertices[n], vertices[(n + 1) % N])) {
+            self.handle.update(t_candidate, [0, 0, 0], 0, 0, *normal);
+        }
+    }
+
+    fn trace_ray_for_sphere_segment(
+        &mut self,
+        endpoint0: &na::Vector4<f64>,
+        endpoint1: &na::Vector4<f64>,
+    ) {
+        let segment_dir = math::lorentz_normalize(&(endpoint1 + endpoint0 * math::mip(endpoint1, endpoint0)));
+
+        let t_candidate = find_intersection_two_vectors(
+            self.pos,
+            self.dir,
+            endpoint0,
+            &segment_dir,
+            self.radius.cosh(),
+        );
+
+        if !(t_candidate >= 0.0 && t_candidate < self.handle.t()) {
+            return;
+        }
+
+        let new_pos = self.pos + self.dir * t_candidate;
+        let projected_pos = math::lorentz_normalize(
+            &(-endpoint0 * math::mip(&new_pos, endpoint0)
+                + segment_dir * math::mip(&new_pos, &segment_dir)),
+        );
+
+        let location_on_segment = math::mip(&projected_pos, &segment_dir);
+        if location_on_segment >= 0.0 && location_on_segment <= math::mip(endpoint1, &segment_dir) {
+            self.handle
+                .update(t_candidate, [0, 0, 0], 0, 0, new_pos - projected_pos);
         }
     }
 
@@ -209,6 +245,58 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
                             &vertices[1][1],
                             &vertices[1][0],
                         );
+                    }
+                }
+            }
+        }
+    }
+
+    fn trace_ray_for_edges(&mut self, coord_axis: usize) {
+        let float_size = self.voxel_data.dimension() as f64;
+        let coord_plane0 = (coord_axis + 1) % 3;
+        let coord_plane1 = (coord_axis + 2) % 3;
+
+        let coords_to_vertex = |i, j, k| {
+            let mut vertex = na::Vector4::zeros();
+            vertex[coord_axis] = i as f64 / float_size * Vertex::chunk_to_dual_factor();
+            vertex[coord_plane0] = j as f64 / float_size * Vertex::chunk_to_dual_factor();
+            vertex[coord_plane1] = k as f64 / float_size * Vertex::chunk_to_dual_factor();
+            vertex.w = 1.0;
+            math::lorentz_normalize(&vertex)
+        };
+
+        let get_voxel_data = |data: &VoxelDataWrapper, i, j, k| {
+            let mut coords = [0, 0, 0];
+            coords[coord_axis] = i;
+            coords[coord_plane0] = j;
+            coords[coord_plane1] = k;
+            data.get(coords)
+        };
+
+        for i in self.bbox[coord_axis][0].max(1) - 1
+            ..self.bbox[coord_axis][1].min(self.voxel_data.dimension())
+        {
+            for j in self.bbox[coord_plane0][0]..self.bbox[coord_plane0][1] {
+                for k in self.bbox[coord_plane1][0]..self.bbox[coord_plane1][1] {
+                    let mut vertices = [na::Vector4::zeros(); 2];
+                    for (square0, vertex) in vertices.iter_mut().enumerate() {
+                        *vertex = coords_to_vertex(i + square0, j, k);
+                    }
+
+                    if (j > 0
+                        && k > 0
+                        && get_voxel_data(&self.voxel_data, i, j - 1, k - 1) != Material::Void)
+                        || (j < self.voxel_data.dimension()
+                            && k > 0
+                            && get_voxel_data(&self.voxel_data, i, j, k - 1) != Material::Void)
+                        || (j > 0
+                            && k < self.voxel_data.dimension()
+                            && get_voxel_data(&self.voxel_data, i, j - 1, k) != Material::Void)
+                        || (j < self.voxel_data.dimension()
+                            && k < self.voxel_data.dimension()
+                            && get_voxel_data(&self.voxel_data, i, j, k) != Material::Void)
+                    {
+                        self.trace_ray_for_segment(&vertices[0], &vertices[1]);
                     }
                 }
             }
