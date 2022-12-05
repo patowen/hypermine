@@ -847,6 +847,7 @@ impl PlayerPhysicsPass<'_> {
             self.sim.params.as_ref().unwrap().chunk_size as usize,
             &CapsuleChunkRayTracer {
                 radius: self.sim.radius,
+                height: self.sim.radius * 2.0, // TODO: Make height separately configured
             },
             self.sim.position_node,
             &(self.sim.position_local * na::Vector4::w()),

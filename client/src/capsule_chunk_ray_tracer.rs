@@ -4,6 +4,7 @@ use crate::chunk_ray_tracer::{ChunkRayTracer, RayTracingResultHandle, VoxelDataW
 
 pub struct CapsuleChunkRayTracer {
     pub radius: f64,
+    pub height: f64,
 }
 
 impl ChunkRayTracer for CapsuleChunkRayTracer {
@@ -14,17 +15,18 @@ impl ChunkRayTracer for CapsuleChunkRayTracer {
         dir: &na::Vector4<f64>,
         handle: &mut RayTracingResultHandle,
     ) {
-        CapsuleChunkRayTracingPass::new(self.radius, voxel_data, pos, dir, handle)
+        CapsuleChunkRayTracingPass::new(self.radius, self.height, voxel_data, pos, dir, handle)
             .trace_ray_in_chunk();
     }
 
     fn max_radius(&self) -> f64 {
-        self.radius
+        self.radius + self.height
     }
 }
 
 struct CapsuleChunkRayTracingPass<'a, 'b> {
     radius: f64,
+    height: f64,
     voxel_data: VoxelDataWrapper<'a>,
     pos: &'a na::Vector4<f64>,
     dir: &'a na::Vector4<f64>,
@@ -45,6 +47,7 @@ struct CapsuleChunkRayTracingPass<'a, 'b> {
 impl CapsuleChunkRayTracingPass<'_, '_> {
     fn new<'a, 'b>(
         radius: f64,
+        height: f64,
         voxel_data: VoxelDataWrapper<'a>,
         pos: &'a na::Vector4<f64>,
         dir: &'a na::Vector4<f64>,
@@ -54,7 +57,7 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
         let voxel_start = (pos / pos[3]).xyz() * Vertex::dual_to_chunk_factor() * float_size;
         let end_pos = pos + dir * handle.t();
         let voxel_end = (end_pos / end_pos[3]).xyz() * Vertex::dual_to_chunk_factor() * float_size;
-        let max_voxel_radius = radius * Vertex::dual_to_chunk_factor() * float_size;
+        let max_voxel_radius = (radius + height) * Vertex::dual_to_chunk_factor() * float_size;
         let bbox = [0, 1, 2].map(|coord| {
             get_usize_range(
                 voxel_data.dimension(),
@@ -66,6 +69,7 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
 
         CapsuleChunkRayTracingPass {
             radius,
+            height,
             voxel_data,
             pos,
             dir,
@@ -88,15 +92,16 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
         self.trace_ray_for_vertices();
     }
 
-    fn trace_ray_for_triangle(
+    fn trace_ray_for_quad(
         &mut self,
         vertex0: &na::Vector4<f64>,
         vertex1: &na::Vector4<f64>,
         vertex2: &na::Vector4<f64>,
+        vertex3: &na::Vector4<f64>,
     ) {
         // Compute triangle normal
         let normal = math::lorentz_normalize(&math::triangle_normal(vertex0, vertex1, vertex2));
-        self.trace_ray_for_sphere_polygon(&normal, [vertex0, vertex1, vertex2]);
+        self.trace_ray_for_sphere_polygon(&normal, [vertex0, vertex1, vertex2, vertex3]);
     }
 
     fn trace_ray_for_segment(
@@ -105,10 +110,27 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
         endpoint1: &na::Vector4<f64>,
     ) {
         self.trace_ray_for_sphere_segment(endpoint0, endpoint1);
+
+        let lower_endpoint0 = self.get_lower_point(endpoint0);
+        let lower_endpoint1 = self.get_lower_point(endpoint1);
+
+        self.trace_ray_for_sphere_segment(&lower_endpoint0, &lower_endpoint1);
+
+        let normal = math::lorentz_normalize(&math::triangle_normal(endpoint0, endpoint1, &lower_endpoint1));
+        self.trace_ray_for_sphere_polygon(&normal, [endpoint0, endpoint1, &lower_endpoint1, &lower_endpoint0]);
+        self.trace_ray_for_sphere_polygon(&(-normal), [endpoint1, endpoint0, &lower_endpoint0, &lower_endpoint1]);
     }
 
     fn trace_ray_for_point(&mut self, point: &na::Vector4<f64>) {
         self.trace_ray_for_sphere_point(point);
+    }
+
+    fn get_lower_point(&mut self, point: &na::Vector4<f64>) -> na::Vector4<f64> {
+        let up = math::lorentz_normalize(
+            &(self.voxel_data.up() + point * math::mip(self.voxel_data.up(), point)),
+        );
+
+        point * self.height.cosh() - up * self.height.sinh()
     }
 
     fn trace_ray_for_sphere_polygon<const N: usize>(
@@ -238,13 +260,9 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
                     }
 
                     if i > 0 && get_voxel_data(&self.voxel_data, i - 1, j, k) != Material::Void {
-                        self.trace_ray_for_triangle(
+                        self.trace_ray_for_quad(
                             &vertices[0][0],
                             &vertices[1][0],
-                            &vertices[1][1],
-                        );
-                        self.trace_ray_for_triangle(
-                            &vertices[0][0],
                             &vertices[1][1],
                             &vertices[0][1],
                         );
@@ -253,13 +271,9 @@ impl CapsuleChunkRayTracingPass<'_, '_> {
                     if i < self.voxel_data.dimension()
                         && get_voxel_data(&self.voxel_data, i, j, k) != Material::Void
                     {
-                        self.trace_ray_for_triangle(
+                        self.trace_ray_for_quad(
                             &vertices[0][0],
                             &vertices[0][1],
-                            &vertices[1][1],
-                        );
-                        self.trace_ray_for_triangle(
-                            &vertices[0][0],
                             &vertices[1][1],
                             &vertices[1][0],
                         );

@@ -29,17 +29,22 @@ pub fn trace_ray(
         (Vertex::chunk_to_dual_factor().atanh() - (chunk_ray_tracer.max_radius() + EPSILON)).tanh();
 
     while let Some((chunk, transform)) = chunk_queue.pop_front() {
+        let node = graph.get(chunk.node).as_ref().unwrap();
         let Chunk::Populated {
             voxels: ref voxel_data,
             ..
-        } = graph.get(chunk.node).as_ref().unwrap().chunks[chunk.vertex] else {
+        } = node.chunks[chunk.vertex] else {
             // Collision checking on unpopulated chunk
             return false;
         };
         let square_pos = chunk.vertex.node_to_dual() * transform * pos;
         let square_dir = chunk.vertex.node_to_dual() * transform * dir;
         chunk_ray_tracer.trace_ray_in_chunk(
-            VoxelDataWrapper::new(voxel_data, dimension),
+            VoxelDataWrapper::new(
+                voxel_data,
+                dimension,
+                chunk.vertex.node_to_dual() * node.state.surface().normal(),
+            ),
             &square_pos,
             &square_dir,
             &mut handle.dependent_handle(

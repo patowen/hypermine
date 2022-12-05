@@ -4,18 +4,24 @@ use common::{dodeca::Vertex, graph::NodeId, node::VoxelData, world::Material};
 pub struct VoxelDataWrapper<'a> {
     voxel_data: &'a VoxelData,
     dimension: usize,
+    up: na::Vector4<f64>
 }
 
 impl VoxelDataWrapper<'_> {
-    pub fn new(voxel_data: &VoxelData, dimension: usize) -> VoxelDataWrapper {
+    pub fn new(voxel_data: &VoxelData, dimension: usize, up: na::Vector4<f64>) -> VoxelDataWrapper {
         VoxelDataWrapper {
             voxel_data,
             dimension,
+            up,
         }
     }
 
     pub fn dimension(&self) -> usize {
         self.dimension
+    }
+
+    pub fn up(&self) -> &na::Vector4<f64> {
+        &self.up
     }
 
     pub fn get(&self, coords: [usize; 3]) -> Material {
