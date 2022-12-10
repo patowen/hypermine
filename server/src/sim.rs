@@ -52,7 +52,7 @@ impl Sim {
         info!(%id, name = %hello.name, "spawning character");
         let position = Position {
             node: NodeId::ROOT,
-            local: math::translate_along(&na::Vector3::y_axis(), 0.9),
+            local: math::translate_along(&na::Vector3::y_axis(), 1.1),
         };
         let character = Character {
             name: hello.name,
@@ -74,7 +74,7 @@ impl Sim {
         let mut ch = self.world.get::<&mut Character>(entity)?;
         let (direction, speed) = sanitize_motion_input(command.velocity);
         ch.direction = direction;
-        ch.speed = speed * self.cfg.movement_speed;
+        ch.speed = speed * self.cfg.no_clip_movement_speed;
         ch.orientation = command.orientation;
         Ok(())
     }
@@ -192,6 +192,7 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
         components.push(Component::Character(proto::Character {
             name: x.name.clone(),
             orientation: x.orientation,
+            velocity: na::Vector3::zeros(),
         }));
     }
     components
