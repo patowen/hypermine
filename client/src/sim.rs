@@ -394,7 +394,7 @@ impl Sim {
     }
 
     fn placing_has_conflict(&self, node: NodeId, vertex: Vertex, coords: [usize; 3]) -> bool {
-        const EPSILON: f64 = 1e-7;
+        const EPSILON: f64 = 1e-5;
 
         let mut ray_tracing_result = RayTracingResult::new(0.0);
         if !graph_ray_tracer::trace_ray(
@@ -832,7 +832,7 @@ impl PlayerPhysicsPass<'_> {
         relative_displacement: &na::Vector4<f64>,
     ) -> (RayTracingResult, na::Matrix4<f64>) {
         // Corrective constant to avoid punching through walls with floating point rounding errors
-        const EPSILON: f64 = 1e-5;
+        const EPSILON: f64 = 1e-3;
 
         let displacement_sqr = math::mip(relative_displacement, relative_displacement);
         if displacement_sqr < 1e-16 {
