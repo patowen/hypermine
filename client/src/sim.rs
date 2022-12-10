@@ -35,7 +35,7 @@ pub struct Sim {
     pub world: hecs::World,
     pub params: Option<Parameters>,
     pub local_character: Option<Entity>,
-    position_local: na::Matrix4<f64>,
+    position_local: na::Matrix4<f32>,
     position_node: NodeId,
     yaw: f32,
     pitch: f32,
@@ -197,7 +197,7 @@ impl Sim {
                     self.get_orientation() * self.instantaneous_velocity * movement_speed,
                 );
                 self.position_local *=
-                    math::translate_along(&direction.cast(), speed as f64 * dt.as_secs_f64());
+                    math::translate_along(&direction.cast(), speed * dt.as_secs_f32());
                 PlayerPhysicsPass { sim: self, dt }.align_with_gravity();
                 PlayerPhysicsPass { sim: self, dt }.renormalize_transform();
             } else {
@@ -248,15 +248,15 @@ impl Sim {
             &PointChunkRayTracer {},
             self.position_node,
             &(self.position_local
-                * na::Vector4::w()),
+                * na::Vector4::w()).cast(),
             &(self.position_local
-                * self.get_orientation().cast().to_homogeneous()
-                * -na::Vector4::z()),
+                * self.get_orientation().to_homogeneous()
+                * -na::Vector4::z()).cast(),
             &mut RayTracingResultHandle::new(
                 &mut ray_tracing_result,
                 self.position_node,
                 common::dodeca::Vertex::A,
-                self.position_local.try_inverse().unwrap(),
+                self.position_local.try_inverse().unwrap().cast(),
             ),
         ) {
             return;
@@ -407,15 +407,15 @@ impl Sim {
                 radius: self.radius + EPSILON,
             },
             self.position_node,
-            &(self.position_local * na::Vector4::w()),
+            &(self.position_local * na::Vector4::w()).cast(),
             &(self.position_local
-                * self.get_orientation().cast().to_homogeneous()
-                * -na::Vector4::z()),
+                * self.get_orientation().to_homogeneous()
+                * -na::Vector4::z()).cast(),
             &mut RayTracingResultHandle::new(
                 &mut ray_tracing_result,
                 self.position_node,
                 common::dodeca::Vertex::A,
-                self.position_local.try_inverse().unwrap(),
+                self.position_local.try_inverse().unwrap().cast(),
             ),
         ) {
             return true; // Unsafe to place blocks when collision check is inconclusive
@@ -697,7 +697,7 @@ impl PlayerPhysicsPass<'_> {
             let (ray_tracing_result, ray_tracing_transform) =
                 self.trace_ray(&(self.sim.vel * remaining_dt));
 
-            self.sim.position_local *= ray_tracing_transform;
+            self.sim.position_local *= ray_tracing_transform.cast();
 
             if let Some(intersection) = ray_tracing_result.intersection {
                 if math::mip(&intersection.normal, &self.get_relative_up()) > self.sim.max_cos_slope
@@ -753,7 +753,7 @@ impl PlayerPhysicsPass<'_> {
 
     fn align_with_gravity(&mut self) {
         let transformation = math::translate2(&na::Vector4::y(), &self.get_relative_up());
-        self.sim.position_local *= transformation;
+        self.sim.position_local *= transformation.cast();
         let transformation_inverse = transformation.try_inverse().unwrap();
         self.sim.vel = transformation_inverse * self.sim.vel;
         self.sim.ground_normal = self.sim.ground_normal.map(|n| transformation_inverse * n);
@@ -766,7 +766,7 @@ impl PlayerPhysicsPass<'_> {
             let (ray_tracing_result, ray_tracing_transform) = self.trace_ray(&clamp_vector);
 
             if let Some(intersection) = ray_tracing_result.intersection {
-                let potential_transform = self.sim.position_local * ray_tracing_transform;
+                let potential_transform = self.sim.position_local * ray_tracing_transform.cast();
                 if math::mip(&intersection.normal, &self.get_relative_up()) > self.sim.max_cos_slope
                 {
                     self.sim.position_local = potential_transform;
@@ -822,7 +822,7 @@ impl PlayerPhysicsPass<'_> {
     fn get_relative_up(&self) -> na::Vector4<f64> {
         let node = self.sim.graph.get(self.sim.position_node).as_ref().unwrap();
         let mut relative_up =
-            self.sim.position_local.try_inverse().unwrap() * node.state.surface().normal();
+            self.sim.position_local.try_inverse().unwrap().cast() * node.state.surface().normal();
         relative_up.w = 0.0;
         relative_up.normalize()
     }
@@ -850,13 +850,13 @@ impl PlayerPhysicsPass<'_> {
                 radius: self.sim.radius,
             },
             self.sim.position_node,
-            &(self.sim.position_local * na::Vector4::w()),
-            &(self.sim.position_local * displacement_normalized),
+            &(self.sim.position_local * na::Vector4::w()).cast(),
+            &(self.sim.position_local.cast() * displacement_normalized),
             &mut RayTracingResultHandle::new(
                 &mut ray_tracing_result,
                 self.sim.position_node,
                 common::dodeca::Vertex::A,
-                self.sim.position_local.try_inverse().unwrap(),
+                self.sim.position_local.try_inverse().unwrap().cast(),
             ),
         ) {
             return (RayTracingResult::new(0.0), na::Matrix4::identity());
