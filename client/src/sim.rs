@@ -5,13 +5,12 @@ use hecs::Entity;
 use tracing::{debug, error, trace};
 
 use crate::{
-    capsule_chunk_ray_tracer::CapsuleChunkRayTracer,
     chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle},
     graph_ray_tracer, net,
     point_chunk_ray_tracer::PointChunkRayTracer,
     prediction::PredictedMotion,
     single_block_sphere_collision_checker::SingleBlockSphereCollisionChecker,
-    Net,
+    Net, sphere_chunk_ray_tracer::SphereChunkRayTracer,
 };
 use common::{
     dodeca::Vertex,
@@ -66,7 +65,6 @@ pub struct Sim {
     jump_speed: f64,
     max_cos_slope: f64,
     radius: f64,
-    height: f64,
 }
 
 impl Sim {
@@ -106,7 +104,6 @@ impl Sim {
             jump_speed: 0.4,
             max_cos_slope: 0.5,
             radius: 0.02,
-            height: 0.04,
         }
     }
 
@@ -251,7 +248,6 @@ impl Sim {
             &PointChunkRayTracer {},
             self.position_node,
             &(self.position_local
-                * math::translate_along(&na::Vector3::y_axis(), self.height)
                 * na::Vector4::w()),
             &(self.position_local
                 * self.get_orientation().cast().to_homogeneous()
@@ -562,7 +558,6 @@ impl Sim {
     pub fn view(&self) -> Position {
         Position {
             local: self.position_local.cast::<f32>()
-                * math::translate_along(&na::Vector3::y_axis(), self.height as f32)
                 * self.get_orientation().to_homogeneous(),
             node: self.position_node,
         }
@@ -851,9 +846,8 @@ impl PlayerPhysicsPass<'_> {
         if !graph_ray_tracer::trace_ray(
             &self.sim.graph,
             self.sim.params.as_ref().unwrap().chunk_size as usize,
-            &CapsuleChunkRayTracer {
+            &SphereChunkRayTracer {
                 radius: self.sim.radius,
-                height: self.sim.height,
             },
             self.sim.position_node,
             &(self.sim.position_local * na::Vector4::w()),
