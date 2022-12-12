@@ -54,9 +54,16 @@ pub struct Spawns {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub generation: u16,
-    pub orientation: na::UnitQuaternion<f32>,
+    pub player_input: CharacterInput,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
-    pub velocity: na::Vector3<f32>,
+    pub movement: na::Vector3<f32>,
+    pub orientation: na::UnitQuaternion<f32>,
+    pub attempt_jump: bool,
+    pub no_clip: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

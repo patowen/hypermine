@@ -1,28 +1,21 @@
-use std::ops::Mul;
-
 use crate::{
+    graph::Graph,
     math,
-    proto::{Character, Position},
+    proto::{Character, Position, CharacterInput},
     sanitize_motion_input, SimConfig,
 };
 
-struct CharacterInput {
-    movement: na::Vector3<f32>,
-    orientation: na::UnitQuaternion<f32>,
-    attempt_jump: bool,
-    no_clip: bool,
+pub struct CharacterControllerPass<'a, T> {
+    pub position: &'a mut Position,
+    pub character: &'a mut Character,
+    pub input: &'a CharacterInput,
+    pub graph: &'a Graph<T>,
+    pub config: &'a SimConfig,
+    pub dt_seconds: f32,
 }
 
-struct CharacterControllerPass<'a> {
-    position: &'a mut Position,
-    character: &'a mut Character,
-    input: &'a CharacterInput,
-    config: &'a SimConfig,
-    dt_seconds: f32,
-}
-
-impl CharacterControllerPass<'_> {
-    fn step(&mut self) {
+impl<T> CharacterControllerPass<'_, T> {
+    pub fn step(&mut self) {
         let movement = sanitize_motion_input(self.input.movement);
 
         if self.input.no_clip {
@@ -45,6 +38,16 @@ impl CharacterControllerPass<'_> {
             // Update position
             self.position.local *=
                 math::translate_along(&(self.character.velocity * self.dt_seconds));
+        }
+
+        // Renormalize
+        self.position.local = math::renormalize_isometry(&self.position.local);
+        let (next_node, transition_xf) = self
+            .graph
+            .normalize_transform(self.position.node, &self.position.local);
+        if next_node != self.position.node {
+            self.position.node = next_node;
+            self.position.local = transition_xf * self.position.local;
         }
     }
 }

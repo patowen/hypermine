@@ -9,7 +9,7 @@ use common::{
     graph::{Graph, NodeId},
     math,
     node::{DualGraph, Node},
-    proto::{self, Character, Command, Component, Position},
+    proto::{self, Character, CharacterInput, Command, Component, Position},
     sanitize_motion_input,
     worldgen::NodeState,
     Chunks, EntityId, GraphEntities, Step,
@@ -252,8 +252,12 @@ impl Sim {
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
             generation,
-            orientation: self.orientation,
-            velocity,
+            player_input: CharacterInput {
+                movement: velocity,
+                orientation: self.orientation,
+                attempt_jump: false,
+                no_clip: false,
+            },
         });
     }
 

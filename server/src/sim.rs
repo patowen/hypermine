@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use common::character_controller::CharacterControllerPass;
+use common::proto::{Character, CharacterInput};
 use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
@@ -10,7 +12,6 @@ use common::{
     graph::{Graph, NodeId},
     math,
     proto::{self, ClientHello, Command, Component, FreshNode, Position, Spawns, StateDelta},
-    sanitize_motion_input,
     traversal::ensure_nearby,
     EntityId, SimConfig, Step,
 };
@@ -59,7 +60,13 @@ impl Sim {
             velocity: na::Vector3::zeros(),
             orientation: na::one(),
         };
-        let entity = self.world.spawn((id, position, character));
+        let initial_input = CharacterInput {
+            movement: na::Vector3::zeros(),
+            orientation: na::UnitQuaternion::identity(),
+            attempt_jump: false,
+            no_clip: true,
+        };
+        let entity = self.world.spawn((id, position, character, initial_input));
         self.entity_ids.insert(id, entity);
         self.spawns.push(entity);
         (id, entity)
@@ -70,10 +77,8 @@ impl Sim {
         entity: Entity,
         command: Command,
     ) -> Result<(), hecs::ComponentError> {
-        let mut ch = self.world.get::<&mut Character>(entity)?;
-        let velocity = sanitize_motion_input(command.velocity);
-        ch.velocity = velocity * self.cfg.no_clip_movement_speed;
-        ch.orientation = command.orientation;
+        let mut input = self.world.get::<&mut CharacterInput>(entity)?;
+        *input = command.player_input;
         Ok(())
     }
 
@@ -107,15 +112,21 @@ impl Sim {
         let _guard = span.enter();
 
         // Simulate
-        for (_, (ch, pos)) in self.world.query::<(&Character, &mut Position)>().iter() {
-            let next_xf = pos.local * math::translate_along(&(ch.velocity / self.cfg.rate as f32));
-            pos.local = math::renormalize_isometry(&next_xf);
-            let (next_node, transition_xf) = self.graph.normalize_transform(pos.node, &pos.local);
-            if next_node != pos.node {
-                pos.node = next_node;
-                pos.local = transition_xf * pos.local;
+        for (_, (position, character, input)) in self
+            .world
+            .query::<(&mut Position, &mut Character, &CharacterInput)>()
+            .iter()
+        {
+            CharacterControllerPass {
+                position,
+                character,
+                input,
+                graph: &self.graph,
+                config: &self.cfg,
+                dt_seconds: 1.0 / self.cfg.rate as f32,
             }
-            ensure_nearby(&mut self.graph, pos, f64::from(self.cfg.view_distance));
+            .step();
+            ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }
 
         // Capture state changes for broadcast to clients
@@ -193,10 +204,4 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
         }));
     }
     components
-}
-
-struct Character {
-    name: String,
-    orientation: na::UnitQuaternion<f32>,
-    velocity: na::Vector3<f32>,
 }
