@@ -88,8 +88,12 @@ impl PredictedMotion {
     }
 
     /// Latest estimate of the server's state after receiving all `push`ed inputs.
-    pub fn predicted(&self) -> &Position {
+    pub fn predicted_position(&self) -> &Position {
         &self.predicted_position
+    }
+
+    pub fn predicted_character(&self) -> &Character {
+        &self.predicted_character
     }
 }
 

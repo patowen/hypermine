@@ -6,13 +6,13 @@ use tracing::{debug, error, trace};
 
 use crate::{net, prediction::PredictedMotion, Net};
 use common::{
+    character_controller::CharacterControllerPass,
     graph::{Graph, NodeId},
-    math,
     node::{DualGraph, Node},
     proto::{self, Character, CharacterInput, Command, Component, Position},
     sanitize_motion_input,
     worldgen::NodeState,
-    Chunks, EntityId, GraphEntities, Step, SimConfig,
+    Chunks, EntityId, GraphEntities, SimConfig, Step,
 };
 
 /// Game state
@@ -93,7 +93,11 @@ impl Sim {
             self.handle_net(msg);
         }
 
-        if let Some(step_interval) = self.params.as_ref().map(|x| Duration::from_secs_f32(1.0 / x.sim_config.rate as f32)) {
+        if let Some(step_interval) = self
+            .params
+            .as_ref()
+            .map(|x| Duration::from_secs_f32(1.0 / x.sim_config.rate as f32))
+        {
             self.since_input_sent += dt;
             if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
                 // At least one step interval has passed since we last sent input, so it's time to
@@ -157,15 +161,31 @@ impl Sim {
         }
     }
 
-    fn update_position(&mut self, latest_input: u16, id: EntityId, new_pos: Position, new_char: Character) {
+    fn update_position(
+        &mut self,
+        latest_input: u16,
+        id: EntityId,
+        new_pos: Position,
+        new_char: Character,
+    ) {
         if let Some(params) = self.params.as_ref() {
             if params.character_id == id {
-                self.prediction.reconcile(&self.graph, &params.sim_config, 1.0 / params.sim_config.rate as f32, latest_input, new_pos, new_char.clone());
+                self.prediction.reconcile(
+                    &self.graph,
+                    &params.sim_config,
+                    1.0 / params.sim_config.rate as f32,
+                    latest_input,
+                    new_pos,
+                    new_char.clone(),
+                );
             }
         }
         match self.entity_ids.get(&id) {
             None => debug!(%id, "position update for unknown entity"),
-            Some(&entity) => match (self.world.get::<&mut Position>(entity), self.world.get::<&mut Character>(entity)) {
+            Some(&entity) => match (
+                self.world.get::<&mut Position>(entity),
+                self.world.get::<&mut Character>(entity),
+            ) {
                 (Ok(mut pos), Ok(mut char)) => {
                     if pos.node != new_pos.node {
                         self.graph_entities.remove(pos.node, entity);
@@ -243,7 +263,12 @@ impl Sim {
             attempt_jump: false,
             no_clip: true,
         };
-        let generation = self.prediction.push(&self.graph, &params.sim_config, 1.0 / params.sim_config.rate as f32, &player_input);
+        let generation = self.prediction.push(
+            &self.graph,
+            &params.sim_config,
+            1.0 / params.sim_config.rate as f32,
+            &player_input,
+        );
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
@@ -253,18 +278,28 @@ impl Sim {
     }
 
     pub fn view(&self) -> Position {
-        let mut result = *self.prediction.predicted();
-        result.local *= self.orientation.to_homogeneous();
+        let mut result = *self.prediction.predicted_position();
+        let mut predicted_character = self.prediction.predicted_character().clone();
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
-            let velocity = sanitize_motion_input(self.average_velocity);
-            // We multiply by the entire timestep rather than the time so far because
-            // self.average_velocity is always over the entire timestep, filling in zeroes for the
-            // future.
-            result.local *= math::translate_along(
-                &(velocity * params.sim_config.no_clip_movement_speed / params.sim_config.rate as f32),
-            );
+            let predicted_input = CharacterInput {
+                movement: self.orientation * self.average_velocity
+                    / self.since_input_sent.as_secs_f32(),
+                orientation: self.orientation,
+                attempt_jump: false,
+                no_clip: true,
+            };
+            CharacterControllerPass {
+                position: &mut result,
+                character: &mut predicted_character,
+                input: &predicted_input,
+                graph: &self.graph,
+                config: &params.sim_config,
+                dt_seconds: self.since_input_sent.as_secs_f32(),
+            }
+            .step();
         }
+        result.local *= self.orientation.to_homogeneous();
         result
     }
 
