@@ -103,32 +103,20 @@ impl Sim {
                 // At least one step interval has passed since we last sent input, so it's time to
                 // send again.
 
-                // Update average velocity for the time between the last input sample and the end of
-                // the previous step. dt > overflow because we check whether a step has elapsed
-                // after each increment.
-                self.average_velocity += self.instantaneous_velocity
-                    * (dt - overflow).as_secs_f32()
-                    / step_interval.as_secs_f32();
-
                 // Send fresh input
                 self.send_input();
+
+                self.average_velocity = self.instantaneous_velocity;
 
                 // Reset state for the next step
                 if overflow > step_interval {
                     // If it's been more than two timesteps since we last sent input, skip ahead
                     // rather than spamming the server.
-                    self.average_velocity = na::zero();
                     self.since_input_sent = Duration::new(0, 0);
                 } else {
-                    self.average_velocity = self.instantaneous_velocity * overflow.as_secs_f32()
-                        / step_interval.as_secs_f32();
                     // Send the next input a little sooner if necessary to stay in sync
                     self.since_input_sent = overflow;
                 }
-            } else {
-                // Update average velocity for the time within the current step
-                self.average_velocity +=
-                    self.instantaneous_velocity * dt.as_secs_f32() / step_interval.as_secs_f32();
             }
         }
     }
@@ -261,7 +249,7 @@ impl Sim {
             movement: velocity,
             orientation: self.orientation,
             attempt_jump: false,
-            no_clip: true,
+            no_clip: false,
         };
         let generation = self.prediction.push(
             &self.graph,
@@ -287,7 +275,7 @@ impl Sim {
                     / self.since_input_sent.as_secs_f32(),
                 orientation: self.orientation,
                 attempt_jump: false,
-                no_clip: true,
+                no_clip: false,
             };
             CharacterControllerPass {
                 position: &mut result,
