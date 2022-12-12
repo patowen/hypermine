@@ -147,10 +147,7 @@ impl Server {
                 let connection = client.conn.clone();
                 let server_hello = proto::ServerHello {
                     character: id,
-                    rate: self.cfg.rate,
-                    chunk_size: self.cfg.chunk_size,
-                    meters_to_absolute: self.cfg.meters_to_absolute,
-                    movement_speed: self.cfg.no_clip_movement_speed,
+                    sim_config: (*self.cfg).clone(),
                 };
                 tokio::spawn(async move {
                     // Errors will be handled by recv task

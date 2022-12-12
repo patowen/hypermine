@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{dodeca, graph::NodeId, EntityId, Step};
+use crate::{dodeca, graph::NodeId, EntityId, Step, SimConfig};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientHello {
@@ -10,13 +10,7 @@ pub struct ClientHello {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerHello {
     pub character: EntityId,
-    pub rate: u16,
-    /// Number of voxels along the edge of a chunk
-    pub chunk_size: u8,
-    /// Maximum movement speed in absolute units
-    pub movement_speed: f32,
-    /// Unit conversion factor
-    pub meters_to_absolute: f32,
+    pub sim_config: SimConfig,
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -39,8 +33,7 @@ pub struct StateDelta {
     pub step: Step,
     /// Highest input generation received prior to `step`
     pub latest_input: u16,
-    pub positions: Vec<(EntityId, Position)>,
-    pub character_orientations: Vec<(EntityId, na::UnitQuaternion<f32>)>,
+    pub positions: Vec<(EntityId, Position, Character)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,7 +50,7 @@ pub struct Command {
     pub player_input: CharacterInput,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
     pub movement: na::Vector3<f32>,

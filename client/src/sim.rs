@@ -12,7 +12,7 @@ use common::{
     proto::{self, Character, CharacterInput, Command, Component, Position},
     sanitize_motion_input,
     worldgen::NodeState,
-    Chunks, EntityId, GraphEntities, Step,
+    Chunks, EntityId, GraphEntities, Step, SimConfig,
 };
 
 /// Game state
@@ -60,10 +60,17 @@ impl Sim {
             since_input_sent: Duration::new(0, 0),
             instantaneous_velocity: na::zero(),
             average_velocity: na::zero(),
-            prediction: PredictedMotion::new(proto::Position {
-                node: NodeId::ROOT,
-                local: na::one(),
-            }),
+            prediction: PredictedMotion::new(
+                proto::Position {
+                    node: NodeId::ROOT,
+                    local: na::one(),
+                },
+                proto::Character {
+                    name: "Temp".to_string(),
+                    orientation: na::UnitQuaternion::identity(),
+                    velocity: na::zero(),
+                },
+            ),
         }
     }
 
@@ -86,7 +93,7 @@ impl Sim {
             self.handle_net(msg);
         }
 
-        if let Some(step_interval) = self.params.as_ref().map(|x| x.step_interval) {
+        if let Some(step_interval) = self.params.as_ref().map(|x| Duration::from_secs_f32(1.0 / x.sim_config.rate as f32)) {
             self.since_input_sent += dt;
             if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
                 // At least one step interval has passed since we last sent input, so it's time to
@@ -131,10 +138,7 @@ impl Sim {
             Hello(msg) => {
                 self.params = Some(Parameters {
                     character_id: msg.character,
-                    step_interval: Duration::from_secs(1) / u32::from(msg.rate),
-                    chunk_size: msg.chunk_size,
-                    meters_to_absolute: msg.meters_to_absolute,
-                    movement_speed: msg.movement_speed,
+                    sim_config: msg.sim_config,
                 });
                 // Populate the root node
                 populate_fresh_nodes(&mut self.graph);
@@ -146,41 +150,31 @@ impl Sim {
                     return;
                 }
                 self.step = Some(msg.step);
-                for &(id, new_pos) in &msg.positions {
-                    self.update_position(msg.latest_input, id, new_pos);
-                }
-                for &(id, orientation) in &msg.character_orientations {
-                    match self.entity_ids.get(&id) {
-                        None => debug!(%id, "character orientation update for unknown entity"),
-                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
-                            Ok(mut ch) => {
-                                ch.orientation = orientation;
-                            }
-                            Err(e) => {
-                                error!(%id, "character orientation update for non-character entity {}", e)
-                            }
-                        },
-                    }
+                for (id, new_pos, new_char) in &msg.positions {
+                    self.update_position(msg.latest_input, *id, *new_pos, new_char.clone());
                 }
             }
         }
     }
 
-    fn update_position(&mut self, latest_input: u16, id: EntityId, new_pos: Position) {
-        if self.params.as_ref().map_or(false, |x| x.character_id == id) {
-            self.prediction.reconcile(latest_input, new_pos);
+    fn update_position(&mut self, latest_input: u16, id: EntityId, new_pos: Position, new_char: Character) {
+        if let Some(params) = self.params.as_ref() {
+            if params.character_id == id {
+                self.prediction.reconcile(&self.graph, &params.sim_config, 1.0 / params.sim_config.rate as f32, latest_input, new_pos, new_char.clone());
+            }
         }
         match self.entity_ids.get(&id) {
             None => debug!(%id, "position update for unknown entity"),
-            Some(&entity) => match self.world.get::<&mut Position>(entity) {
-                Ok(mut pos) => {
+            Some(&entity) => match (self.world.get::<&mut Position>(entity), self.world.get::<&mut Character>(entity)) {
+                (Ok(mut pos), Ok(mut char)) => {
                     if pos.node != new_pos.node {
                         self.graph_entities.remove(pos.node, entity);
                         self.graph_entities.insert(new_pos.node, entity);
                     }
                     *pos = new_pos;
+                    *char = new_char;
                 }
-                Err(e) => error!(%id, "position update for unpositioned entity {}", e),
+                _ => error!(%id, "position update for unpositioned entity {:?}", entity),
             },
         }
     }
@@ -243,21 +237,18 @@ impl Sim {
     fn send_input(&mut self) {
         let velocity = sanitize_motion_input(self.orientation * self.average_velocity);
         let params = self.params.as_ref().unwrap();
-        let generation = self.prediction.push(
-            &(velocity
-                * params.movement_speed
-                * self.params.as_ref().unwrap().step_interval.as_secs_f32()),
-        );
+        let player_input = CharacterInput {
+            movement: velocity,
+            orientation: self.orientation,
+            attempt_jump: false,
+            no_clip: true,
+        };
+        let generation = self.prediction.push(&self.graph, &params.sim_config, 1.0 / params.sim_config.rate as f32, &player_input);
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
             generation,
-            player_input: CharacterInput {
-                movement: velocity,
-                orientation: self.orientation,
-                attempt_jump: false,
-                no_clip: false,
-            },
+            player_input,
         });
     }
 
@@ -271,7 +262,7 @@ impl Sim {
             // self.average_velocity is always over the entire timestep, filling in zeroes for the
             // future.
             result.local *= math::translate_along(
-                &(velocity * params.movement_speed * params.step_interval.as_secs_f32()),
+                &(velocity * params.sim_config.no_clip_movement_speed / params.sim_config.rate as f32),
             );
         }
         result
@@ -300,11 +291,7 @@ impl Sim {
 
 /// Simulation details received on connect
 pub struct Parameters {
-    pub step_interval: Duration,
-    pub chunk_size: u8,
-    pub meters_to_absolute: f32,
-    /// Absolute units
-    pub movement_speed: f32,
+    pub sim_config: SimConfig,
     pub character_id: EntityId,
 }
 

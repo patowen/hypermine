@@ -12,6 +12,7 @@ pub struct SimConfigRaw {
     /// Maximum distance at which anything can be seen in meters
     pub view_distance: Option<f32>,
     pub input_queue_size_ms: Option<u16>,
+    /// Number of voxels along the edge of a chunk
     pub chunk_size: Option<u8>,
     /// Approximate length of the edge of a voxel in meters
     ///
@@ -31,7 +32,7 @@ pub struct SimConfigRaw {
 }
 
 /// Complete simulation config parameters
-#[derive(Clone)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SimConfig {
     pub rate: u16,
     pub view_distance: f32,

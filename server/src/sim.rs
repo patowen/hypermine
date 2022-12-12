@@ -163,15 +163,9 @@ impl Sim {
             step: self.step,
             positions: self
                 .world
-                .query::<(&EntityId, &Position)>()
+                .query::<(&EntityId, &Position, &Character)>()
                 .iter()
-                .map(|(_, (&id, &position))| (id, position))
-                .collect(),
-            character_orientations: self
-                .world
-                .query::<(&EntityId, &Character)>()
-                .iter()
-                .map(|(_, (&id, ch))| (id, ch.orientation))
+                .map(|(_, (&id, &position, character))| (id, position, character.clone()))
                 .collect(),
         };
 
