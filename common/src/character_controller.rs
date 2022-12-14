@@ -24,6 +24,8 @@ impl<T> CharacterControllerPass<'_, T> {
                 &(movement * self.config.no_clip_movement_speed * self.dt_seconds),
             );
         } else {
+            let old_velocity = self.character.velocity;
+
             // Update velocity
             let current_to_target_velocity =
                 movement * self.config.max_ground_speed - self.character.velocity;
@@ -37,7 +39,7 @@ impl<T> CharacterControllerPass<'_, T> {
 
             // Update position
             self.position.local *=
-                math::translate_along(&(self.character.velocity * self.dt_seconds));
+                math::translate_along(&((self.character.velocity + old_velocity) * 0.5 * self.dt_seconds));
         }
 
         // Renormalize

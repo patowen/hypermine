@@ -261,7 +261,7 @@ impl Sim {
             movement: velocity,
             orientation: self.orientation,
             attempt_jump: false,
-            no_clip: true,
+            no_clip: false,
         };
         let generation = self.prediction.push(
             &self.graph,
@@ -288,7 +288,7 @@ impl Sim {
                     / params.sim_config.rate as f32,
                 orientation: self.orientation,
                 attempt_jump: false,
-                no_clip: true,
+                no_clip: false,
             };
             println!("{}", predicted_input.movement.norm());
             CharacterControllerPass {
