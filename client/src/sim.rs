@@ -284,11 +284,13 @@ impl Sim {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
                 movement: self.orientation * self.average_velocity
-                    / self.since_input_sent.as_secs_f32(),
+                    / self.since_input_sent.as_secs_f32()
+                    / params.sim_config.rate as f32,
                 orientation: self.orientation,
                 attempt_jump: false,
                 no_clip: true,
             };
+            println!("{}", predicted_input.movement.norm());
             CharacterControllerPass {
                 position: &mut result,
                 character: &mut predicted_character,
