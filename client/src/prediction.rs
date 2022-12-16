@@ -1,11 +1,6 @@
 use std::collections::VecDeque;
 
-use common::{
-    character_controller::CharacterControllerPass,
-    node::DualGraph,
-    proto::{CharacterInput, Position},
-    SimConfig,
-};
+use common::proto::Position;
 
 /// Predicts the result of motion inputs in-flight to the server
 ///
@@ -14,14 +9,14 @@ use common::{
 /// highest tag it's received alongside every state update, which we then use in `reconcile` to
 /// determine which inputs have been integrated into the server's state and no longer need to be
 /// predicted.
-pub struct PredictedMotion {
-    log: VecDeque<CharacterInput>,
+pub struct PredictedMotion<T: Clone> {
+    log: VecDeque<T>,
     generation: u16,
     predicted_position: Position,
     predicted_velocity: na::Vector3<f32>,
 }
 
-impl PredictedMotion {
+impl<T: Clone> PredictedMotion<T> {
     pub fn new(initial_position: Position, initial_velocity: na::Vector3<f32>) -> Self {
         Self {
             log: VecDeque::new(),
@@ -35,20 +30,14 @@ impl PredictedMotion {
     /// tagged with
     pub fn push(
         &mut self,
-        graph: &DualGraph,
-        config: &SimConfig,
-        dt_seconds: f32,
-        input: &CharacterInput,
+        input: &T,
+        mut step_function: impl FnMut(&mut Position, &mut na::Vector3<f32>, &T),
     ) -> u16 {
-        CharacterControllerPass {
-            position: &mut self.predicted_position,
-            velocity: &mut self.predicted_velocity,
+        step_function(
+            &mut self.predicted_position,
+            &mut self.predicted_velocity,
             input,
-            graph,
-            config,
-            dt_seconds,
-        }
-        .step();
+        );
         self.log.push_back(input.clone());
         self.generation = self.generation.wrapping_add(1);
         self.generation
@@ -57,12 +46,10 @@ impl PredictedMotion {
     /// Update with the latest state received from the server and the generation it was based on
     pub fn reconcile(
         &mut self,
-        graph: &DualGraph,
-        config: &SimConfig,
-        dt_seconds: f32,
         generation: u16,
         position: Position,
         velocity: na::Vector3<f32>,
+        mut step_function: impl FnMut(&mut Position, &mut na::Vector3<f32>, &T),
     ) {
         let first_gen = self.generation.wrapping_sub(self.log.len() as u16);
         let obsolete = usize::from(generation.wrapping_sub(first_gen));
@@ -75,15 +62,11 @@ impl PredictedMotion {
         self.predicted_velocity = velocity;
 
         for input in self.log.iter() {
-            CharacterControllerPass {
-                position: &mut self.predicted_position,
-                velocity: &mut self.predicted_velocity,
+            step_function(
+                &mut self.predicted_position,
+                &mut self.predicted_velocity,
                 input,
-                graph,
-                config,
-                dt_seconds,
-            }
-            .step();
+            );
         }
     }
 
@@ -114,19 +97,19 @@ mod tests {
         na::Vector3::zeros()
     }
 
-    /*#[test]
+    #[test]
     fn wraparound() {
-        let mut pred = PredictedMotion::new(pos(), vel());
+        let mut pred: PredictedMotion<nalgebra::Vector3<f32>> = PredictedMotion::new(pos(), vel());
         pred.generation = u16::max_value() - 1;
-        assert_eq!(pred.push(&na::Vector3::x()), u16::max_value());
-        assert_eq!(pred.push(&na::Vector3::x()), 0);
+        assert_eq!(pred.push(&na::Vector3::x(), |_, _, _| {}), u16::max_value());
+        assert_eq!(pred.push(&na::Vector3::x(), |_, _, _| {}), 0);
         assert_eq!(pred.log.len(), 2);
 
-        pred.reconcile(u16::max_value() - 1, pos());
+        pred.reconcile(u16::max_value() - 1, pos(), vel(), |_, _, _| {});
         assert_eq!(pred.log.len(), 2);
-        pred.reconcile(u16::max_value(), pos());
+        pred.reconcile(u16::max_value(), pos(), vel(), |_, _, _| {});
         assert_eq!(pred.log.len(), 1);
-        pred.reconcile(0, pos());
+        pred.reconcile(0, pos(), vel(), |_, _, _| {});
         assert_eq!(pred.log.len(), 0);
-    }*/
+    }
 }

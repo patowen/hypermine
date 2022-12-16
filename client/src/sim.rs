@@ -40,7 +40,7 @@ pub struct Sim {
     ///
     /// Units are relative to movement speed.
     average_velocity: na::Vector3<f32>,
-    prediction: PredictedMotion,
+    prediction: PredictedMotion<CharacterInput>,
 }
 
 impl Sim {
@@ -191,13 +191,22 @@ impl Sim {
 
                 if let Some(params) = self.params.as_ref() {
                     if let (Some(my_position), Some(my_velocity)) = (my_position, my_velocity) {
+                        let graph = &self.graph;
                         self.prediction.reconcile(
-                            &self.graph,
-                            &params.sim_config,
-                            1.0 / params.sim_config.rate as f32,
                             msg.latest_input,
                             my_position,
                             my_velocity,
+                            |position, velocity, input| {
+                                CharacterControllerPass {
+                                    position,
+                                    velocity,
+                                    input,
+                                    graph,
+                                    config: &params.sim_config,
+                                    dt_seconds: 1.0 / params.sim_config.rate as f32,
+                                }
+                                .step()
+                            },
                         );
                     }
                 }
@@ -283,12 +292,20 @@ impl Sim {
             movement: velocity,
             no_clip: false,
         };
-        let generation = self.prediction.push(
-            &self.graph,
-            &params.sim_config,
-            1.0 / params.sim_config.rate as f32,
-            &player_input,
-        );
+        let graph = &self.graph;
+        let generation = self
+            .prediction
+            .push(&player_input, |position, velocity, input| {
+                CharacterControllerPass {
+                    position,
+                    velocity,
+                    input,
+                    graph,
+                    config: &params.sim_config,
+                    dt_seconds: 1.0 / params.sim_config.rate as f32,
+                }
+                .step()
+            });
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
