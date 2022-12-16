@@ -33,7 +33,9 @@ pub struct StateDelta {
     pub step: Step,
     /// Highest input generation received prior to `step`
     pub latest_input: u16,
-    pub positions: Vec<(EntityId, Position, Character)>,
+    pub positions: Vec<(EntityId, Position)>,
+    pub character_velocities: Vec<(EntityId, na::Vector3<f32>)>,
+    pub character_orientations: Vec<(EntityId, na::UnitQuaternion<f32>)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

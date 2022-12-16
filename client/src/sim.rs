@@ -65,7 +65,7 @@ impl Sim {
                     node: NodeId::ROOT,
                     local: na::one(),
                 },
-                na::zero()
+                na::zero(),
             ),
         }
     }
@@ -150,47 +150,73 @@ impl Sim {
                     return;
                 }
                 self.step = Some(msg.step);
-                for (id, new_pos, new_char) in &msg.positions {
-                    self.update_position(msg.latest_input, *id, *new_pos, new_char.velocity);
+                let my_id = self.params.as_ref().map(|params| params.character_id);
+                let mut my_position = None;
+                let mut my_velocity = None;
+                for &(id, new_pos) in &msg.positions {
+                    if Some(id) == my_id {
+                        my_position = Some(new_pos)
+                    }
+                    self.update_position(id, new_pos);
+                }
+                for &(id, velocity) in &msg.character_velocities {
+                    if Some(id) == my_id {
+                        my_velocity = Some(velocity)
+                    }
+                    match self.entity_ids.get(&id) {
+                        None => debug!(%id, "character orientation update for unknown entity"),
+                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
+                            Ok(mut ch) => {
+                                ch.velocity = velocity;
+                            }
+                            Err(e) => {
+                                error!(%id, "character orientation update for non-character entity {}", e)
+                            }
+                        },
+                    }
+                }
+                for &(id, orientation) in &msg.character_orientations {
+                    match self.entity_ids.get(&id) {
+                        None => debug!(%id, "character orientation update for unknown entity"),
+                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
+                            Ok(mut ch) => {
+                                ch.orientation = orientation;
+                            }
+                            Err(e) => {
+                                error!(%id, "character orientation update for non-character entity {}", e)
+                            }
+                        },
+                    }
+                }
+
+                if let Some(params) = self.params.as_ref() {
+                    if let (Some(my_position), Some(my_velocity)) = (my_position, my_velocity) {
+                        self.prediction.reconcile(
+                            &self.graph,
+                            &params.sim_config,
+                            1.0 / params.sim_config.rate as f32,
+                            msg.latest_input,
+                            my_position,
+                            my_velocity,
+                        );
+                    }
                 }
             }
         }
     }
 
-    fn update_position(
-        &mut self,
-        latest_input: u16,
-        id: EntityId,
-        new_pos: Position,
-        new_vel: na::Vector3<f32>,
-    ) {
-        if let Some(params) = self.params.as_ref() {
-            if params.character_id == id {
-                self.prediction.reconcile(
-                    &self.graph,
-                    &params.sim_config,
-                    1.0 / params.sim_config.rate as f32,
-                    latest_input,
-                    new_pos,
-                    new_vel,
-                );
-            }
-        }
+    fn update_position(&mut self, id: EntityId, new_pos: Position) {
         match self.entity_ids.get(&id) {
             None => debug!(%id, "position update for unknown entity"),
-            Some(&entity) => match (
-                self.world.get::<&mut Position>(entity),
-                self.world.get::<&mut Character>(entity),
-            ) {
-                (Ok(mut pos), Ok(mut char)) => {
+            Some(&entity) => match self.world.get::<&mut Position>(entity) {
+                Ok(mut pos) => {
                     if pos.node != new_pos.node {
                         self.graph_entities.remove(pos.node, entity);
                         self.graph_entities.insert(new_pos.node, entity);
                     }
                     *pos = new_pos;
-                    char.velocity = new_vel;
                 }
-                _ => error!(%id, "position update for unpositioned entity {:?}", entity),
+                Err(e) => error!(%id, "position update for unpositioned entity {}", e),
             },
         }
     }
