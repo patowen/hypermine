@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{dodeca, graph::NodeId, EntityId, Step, SimConfig};
+use crate::{dodeca, graph::NodeId, EntityId, SimConfig, Step};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientHello {
@@ -55,7 +55,6 @@ pub struct Command {
 pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
     pub movement: na::Vector3<f32>,
-    pub attempt_jump: bool,
     pub no_clip: bool,
 }
 

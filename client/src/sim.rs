@@ -255,7 +255,6 @@ impl Sim {
         let params = self.params.as_ref().unwrap();
         let player_input = CharacterInput {
             movement: velocity,
-            attempt_jump: false,
             no_clip: false,
         };
         let generation = self.prediction.push(
@@ -282,7 +281,6 @@ impl Sim {
                 movement: self.orientation * self.average_velocity
                     / self.since_input_sent.as_secs_f32()
                     / params.sim_config.rate as f32,
-                attempt_jump: false,
                 no_clip: false,
             };
             CharacterControllerPass {

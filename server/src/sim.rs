@@ -62,7 +62,6 @@ impl Sim {
         };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
-            attempt_jump: false,
             no_clip: true,
         };
         let entity = self.world.spawn((id, position, character, initial_input));
