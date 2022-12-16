@@ -255,7 +255,6 @@ impl Sim {
         let params = self.params.as_ref().unwrap();
         let player_input = CharacterInput {
             movement: velocity,
-            orientation: self.orientation,
             attempt_jump: false,
             no_clip: false,
         };
@@ -270,6 +269,7 @@ impl Sim {
         let _ = self.net.outgoing.send(Command {
             generation,
             player_input,
+            orientation: self.orientation,
         });
     }
 
@@ -282,7 +282,6 @@ impl Sim {
                 movement: self.orientation * self.average_velocity
                     / self.since_input_sent.as_secs_f32()
                     / params.sim_config.rate as f32,
-                orientation: self.orientation,
                 attempt_jump: false,
                 no_clip: false,
             };

@@ -62,7 +62,6 @@ impl Sim {
         };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
-            orientation: na::UnitQuaternion::identity(),
             attempt_jump: false,
             no_clip: true,
         };
