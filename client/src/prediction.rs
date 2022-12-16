@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use common::{
     character_controller::CharacterControllerPass,
     node::DualGraph,
-    proto::{Character, CharacterInput, Position},
+    proto::{CharacterInput, Position},
     SimConfig,
 };
 
@@ -18,16 +18,16 @@ pub struct PredictedMotion {
     log: VecDeque<CharacterInput>,
     generation: u16,
     predicted_position: Position,
-    predicted_character: Character,
+    predicted_velocity: na::Vector3<f32>,
 }
 
 impl PredictedMotion {
-    pub fn new(initial_position: Position, initial_character: Character) -> Self {
+    pub fn new(initial_position: Position, initial_velocity: na::Vector3<f32>) -> Self {
         Self {
             log: VecDeque::new(),
             generation: 0,
             predicted_position: initial_position,
-            predicted_character: initial_character,
+            predicted_velocity: initial_velocity,
         }
     }
 
@@ -42,7 +42,7 @@ impl PredictedMotion {
     ) -> u16 {
         CharacterControllerPass {
             position: &mut self.predicted_position,
-            character: &mut self.predicted_character,
+            velocity: &mut self.predicted_velocity,
             input,
             graph,
             config,
@@ -62,7 +62,7 @@ impl PredictedMotion {
         dt_seconds: f32,
         generation: u16,
         position: Position,
-        character: Character,
+        velocity: na::Vector3<f32>,
     ) {
         let first_gen = self.generation.wrapping_sub(self.log.len() as u16);
         let obsolete = usize::from(generation.wrapping_sub(first_gen));
@@ -72,12 +72,12 @@ impl PredictedMotion {
         }
         self.log.drain(..obsolete);
         self.predicted_position = position;
-        self.predicted_character = character;
+        self.predicted_velocity = velocity;
 
         for input in self.log.iter() {
             CharacterControllerPass {
                 position: &mut self.predicted_position,
-                character: &mut self.predicted_character,
+                velocity: &mut self.predicted_velocity,
                 input,
                 graph,
                 config,
@@ -92,8 +92,8 @@ impl PredictedMotion {
         &self.predicted_position
     }
 
-    pub fn predicted_character(&self) -> &Character {
-        &self.predicted_character
+    pub fn predicted_velocity(&self) -> &na::Vector3<f32> {
+        &self.predicted_velocity
     }
 }
 
@@ -109,18 +109,14 @@ mod tests {
         }
     }
 
-    /// An arbitrary character
-    fn char() -> Character {
-        Character {
-            name: "Test".to_string(),
-            orientation: na::UnitQuaternion::identity(),
-            velocity: na::Vector3::zeros(),
-        }
+    /// An arbitrary velocity
+    fn vel() -> na::Vector3<f32> {
+        na::Vector3::zeros()
     }
 
-    #[test]
+    /*#[test]
     fn wraparound() {
-        /*let mut pred = PredictedMotion::new(pos(), char());
+        let mut pred = PredictedMotion::new(pos(), vel());
         pred.generation = u16::max_value() - 1;
         assert_eq!(pred.push(&na::Vector3::x()), u16::max_value());
         assert_eq!(pred.push(&na::Vector3::x()), 0);
@@ -131,6 +127,6 @@ mod tests {
         pred.reconcile(u16::max_value(), pos());
         assert_eq!(pred.log.len(), 1);
         pred.reconcile(0, pos());
-        assert_eq!(pred.log.len(), 0);*/
-    }
+        assert_eq!(pred.log.len(), 0);
+    }*/
 }

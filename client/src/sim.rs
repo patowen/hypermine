@@ -65,11 +65,7 @@ impl Sim {
                     node: NodeId::ROOT,
                     local: na::one(),
                 },
-                proto::Character {
-                    name: "Temp".to_string(),
-                    orientation: na::UnitQuaternion::identity(),
-                    velocity: na::zero(),
-                },
+                na::zero()
             ),
         }
     }
@@ -155,7 +151,7 @@ impl Sim {
                 }
                 self.step = Some(msg.step);
                 for (id, new_pos, new_char) in &msg.positions {
-                    self.update_position(msg.latest_input, *id, *new_pos, new_char.clone());
+                    self.update_position(msg.latest_input, *id, *new_pos, new_char.velocity);
                 }
             }
         }
@@ -166,7 +162,7 @@ impl Sim {
         latest_input: u16,
         id: EntityId,
         new_pos: Position,
-        new_char: Character,
+        new_vel: na::Vector3<f32>,
     ) {
         if let Some(params) = self.params.as_ref() {
             if params.character_id == id {
@@ -176,7 +172,7 @@ impl Sim {
                     1.0 / params.sim_config.rate as f32,
                     latest_input,
                     new_pos,
-                    new_char.clone(),
+                    new_vel,
                 );
             }
         }
@@ -192,7 +188,7 @@ impl Sim {
                         self.graph_entities.insert(new_pos.node, entity);
                     }
                     *pos = new_pos;
-                    *char = new_char;
+                    char.velocity = new_vel;
                 }
                 _ => error!(%id, "position update for unpositioned entity {:?}", entity),
             },
@@ -279,7 +275,7 @@ impl Sim {
 
     pub fn view(&self) -> Position {
         let mut result = *self.prediction.predicted_position();
-        let mut predicted_character = self.prediction.predicted_character().clone();
+        let mut predicted_velocity = *self.prediction.predicted_velocity();
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
@@ -290,10 +286,9 @@ impl Sim {
                 attempt_jump: false,
                 no_clip: false,
             };
-            println!("{}", predicted_input.movement.norm());
             CharacterControllerPass {
                 position: &mut result,
-                character: &mut predicted_character,
+                velocity: &mut predicted_velocity,
                 input: &predicted_input,
                 graph: &self.graph,
                 config: &params.sim_config,

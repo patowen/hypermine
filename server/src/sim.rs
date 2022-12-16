@@ -119,7 +119,7 @@ impl Sim {
         {
             CharacterControllerPass {
                 position,
-                character,
+                velocity: &mut character.velocity,
                 input,
                 graph: &self.graph,
                 config: &self.cfg,
