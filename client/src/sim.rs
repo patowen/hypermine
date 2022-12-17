@@ -35,6 +35,9 @@ pub struct Sim {
     ///
     /// Units are relative to movement speed.
     instantaneous_velocity: na::Vector3<f32>,
+    no_clip: bool,
+    /// Whether no_clip will be toggled next frame
+    toggle_no_clip: bool,
     /// Average input over the current time step. The portion of the timestep which has not yet
     /// elapsed is considered to have zero input.
     ///
@@ -59,6 +62,8 @@ impl Sim {
 
             since_input_sent: Duration::new(0, 0),
             instantaneous_velocity: na::zero(),
+            no_clip: true,
+            toggle_no_clip: false,
             average_velocity: na::zero(),
             prediction: PredictedMotion::new(
                 proto::Position {
@@ -76,6 +81,10 @@ impl Sim {
 
     pub fn velocity(&mut self, v: na::Vector3<f32>) {
         self.instantaneous_velocity = v;
+    }
+
+    pub fn toggle_no_clip(&mut self) {
+        self.toggle_no_clip = true;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -108,6 +117,11 @@ impl Sim {
 
                 // Send fresh input
                 self.send_input();
+
+                if self.toggle_no_clip {
+                    self.no_clip = !self.no_clip;
+                    self.toggle_no_clip = false;
+                }
 
                 // Reset state for the next step
                 if overflow > step_interval {
@@ -290,7 +304,7 @@ impl Sim {
         let params = self.params.as_ref().unwrap();
         let player_input = CharacterInput {
             movement: velocity,
-            no_clip: false,
+            no_clip: self.no_clip,
         };
         let graph = &self.graph;
         let generation = self
@@ -324,7 +338,7 @@ impl Sim {
                 movement: self.orientation * self.average_velocity
                     / self.since_input_sent.as_secs_f32()
                     / params.sim_config.rate as f32,
-                no_clip: false,
+                no_clip: self.no_clip,
             };
             CharacterControllerPass {
                 position: &mut result,
