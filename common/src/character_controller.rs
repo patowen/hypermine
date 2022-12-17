@@ -1,7 +1,7 @@
 use crate::{
     graph::Graph,
     math,
-    proto::{Position, CharacterInput},
+    proto::{CharacterInput, Position},
     sanitize_motion_input, SimConfig,
 };
 
@@ -31,8 +31,7 @@ impl<T> CharacterControllerPass<'_, T> {
                 movement * self.config.max_ground_speed - *self.velocity;
             let max_delta_velocity = self.config.ground_acceleration * self.dt_seconds;
             if current_to_target_velocity.norm_squared() > max_delta_velocity.powi(2) {
-                *self.velocity +=
-                    current_to_target_velocity.normalize() * max_delta_velocity;
+                *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
             } else {
                 *self.velocity += current_to_target_velocity;
             }
