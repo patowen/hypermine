@@ -9,7 +9,7 @@ use common::{
     character_controller::CharacterControllerPass,
     graph::{Graph, NodeId},
     node::{DualGraph, Node},
-    proto::{self, Character, CharacterInput, Command, Component, Position},
+    proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input,
     worldgen::NodeState,
     Chunks, EntityId, GraphEntities, SimConfig, Step,
@@ -164,57 +164,18 @@ impl Sim {
                     return;
                 }
                 self.step = Some(msg.step);
-                let my_id = self.params.as_ref().map(|params| params.character_id);
-                let mut my_position = None;
-                let mut my_velocity = None;
-                for &(id, new_pos) in &msg.positions {
-                    if Some(id) == my_id {
-                        my_position = Some(new_pos)
-                    }
+                for &(id, ref new_pos) in &msg.positions {
                     self.update_position(id, new_pos);
                 }
-                for &(id, ref state) in &msg.character_states {
-                    if Some(id) == my_id {
-                        my_velocity = Some(state.velocity)
-                    }
-                    match self.entity_ids.get(&id) {
-                        None => debug!(%id, "character state update for unknown entity"),
-                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
-                            Ok(mut ch) => {
-                                ch.velocity = state.velocity;
-                                ch.orientation = state.orientation;
-                            }
-                            Err(e) => {
-                                error!(%id, "character state update error: {}", e)
-                            }
-                        },
-                    }
+                for &(id, ref new_state) in &msg.character_states {
+                    self.update_character_state(id, new_state);
                 }
-                if let Some(params) = self.params.as_ref() {
-                    if let (Some(my_position), Some(my_velocity)) = (my_position, my_velocity) {
-                        self.prediction.reconcile(
-                            msg.latest_input,
-                            my_position,
-                            my_velocity,
-                            |position, velocity, input| {
-                                CharacterControllerPass {
-                                    position,
-                                    velocity,
-                                    input,
-                                    graph: &self.graph,
-                                    config: &params.sim_config,
-                                    dt_seconds: 1.0 / params.sim_config.rate as f32,
-                                }
-                                .step()
-                            },
-                        );
-                    }
-                }
+                self.reconcile_prediction(msg.latest_input);
             }
         }
     }
 
-    fn update_position(&mut self, id: EntityId, new_pos: Position) {
+    fn update_position(&mut self, id: EntityId, new_pos: &Position) {
         match self.entity_ids.get(&id) {
             None => debug!(%id, "position update for unknown entity"),
             Some(&entity) => match self.world.get::<&mut Position>(entity) {
@@ -223,11 +184,67 @@ impl Sim {
                         self.graph_entities.remove(pos.node, entity);
                         self.graph_entities.insert(new_pos.node, entity);
                     }
-                    *pos = new_pos;
+                    *pos = *new_pos;
                 }
                 Err(e) => error!(%id, "position update error: {}", e),
             },
         }
+    }
+
+    fn update_character_state(&mut self, id: EntityId, new_character_state: &CharacterState) {
+        match self.entity_ids.get(&id) {
+            None => debug!(%id, "character state update for unknown entity"),
+            Some(&entity) => match self.world.get::<&mut Character>(entity) {
+                Ok(mut ch) => {
+                    ch.velocity = new_character_state.velocity;
+                    ch.orientation = new_character_state.orientation;
+                }
+                Err(e) => {
+                    error!(%id, "character state update error: {}", e)
+                }
+            },
+        }
+    }
+
+    fn reconcile_prediction(&mut self, latest_input: u16) {
+        let Some(params) = self.params.as_ref() else {
+            return;
+        };
+        let id = params.character_id;
+        let Some(&entity) = self.entity_ids.get(&id) else {
+            debug!(%id, "reconciliation attempted for unknown entity");
+            return;
+        };
+        let pos = match self.world.get::<&Position>(entity) {
+            Ok(pos) => pos,
+            Err(e) => {
+                error!(%id, "reconciliation error: {}", e);
+                return;
+            }
+        };
+        let ch = match self.world.get::<&Character>(entity) {
+            Ok(pos) => pos,
+            Err(e) => {
+                error!(%id, "reconciliation error: {}", e);
+                return;
+            }
+        };
+        self.prediction.reconcile(
+            latest_input,
+            *pos,
+            ch.velocity,
+            |position, velocity, input| {
+                CharacterControllerPass {
+                    position,
+                    velocity,
+                    input,
+                    graph: &self.graph,
+                    config: &params.sim_config,
+                    dt_seconds: 1.0 / params.sim_config.rate as f32,
+                }
+                .step()
+            },
+        );
     }
 
     fn handle_spawns(&mut self, msg: proto::Spawns) {
