@@ -36,7 +36,7 @@ pub struct Sim {
     /// Units are relative to movement speed.
     instantaneous_velocity: na::Vector3<f32>,
     no_clip: bool,
-    /// Whether no_clip will be toggled next frame
+    /// Whether no_clip will be toggled next tick
     toggle_no_clip: bool,
     /// Average input over the current time step. The portion of the timestep which has not yet
     /// elapsed is considered to have zero input.
@@ -65,13 +65,10 @@ impl Sim {
             no_clip: true,
             toggle_no_clip: false,
             average_velocity: na::zero(),
-            prediction: PredictedMotion::new(
-                proto::Position {
-                    node: NodeId::ROOT,
-                    local: na::one(),
-                },
-                na::zero(),
-            ),
+            prediction: PredictedMotion::new(proto::Position {
+                node: NodeId::ROOT,
+                local: na::one(),
+            }),
         }
     }
 
@@ -83,6 +80,9 @@ impl Sim {
         self.instantaneous_velocity = v;
     }
 
+    /// Prepares no_clip to be toggled after the next tick. We avoid toggling it immediately, as
+    /// that would cause a discontinuity when predicting the player's position within a given tick,
+    /// causing an undesirable jolt.
     pub fn toggle_no_clip(&mut self) {
         self.toggle_no_clip = true;
     }
@@ -173,39 +173,25 @@ impl Sim {
                     }
                     self.update_position(id, new_pos);
                 }
-                for &(id, velocity) in &msg.character_velocities {
+                for &(id, ref state) in &msg.character_states {
                     if Some(id) == my_id {
-                        my_velocity = Some(velocity)
+                        my_velocity = Some(state.velocity)
                     }
                     match self.entity_ids.get(&id) {
-                        None => debug!(%id, "character orientation update for unknown entity"),
+                        None => debug!(%id, "character state update for unknown entity"),
                         Some(&entity) => match self.world.get::<&mut Character>(entity) {
                             Ok(mut ch) => {
-                                ch.velocity = velocity;
+                                ch.velocity = state.velocity;
+                                ch.orientation = state.orientation;
                             }
                             Err(e) => {
-                                error!(%id, "character orientation update for non-character entity {}", e)
+                                error!(%id, "character state update error: {}", e)
                             }
                         },
                     }
                 }
-                for &(id, orientation) in &msg.character_orientations {
-                    match self.entity_ids.get(&id) {
-                        None => debug!(%id, "character orientation update for unknown entity"),
-                        Some(&entity) => match self.world.get::<&mut Character>(entity) {
-                            Ok(mut ch) => {
-                                ch.orientation = orientation;
-                            }
-                            Err(e) => {
-                                error!(%id, "character orientation update for non-character entity {}", e)
-                            }
-                        },
-                    }
-                }
-
                 if let Some(params) = self.params.as_ref() {
                     if let (Some(my_position), Some(my_velocity)) = (my_position, my_velocity) {
-                        let graph = &self.graph;
                         self.prediction.reconcile(
                             msg.latest_input,
                             my_position,
@@ -215,7 +201,7 @@ impl Sim {
                                     position,
                                     velocity,
                                     input,
-                                    graph,
+                                    graph: &self.graph,
                                     config: &params.sim_config,
                                     dt_seconds: 1.0 / params.sim_config.rate as f32,
                                 }
@@ -239,7 +225,7 @@ impl Sim {
                     }
                     *pos = new_pos;
                 }
-                Err(e) => error!(%id, "position update for unpositioned entity {}", e),
+                Err(e) => error!(%id, "position update error: {}", e),
             },
         }
     }
@@ -302,19 +288,18 @@ impl Sim {
     fn send_input(&mut self) {
         let velocity = sanitize_motion_input(self.orientation * self.average_velocity);
         let params = self.params.as_ref().unwrap();
-        let player_input = CharacterInput {
+        let character_input = CharacterInput {
             movement: velocity,
             no_clip: self.no_clip,
         };
-        let graph = &self.graph;
         let generation = self
             .prediction
-            .push(&player_input, |position, velocity, input| {
+            .push(&character_input, |position, velocity, input| {
                 CharacterControllerPass {
                     position,
                     velocity,
                     input,
-                    graph,
+                    graph: &self.graph,
                     config: &params.sim_config,
                     dt_seconds: 1.0 / params.sim_config.rate as f32,
                 }
@@ -324,7 +309,7 @@ impl Sim {
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
             generation,
-            player_input,
+            character_input,
             orientation: self.orientation,
         });
     }

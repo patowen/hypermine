@@ -34,8 +34,13 @@ pub struct StateDelta {
     /// Highest input generation received prior to `step`
     pub latest_input: u16,
     pub positions: Vec<(EntityId, Position)>,
-    pub character_velocities: Vec<(EntityId, na::Vector3<f32>)>,
-    pub character_orientations: Vec<(EntityId, na::UnitQuaternion<f32>)>,
+    pub character_states: Vec<(EntityId, CharacterState)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterState {
+    pub velocity: na::Vector3<f32>,
+    pub orientation: na::UnitQuaternion<f32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -49,7 +54,7 @@ pub struct Spawns {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub generation: u16,
-    pub player_input: CharacterInput,
+    pub character_input: CharacterInput,
     pub orientation: na::UnitQuaternion<f32>,
 }
 

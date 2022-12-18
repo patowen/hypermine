@@ -17,12 +17,12 @@ pub struct PredictedMotion<T: Clone> {
 }
 
 impl<T: Clone> PredictedMotion<T> {
-    pub fn new(initial_position: Position, initial_velocity: na::Vector3<f32>) -> Self {
+    pub fn new(initial_position: Position) -> Self {
         Self {
             log: VecDeque::new(),
             generation: 0,
             predicted_position: initial_position,
-            predicted_velocity: initial_velocity,
+            predicted_velocity: na::Vector3::zeros(),
         }
     }
 
@@ -99,7 +99,7 @@ mod tests {
 
     #[test]
     fn wraparound() {
-        let mut pred: PredictedMotion<nalgebra::Vector3<f32>> = PredictedMotion::new(pos(), vel());
+        let mut pred: PredictedMotion<nalgebra::Vector3<f32>> = PredictedMotion::new(pos());
         pred.generation = u16::max_value() - 1;
         assert_eq!(pred.push(&na::Vector3::x(), |_, _, _| {}), u16::max_value());
         assert_eq!(pred.push(&na::Vector3::x(), |_, _, _| {}), 0);

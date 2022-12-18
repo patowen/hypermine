@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common::character_controller::CharacterControllerPass;
-use common::proto::{Character, CharacterInput};
+use common::proto::{Character, CharacterInput, CharacterState};
 use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
@@ -76,7 +76,7 @@ impl Sim {
         command: Command,
     ) -> Result<(), hecs::ComponentError> {
         let mut input = self.world.get::<&mut CharacterInput>(entity)?;
-        *input = command.player_input;
+        *input = command.character_input;
         Ok(())
     }
 
@@ -165,17 +165,19 @@ impl Sim {
                 .iter()
                 .map(|(_, (&id, &position))| (id, position))
                 .collect(),
-            character_velocities: self
+            character_states: self
                 .world
                 .query::<(&EntityId, &Character)>()
                 .iter()
-                .map(|(_, (&id, ch))| (id, ch.velocity))
-                .collect(),
-            character_orientations: self
-                .world
-                .query::<(&EntityId, &Character)>()
-                .iter()
-                .map(|(_, (&id, ch))| (id, ch.orientation))
+                .map(|(_, (&id, ch))| {
+                    (
+                        id,
+                        CharacterState {
+                            velocity: ch.velocity,
+                            orientation: ch.orientation,
+                        },
+                    )
+                })
                 .collect(),
         };
 
