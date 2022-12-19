@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub fn run_character_step<T>(
-    config: &SimConfig,
+    cfg: &SimConfig,
     graph: &Graph<T>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
@@ -14,7 +14,7 @@ pub fn run_character_step<T>(
     dt_seconds: f32,
 ) {
     CharacterControllerPass {
-        config,
+        cfg,
         graph,
         position,
         velocity,
@@ -25,7 +25,7 @@ pub fn run_character_step<T>(
 }
 
 struct CharacterControllerPass<'a, T> {
-    config: &'a SimConfig,
+    cfg: &'a SimConfig,
     graph: &'a Graph<T>,
     position: &'a mut Position,
     velocity: &'a mut na::Vector3<f32>,
@@ -40,15 +40,14 @@ impl<T> CharacterControllerPass<'_, T> {
         if self.input.no_clip {
             *self.velocity = na::Vector3::zeros();
             self.position.local *= math::translate_along(
-                &(movement * self.config.no_clip_movement_speed * self.dt_seconds),
+                &(movement * self.cfg.no_clip_movement_speed * self.dt_seconds),
             );
         } else {
             let old_velocity = *self.velocity;
 
             // Update velocity
-            let current_to_target_velocity =
-                movement * self.config.max_ground_speed - *self.velocity;
-            let max_delta_velocity = self.config.ground_acceleration * self.dt_seconds;
+            let current_to_target_velocity = movement * self.cfg.max_ground_speed - *self.velocity;
+            let max_delta_velocity = self.cfg.ground_acceleration * self.dt_seconds;
             if current_to_target_velocity.norm_squared() > max_delta_velocity.powi(2) {
                 *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
             } else {

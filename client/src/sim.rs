@@ -98,7 +98,7 @@ impl Sim {
             self.handle_net(msg);
         }
 
-        if let Some(step_interval) = self.params.as_ref().map(|x| x.sim_config.tick_duration) {
+        if let Some(step_interval) = self.params.as_ref().map(|x| x.cfg.tick_duration) {
             self.since_input_sent += dt;
             if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
                 // At least one step interval has passed since we last sent input, so it's time to
@@ -148,7 +148,7 @@ impl Sim {
             Hello(msg) => {
                 self.params = Some(Parameters {
                     character_id: msg.character,
-                    sim_config: msg.sim_config,
+                    cfg: msg.sim_config,
                 });
                 // Populate the root node
                 populate_fresh_nodes(&mut self.graph);
@@ -231,12 +231,12 @@ impl Sim {
             ch.velocity,
             |position, velocity, input| {
                 character_controller::run_character_step(
-                    &params.sim_config,
+                    &params.cfg,
                     &self.graph,
                     position,
                     velocity,
                     input,
-                    params.sim_config.tick_duration.as_secs_f32(),
+                    params.cfg.tick_duration.as_secs_f32(),
                 );
             },
         );
@@ -308,12 +308,12 @@ impl Sim {
             .prediction
             .push(&character_input, |position, velocity, input| {
                 character_controller::run_character_step(
-                    &params.sim_config,
+                    &params.cfg,
                     &self.graph,
                     position,
                     velocity,
                     input,
-                    params.sim_config.tick_duration.as_secs_f32(),
+                    params.cfg.tick_duration.as_secs_f32(),
                 );
             });
 
@@ -333,11 +333,11 @@ impl Sim {
             let predicted_input = CharacterInput {
                 movement: self.orientation * self.average_velocity
                     / (self.since_input_sent.as_secs_f32()
-                        / params.sim_config.tick_duration.as_secs_f32()),
+                        / params.cfg.tick_duration.as_secs_f32()),
                 no_clip: self.no_clip,
             };
             character_controller::run_character_step(
-                &params.sim_config,
+                &params.cfg,
                 &self.graph,
                 &mut result,
                 &mut predicted_velocity,
@@ -372,7 +372,7 @@ impl Sim {
 
 /// Simulation details received on connect
 pub struct Parameters {
-    pub sim_config: SimConfig,
+    pub cfg: SimConfig,
     pub character_id: EntityId,
 }
 
