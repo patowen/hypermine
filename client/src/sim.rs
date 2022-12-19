@@ -43,7 +43,7 @@ pub struct Sim {
     ///
     /// Units are relative to movement speed.
     average_velocity: na::Vector3<f32>,
-    prediction: PredictedMotion<CharacterInput>,
+    prediction: PredictedMotion,
 }
 
 impl Sim {
