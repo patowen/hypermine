@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use common::character_controller::CharacterControllerPass;
+use common::character_controller;
 use common::proto::{Character, CharacterInput, CharacterState};
 use fxhash::FxHashMap;
 use hecs::Entity;
@@ -115,15 +115,14 @@ impl Sim {
             .query::<(&mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
-            CharacterControllerPass {
+            character_controller::run_character_step(
+                &self.cfg,
+                &self.graph,
                 position,
-                velocity: &mut character.velocity,
+                &mut character.velocity,
                 input,
-                graph: &self.graph,
-                config: &self.cfg,
-                dt_seconds: self.cfg.tick_duration.as_secs_f32(),
-            }
-            .step();
+                self.cfg.tick_duration.as_secs_f32(),
+            );
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }
 

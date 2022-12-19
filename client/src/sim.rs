@@ -6,7 +6,7 @@ use tracing::{debug, error, trace};
 
 use crate::{net, prediction::PredictedMotion, Net};
 use common::{
-    character_controller::CharacterControllerPass,
+    character_controller,
     graph::{Graph, NodeId},
     node::{DualGraph, Node},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
@@ -219,7 +219,7 @@ impl Sim {
             }
         };
         let ch = match self.world.get::<&Character>(entity) {
-            Ok(pos) => pos,
+            Ok(ch) => ch,
             Err(e) => {
                 error!(%id, "reconciliation error: {}", e);
                 return;
@@ -230,15 +230,14 @@ impl Sim {
             *pos,
             ch.velocity,
             |position, velocity, input| {
-                CharacterControllerPass {
+                character_controller::run_character_step(
+                    &params.sim_config,
+                    &self.graph,
                     position,
                     velocity,
                     input,
-                    graph: &self.graph,
-                    config: &params.sim_config,
-                    dt_seconds: params.sim_config.tick_duration.as_secs_f32(),
-                }
-                .step()
+                    params.sim_config.tick_duration.as_secs_f32(),
+                );
             },
         );
     }
@@ -308,15 +307,14 @@ impl Sim {
         let generation = self
             .prediction
             .push(&character_input, |position, velocity, input| {
-                CharacterControllerPass {
+                character_controller::run_character_step(
+                    &params.sim_config,
+                    &self.graph,
                     position,
                     velocity,
                     input,
-                    graph: &self.graph,
-                    config: &params.sim_config,
-                    dt_seconds: params.sim_config.tick_duration.as_secs_f32(),
-                }
-                .step()
+                    params.sim_config.tick_duration.as_secs_f32(),
+                );
             });
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
@@ -338,15 +336,14 @@ impl Sim {
                         / params.sim_config.tick_duration.as_secs_f32()),
                 no_clip: self.no_clip,
             };
-            CharacterControllerPass {
-                position: &mut result,
-                velocity: &mut predicted_velocity,
-                input: &predicted_input,
-                graph: &self.graph,
-                config: &params.sim_config,
-                dt_seconds: self.since_input_sent.as_secs_f32(),
-            }
-            .step();
+            character_controller::run_character_step(
+                &params.sim_config,
+                &self.graph,
+                &mut result,
+                &mut predicted_velocity,
+                &predicted_input,
+                self.since_input_sent.as_secs_f32(),
+            );
         }
         result.local *= self.orientation.to_homogeneous();
         result
