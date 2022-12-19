@@ -98,11 +98,7 @@ impl Sim {
             self.handle_net(msg);
         }
 
-        if let Some(step_interval) = self
-            .params
-            .as_ref()
-            .map(|x| Duration::from_secs_f32(1.0 / x.sim_config.rate as f32))
-        {
+        if let Some(step_interval) = self.params.as_ref().map(|x| x.sim_config.tick_duration) {
             self.since_input_sent += dt;
             if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
                 // At least one step interval has passed since we last sent input, so it's time to
@@ -240,7 +236,7 @@ impl Sim {
                     input,
                     graph: &self.graph,
                     config: &params.sim_config,
-                    dt_seconds: 1.0 / params.sim_config.rate as f32,
+                    dt_seconds: params.sim_config.tick_duration.as_secs_f32(),
                 }
                 .step()
             },
@@ -318,7 +314,7 @@ impl Sim {
                     input,
                     graph: &self.graph,
                     config: &params.sim_config,
-                    dt_seconds: 1.0 / params.sim_config.rate as f32,
+                    dt_seconds: params.sim_config.tick_duration.as_secs_f32(),
                 }
                 .step()
             });
@@ -338,8 +334,8 @@ impl Sim {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
                 movement: self.orientation * self.average_velocity
-                    / self.since_input_sent.as_secs_f32()
-                    / params.sim_config.rate as f32,
+                    / (self.since_input_sent.as_secs_f32()
+                        / params.sim_config.tick_duration.as_secs_f32()),
                 no_clip: self.no_clip,
             };
             CharacterControllerPass {

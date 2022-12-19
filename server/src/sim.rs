@@ -121,7 +121,7 @@ impl Sim {
                 input,
                 graph: &self.graph,
                 config: &self.cfg,
-                dt_seconds: 1.0 / self.cfg.rate as f32,
+                dt_seconds: self.cfg.tick_duration.as_secs_f32(),
             }
             .step();
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
