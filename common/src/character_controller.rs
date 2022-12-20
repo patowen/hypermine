@@ -38,6 +38,8 @@ impl<T> CharacterControllerPass<'_, T> {
         let movement = sanitize_motion_input(self.input.movement);
 
         if self.input.no_clip {
+            // If no-clip is on, the velocity field is useless, and we don't want to accidentally
+            // save velocity from when no-clip was off.
             *self.velocity = na::Vector3::zeros();
             self.position.local *= math::translate_along(
                 &(movement * self.cfg.no_clip_movement_speed * self.dt_seconds),

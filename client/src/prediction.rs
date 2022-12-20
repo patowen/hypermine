@@ -90,8 +90,6 @@ impl PredictedMotion {
 
 #[cfg(test)]
 mod tests {
-    use common::SimConfigRaw;
-
     use super::*;
 
     /// An arbitrary position
@@ -102,14 +100,9 @@ mod tests {
         }
     }
 
-    /// An arbitrary velocity
-    fn vel() -> na::Vector3<f32> {
-        na::Vector3::zeros()
-    }
-
     #[test]
     fn wraparound() {
-        let mock_cfg = SimConfig::from_raw(&SimConfigRaw::default());
+        let mock_cfg = SimConfig::from_raw(&common::SimConfigRaw::default());
         let mock_graph = DualGraph::new();
         let mock_character_input = CharacterInput {
             movement: na::Vector3::x(),
@@ -122,7 +115,13 @@ mod tests {
         let push =
             |pred: &mut PredictedMotion| pred.push(&mock_cfg, &mock_graph, &mock_character_input);
         let reconcile = |pred: &mut PredictedMotion, generation| {
-            pred.reconcile(&mock_cfg, &mock_graph, generation, pos(), vel())
+            pred.reconcile(
+                &mock_cfg,
+                &mock_graph,
+                generation,
+                pos(),
+                na::Vector3::zeros(),
+            )
         };
 
         pred.generation = u16::max_value() - 1;

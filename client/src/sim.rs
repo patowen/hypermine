@@ -35,14 +35,14 @@ pub struct Sim {
     ///
     /// Units are relative to movement speed.
     movement_input: na::Vector3<f32>,
-    no_clip: bool,
-    /// Whether no_clip will be toggled next tick
-    toggle_no_clip: bool,
     /// Average input over the current time step. The portion of the timestep which has not yet
     /// elapsed is considered to have zero input.
     ///
     /// Units are relative to movement speed.
     average_movement_input: na::Vector3<f32>,
+    no_clip: bool,
+    /// Whether no_clip will be toggled next tick
+    toggle_no_clip: bool,
     prediction: PredictedMotion,
 }
 
@@ -62,9 +62,9 @@ impl Sim {
 
             since_input_sent: Duration::new(0, 0),
             movement_input: na::zero(),
+            average_movement_input: na::zero(),
             no_clip: true,
             toggle_no_clip: false,
-            average_movement_input: na::zero(),
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -113,6 +113,7 @@ impl Sim {
                 // Send fresh input
                 self.send_input();
 
+                // Toggle no clip at the start of a new tick
                 if self.toggle_no_clip {
                     self.no_clip = !self.no_clip;
                     self.toggle_no_clip = false;
@@ -307,6 +308,10 @@ impl Sim {
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
+                // We divide by how far we are through the timestep because self.average_velocity
+                // is always over the entire timestep, filling in zeroes for the future, and we
+                // want to use the average over what we have so far. Dividing by zero is handled
+                // by the character_controller sanitizing this input.
                 movement: self.orientation * self.average_movement_input
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.tick_duration.as_secs_f32()),
