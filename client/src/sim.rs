@@ -34,7 +34,7 @@ pub struct Sim {
     /// Most recent input
     ///
     /// Units are relative to movement speed.
-    instantaneous_velocity: na::Vector3<f32>,
+    movement_input: na::Vector3<f32>,
     no_clip: bool,
     /// Whether no_clip will be toggled next tick
     toggle_no_clip: bool,
@@ -42,7 +42,7 @@ pub struct Sim {
     /// elapsed is considered to have zero input.
     ///
     /// Units are relative to movement speed.
-    average_velocity: na::Vector3<f32>,
+    average_movement_input: na::Vector3<f32>,
     prediction: PredictedMotion,
 }
 
@@ -61,10 +61,10 @@ impl Sim {
             step: None,
 
             since_input_sent: Duration::new(0, 0),
-            instantaneous_velocity: na::zero(),
+            movement_input: na::zero(),
             no_clip: true,
             toggle_no_clip: false,
-            average_velocity: na::zero(),
+            average_movement_input: na::zero(),
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -76,8 +76,8 @@ impl Sim {
         self.orientation *= delta;
     }
 
-    pub fn velocity(&mut self, v: na::Vector3<f32>) {
-        self.instantaneous_velocity = v;
+    pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
+        self.movement_input = movement_input;
     }
 
     /// Prepares no_clip to be toggled after the next tick. We avoid toggling it immediately, as
@@ -104,11 +104,10 @@ impl Sim {
                 // At least one step interval has passed since we last sent input, so it's time to
                 // send again.
 
-                // Update average velocity for the time between the last input sample and the end of
+                // Update average movement input for the time between the last input sample and the end of
                 // the previous step. dt > overflow because we check whether a step has elapsed
                 // after each increment.
-                self.average_velocity += self.instantaneous_velocity
-                    * (dt - overflow).as_secs_f32()
+                self.average_movement_input += self.movement_input * (dt - overflow).as_secs_f32()
                     / step_interval.as_secs_f32();
 
                 // Send fresh input
@@ -123,18 +122,18 @@ impl Sim {
                 if overflow > step_interval {
                     // If it's been more than two timesteps since we last sent input, skip ahead
                     // rather than spamming the server.
-                    self.average_velocity = na::zero();
+                    self.average_movement_input = na::zero();
                     self.since_input_sent = Duration::new(0, 0);
                 } else {
-                    self.average_velocity = self.instantaneous_velocity * overflow.as_secs_f32()
-                        / step_interval.as_secs_f32();
+                    self.average_movement_input =
+                        self.movement_input * overflow.as_secs_f32() / step_interval.as_secs_f32();
                     // Send the next input a little sooner if necessary to stay in sync
                     self.since_input_sent = overflow;
                 }
             } else {
-                // Update average velocity for the time within the current step
-                self.average_velocity +=
-                    self.instantaneous_velocity * dt.as_secs_f32() / step_interval.as_secs_f32();
+                // Update average movement input for the time within the current step
+                self.average_movement_input +=
+                    self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
             }
         }
     }
@@ -298,10 +297,9 @@ impl Sim {
     }
 
     fn send_input(&mut self) {
-        let velocity = sanitize_motion_input(self.orientation * self.average_velocity);
         let params = self.params.as_ref().unwrap();
         let character_input = CharacterInput {
-            movement: velocity,
+            movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
         };
         let generation = self
@@ -331,7 +329,7 @@ impl Sim {
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
-                movement: self.orientation * self.average_velocity
+                movement: self.orientation * self.average_movement_input
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.tick_duration.as_secs_f32()),
                 no_clip: self.no_clip,
