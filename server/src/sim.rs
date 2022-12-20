@@ -121,7 +121,7 @@ impl Sim {
                 position,
                 &mut character.velocity,
                 input,
-                self.cfg.tick_duration.as_secs_f32(),
+                self.cfg.step_interval.as_secs_f32(),
             );
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }

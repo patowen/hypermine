@@ -40,7 +40,7 @@ impl PredictedMotion {
             &mut self.predicted_position,
             &mut self.predicted_velocity,
             input,
-            cfg.tick_duration.as_secs_f32(),
+            cfg.step_interval.as_secs_f32(),
         );
         self.log.push_back(input.clone());
         self.generation = self.generation.wrapping_add(1);
@@ -73,7 +73,7 @@ impl PredictedMotion {
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
                 input,
-                cfg.tick_duration.as_secs_f32(),
+                cfg.step_interval.as_secs_f32(),
             );
         }
     }

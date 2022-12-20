@@ -56,7 +56,7 @@ impl Server {
     }
 
     async fn run(mut self, incoming: quinn::Incoming) {
-        let mut ticks = IntervalStream::new(tokio::time::interval(self.cfg.tick_duration)).fuse();
+        let mut ticks = IntervalStream::new(tokio::time::interval(self.cfg.step_interval)).fuse();
         let mut incoming = incoming
             .inspect(|x| trace!(address = %x.remote_address(), "connection incoming"))
             .buffer_unordered(16);
