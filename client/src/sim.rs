@@ -224,14 +224,8 @@ impl Sim {
                 return;
             }
         };
-        self.prediction.reconcile(
-            &params.cfg,
-            &self.graph,
-            latest_input,
-            *pos,
-            ch.velocity,
-            params.cfg.tick_duration.as_secs_f32(),
-        );
+        self.prediction
+            .reconcile(&params.cfg, &self.graph, latest_input, *pos, ch.velocity);
     }
 
     fn handle_spawns(&mut self, msg: proto::Spawns) {
@@ -295,12 +289,9 @@ impl Sim {
             movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
         };
-        let generation = self.prediction.push(
-            &params.cfg,
-            &self.graph,
-            &character_input,
-            params.cfg.tick_duration.as_secs_f32(),
-        );
+        let generation = self
+            .prediction
+            .push(&params.cfg, &self.graph, &character_input);
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
