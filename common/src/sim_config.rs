@@ -24,7 +24,7 @@ pub struct SimConfigRaw {
     /// Note that exact voxel size varies within each chunk. We reference the mean width of the voxels
     /// along the X axis through the center of a chunk.
     pub voxel_size: Option<f32>,
-    /// Character movement speed in m/s during no clip
+    /// Character movement speed in m/s during no-clip
     pub no_clip_movement_speed: Option<f32>,
     /// Character maximumum movement speed while on the ground in m/s
     pub max_ground_speed: Option<f32>,
