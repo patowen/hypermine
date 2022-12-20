@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use common::character_controller;
-use common::proto::{Character, CharacterInput, CharacterState};
 use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
@@ -9,9 +7,13 @@ use rand::{Rng, SeedableRng};
 use tracing::{error_span, info, trace};
 
 use common::{
+    character_controller,
     graph::{Graph, NodeId},
     math,
-    proto::{self, ClientHello, Command, Component, FreshNode, Position, Spawns, StateDelta},
+    proto::{
+        self, Character, CharacterInput, CharacterState, ClientHello, Command, Component,
+        FreshNode, Position, Spawns, StateDelta,
+    },
     traversal::ensure_nearby,
     EntityId, SimConfig, Step,
 };
