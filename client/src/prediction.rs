@@ -1,6 +1,11 @@
 use std::collections::VecDeque;
 
-use common::proto::{CharacterInput, Position};
+use common::{
+    character_controller,
+    node::DualGraph,
+    proto::{CharacterInput, Position},
+    SimConfig,
+};
 
 /// Predicts the result of motion inputs in-flight to the server
 ///
@@ -30,13 +35,18 @@ impl PredictedMotion {
     /// tagged with
     pub fn push(
         &mut self,
+        cfg: &SimConfig,
+        graph: &DualGraph,
         input: &CharacterInput,
-        mut step_function: impl FnMut(&mut Position, &mut na::Vector3<f32>, &CharacterInput),
+        dt_seconds: f32,
     ) -> u16 {
-        step_function(
+        character_controller::run_character_step(
+            cfg,
+            graph,
             &mut self.predicted_position,
             &mut self.predicted_velocity,
             input,
+            dt_seconds,
         );
         self.log.push_back(input.clone());
         self.generation = self.generation.wrapping_add(1);
@@ -46,10 +56,12 @@ impl PredictedMotion {
     /// Update with the latest state received from the server and the generation it was based on
     pub fn reconcile(
         &mut self,
+        cfg: &SimConfig,
+        graph: &DualGraph,
         generation: u16,
         position: Position,
         velocity: na::Vector3<f32>,
-        mut step_function: impl FnMut(&mut Position, &mut na::Vector3<f32>, &CharacterInput),
+        dt_seconds: f32,
     ) {
         let first_gen = self.generation.wrapping_sub(self.log.len() as u16);
         let obsolete = usize::from(generation.wrapping_sub(first_gen));
@@ -62,10 +74,13 @@ impl PredictedMotion {
         self.predicted_velocity = velocity;
 
         for input in self.log.iter() {
-            step_function(
+            character_controller::run_character_step(
+                cfg,
+                graph,
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
                 input,
+                dt_seconds,
             );
         }
     }
@@ -82,6 +97,8 @@ impl PredictedMotion {
 
 #[cfg(test)]
 mod tests {
+    use common::SimConfigRaw;
+
     use super::*;
 
     /// An arbitrary position
@@ -99,22 +116,34 @@ mod tests {
 
     #[test]
     fn wraparound() {
-        let character_input = CharacterInput {
+        let mock_cfg = SimConfig::from_raw(&SimConfigRaw::default());
+        let mock_graph = DualGraph::new();
+        let mock_character_input = CharacterInput {
             movement: na::Vector3::x(),
             no_clip: true,
         };
 
         let mut pred = PredictedMotion::new(pos());
+
+        // Helper functions to make test more readable
+        let push = |pred: &mut PredictedMotion| {
+            pred.push(&mock_cfg, &mock_graph, &mock_character_input, 0.1)
+        };
+        let reconcile = |pred: &mut PredictedMotion, generation| {
+            pred.reconcile(&mock_cfg, &mock_graph, generation, pos(), vel(), 0.1)
+        };
+
         pred.generation = u16::max_value() - 1;
-        assert_eq!(pred.push(&character_input, |_, _, _| {}), u16::max_value());
-        assert_eq!(pred.push(&character_input, |_, _, _| {}), 0);
+
+        assert_eq!(push(&mut pred), u16::max_value());
+        assert_eq!(push(&mut pred), 0);
         assert_eq!(pred.log.len(), 2);
 
-        pred.reconcile(u16::max_value() - 1, pos(), vel(), |_, _, _| {});
+        reconcile(&mut pred, u16::max_value() - 1);
         assert_eq!(pred.log.len(), 2);
-        pred.reconcile(u16::max_value(), pos(), vel(), |_, _, _| {});
+        reconcile(&mut pred, u16::max_value());
         assert_eq!(pred.log.len(), 1);
-        pred.reconcile(0, pos(), vel(), |_, _, _| {});
+        reconcile(&mut pred, 0);
         assert_eq!(pred.log.len(), 0);
     }
 }
