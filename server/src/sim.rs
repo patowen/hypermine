@@ -11,8 +11,8 @@ use common::{
     graph::{Graph, NodeId},
     math,
     proto::{
-        self, Character, CharacterInput, CharacterState, ClientHello, Command, Component,
-        FreshNode, Position, Spawns, StateDelta,
+        Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
+        Position, Spawns, StateDelta,
     },
     traversal::ensure_nearby,
     EntityId, SimConfig, Step,
@@ -59,8 +59,10 @@ impl Sim {
         };
         let character = Character {
             name: hello.name,
-            velocity: na::Vector3::zeros(),
-            orientation: na::one(),
+            state: CharacterState {
+                orientation: na::one(),
+                velocity: na::Vector3::zeros(),
+            },
         };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
@@ -121,7 +123,7 @@ impl Sim {
                 &self.cfg,
                 &self.graph,
                 position,
-                &mut character.velocity,
+                &mut character.state.velocity,
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
@@ -170,15 +172,7 @@ impl Sim {
                 .world
                 .query::<(&EntityId, &Character)>()
                 .iter()
-                .map(|(_, (&id, ch))| {
-                    (
-                        id,
-                        CharacterState {
-                            velocity: ch.velocity,
-                            orientation: ch.orientation,
-                        },
-                    )
-                })
+                .map(|(_, (&id, ch))| (id, ch.state.clone()))
                 .collect(),
         };
 
@@ -204,11 +198,7 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
         components.push(Component::Position(*x));
     }
     if let Ok(x) = world.get::<&Character>(entity) {
-        components.push(Component::Character(proto::Character {
-            name: x.name.clone(),
-            orientation: x.orientation,
-            velocity: na::Vector3::zeros(),
-        }));
+        components.push(Component::Character((*x).clone()));
     }
     components
 }

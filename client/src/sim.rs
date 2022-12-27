@@ -80,10 +80,10 @@ impl Sim {
         self.movement_input = movement_input;
     }
 
-    /// Prepares no_clip to be toggled after the next step. We avoid toggling it immediately, as
-    /// that would cause a discontinuity when predicting the player's position within a given step,
-    /// causing an undesirable jolt.
     pub fn toggle_no_clip(&mut self) {
+        // We prepare to toggle no_clip after the next step instead of immediately, as otherwise,
+        // there would be a discontinuity when predicting the player's position within a given step,
+        // causing an undesirable jolt.
         self.toggle_no_clip = true;
     }
 
@@ -192,8 +192,7 @@ impl Sim {
             None => debug!(%id, "character state update for unknown entity"),
             Some(&entity) => match self.world.get::<&mut Character>(entity) {
                 Ok(mut ch) => {
-                    ch.velocity = new_character_state.velocity;
-                    ch.orientation = new_character_state.orientation;
+                    ch.state = new_character_state.clone();
                 }
                 Err(e) => {
                     error!(%id, "character state update error: {}", e)
@@ -225,8 +224,13 @@ impl Sim {
                 return;
             }
         };
-        self.prediction
-            .reconcile(&params.cfg, &self.graph, latest_input, *pos, ch.velocity);
+        self.prediction.reconcile(
+            &params.cfg,
+            &self.graph,
+            latest_input,
+            *pos,
+            ch.state.velocity,
+        );
     }
 
     fn handle_spawns(&mut self, msg: proto::Spawns) {
@@ -308,7 +312,7 @@ impl Sim {
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
-                // We divide by how far we are through the timestep because self.average_velocity
+                // We divide by how far we are through the timestep because self.average_movement_input
                 // is always over the entire timestep, filling in zeroes for the future, and we
                 // want to use the average over what we have so far. Dividing by zero is handled
                 // by the character_controller sanitizing this input.

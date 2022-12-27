@@ -56,9 +56,13 @@ impl<T> CharacterControllerPass<'_, T> {
                 *self.velocity += current_to_target_velocity;
             }
 
-            // Update position using the average between the old and new velocity to avoid the following two issues:
+            // Update position by using the average of the old velocity and new velocity, which has
+            // the effect of modeling a velocity that changes linearly over the timestep. This is
+            // necessary to avoid the following two issues:
             // 1. Input lag, which would occur if only the old velocity was used
-            // 2. Discontinuities, which would occur if only the new velocity was used
+            // 2. Movement artifacts, which would occur if only the new velocity was used. One
+            //    example of such an artifact is the player moving backwards slightly when they
+            //    stop moving after releasing a direction key.
             self.position.local *=
                 math::translate_along(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
         }

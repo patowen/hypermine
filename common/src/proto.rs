@@ -81,6 +81,5 @@ pub struct FreshNode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Character {
     pub name: String,
-    pub orientation: na::UnitQuaternion<f32>,
-    pub velocity: na::Vector3<f32>,
+    pub state: CharacterState,
 }
