@@ -166,7 +166,7 @@ impl Sim {
                     })
                 })
                 .collect(),
-            voxel_data: Vec::new(),
+            voxel_data: self.chunk_loader.loaded_chunks.drain(..).collect(),
         };
         populate_fresh_nodes(&mut self.graph);
         self.graph.clear_fresh();

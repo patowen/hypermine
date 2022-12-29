@@ -32,7 +32,7 @@ impl Default for Chunk {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),
