@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{dodeca, graph::NodeId, EntityId, SimConfig, Step};
+use crate::{dodeca, graph::NodeId, EntityId, SimConfig, Step, node::VoxelData};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientHello {
@@ -49,6 +49,7 @@ pub struct Spawns {
     pub spawns: Vec<(EntityId, Vec<Component>)>,
     pub despawns: Vec<EntityId>,
     pub nodes: Vec<FreshNode>,
+    pub voxel_data: Vec<(NodeId, dodeca::Vertex, VoxelData)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -10,6 +10,7 @@ use common::{
     character_controller,
     graph::{Graph, NodeId},
     math,
+    node::DualGraph,
     proto::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
@@ -24,7 +25,7 @@ pub struct Sim {
     step: Step,
     entity_ids: FxHashMap<EntityId, Entity>,
     world: hecs::World,
-    graph: Graph<Empty>,
+    graph: DualGraph,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
 }
@@ -102,6 +103,7 @@ impl Sim {
                 .tree()
                 .map(|(side, parent)| FreshNode { side, parent })
                 .collect(),
+            voxel_data: Vec::new(),
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
@@ -155,6 +157,7 @@ impl Sim {
                     })
                 })
                 .collect(),
+            voxel_data: Vec::new(),
         };
         self.graph.clear_fresh();
 
@@ -189,8 +192,6 @@ impl Sim {
         }
     }
 }
-
-enum Empty {}
 
 fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
     let mut components = Vec::new();
