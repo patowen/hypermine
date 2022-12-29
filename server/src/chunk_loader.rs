@@ -1,10 +1,13 @@
 use common::{
     dodeca::Vertex,
-    graph::NodeId,
+    graph::{Graph, NodeId},
+    math,
     node::{Chunk, DualGraph, VoxelData},
+    proto::Position,
+    traversal::nearby_nodes,
     worldgen::ChunkParams,
 };
-use tokio::{sync::mpsc, runtime::Runtime};
+use tokio::{runtime::Runtime, sync::mpsc};
 
 pub struct ChunkLoader {
     send: mpsc::Sender<ChunkDesc>,
@@ -36,6 +39,43 @@ impl ChunkLoader {
             recv: output_recv,
             capacity,
             fill: 0,
+        }
+    }
+
+    pub fn load_chunks(
+        &mut self,
+        graph: &mut DualGraph,
+        dimension: u8,
+        position: &Position,
+        distance: f64,
+    ) {
+        let mut nodes = nearby_nodes(graph, position, distance);
+        // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
+        // performance
+        let view_pos = position.local * math::origin();
+        nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
+            math::mip(&view_pos, &(xf_a * math::origin()))
+                .partial_cmp(&math::mip(&view_pos, &(xf_b * math::origin())))
+                .unwrap_or(std::cmp::Ordering::Less)
+        });
+
+        for &(node, _) in &nodes {
+            for chunk in Vertex::iter() {
+                if let Chunk::Fresh = graph
+                    .get(node)
+                    .as_ref()
+                    .expect("all nodes must be populated before rendering")
+                    .chunks[chunk]
+                {
+                    if let Some(params) =
+                        common::worldgen::ChunkParams::new(dimension, graph, node, chunk)
+                    {
+                        if self.load(node, params) {
+                            graph.get_mut(node).as_mut().unwrap().chunks[chunk] = Chunk::Generating;
+                        }
+                    }
+                }
+            }
         }
     }
 
