@@ -22,6 +22,8 @@ use common::{
     EntityId, SimConfig, Step,
 };
 
+use crate::chunk_loader::ChunkLoader;
+
 pub struct Sim {
     cfg: Arc<SimConfig>,
     rng: SmallRng,
@@ -29,6 +31,7 @@ pub struct Sim {
     entity_ids: FxHashMap<EntityId, Entity>,
     world: hecs::World,
     graph: DualGraph,
+    chunk_loader: ChunkLoader,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
 }
@@ -42,6 +45,7 @@ impl Sim {
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
             graph: Graph::new(),
+            chunk_loader: ChunkLoader::new(256),
             spawns: Vec::new(),
             despawns: Vec::new(),
         };
@@ -118,6 +122,8 @@ impl Sim {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
+        self.chunk_loader.drive(&mut self.graph);
+
         // Simulate
         for (_, (position, character, input)) in self
             .world
@@ -165,6 +171,19 @@ impl Sim {
         populate_fresh_nodes(&mut self.graph);
         self.graph.clear_fresh();
 
+        for (_, (position, _, _)) in self
+            .world
+            .query::<(&mut Position, &mut Character, &CharacterInput)>()
+            .iter()
+        {
+            self.chunk_loader.load_chunks(
+                &mut self.graph,
+                self.cfg.chunk_size,
+                position,
+                self.cfg.view_distance.into(),
+            );
+        }
+
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
         let delta = StateDelta {
             latest_input: 0, // To be filled in by the caller
@@ -210,7 +229,6 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
 
 fn populate_fresh_nodes(graph: &mut DualGraph) {
     let fresh = graph.fresh().to_vec();
-    graph.clear_fresh();
     for &node in &fresh {
         *graph.get_mut(node) = Some(Node {
             state: graph

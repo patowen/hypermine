@@ -1,13 +1,13 @@
 use common::{
     dodeca::Vertex,
-    graph::{Graph, NodeId},
+    graph::NodeId,
     math,
     node::{Chunk, DualGraph, VoxelData},
     proto::Position,
     traversal::nearby_nodes,
     worldgen::ChunkParams,
 };
-use tokio::{runtime::Runtime, sync::mpsc};
+use tokio::sync::mpsc;
 
 pub struct ChunkLoader {
     send: mpsc::Sender<ChunkDesc>,
@@ -17,10 +17,10 @@ pub struct ChunkLoader {
 }
 
 impl ChunkLoader {
-    pub fn new(runtime: &mut Runtime, capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         let (input_send, mut input_recv) = mpsc::channel::<ChunkDesc>(capacity);
         let (output_send, output_recv) = mpsc::channel::<LoadedChunk>(capacity);
-        runtime.spawn(async move {
+        tokio::spawn(async move {
             while let Some(chunk_desc) = input_recv.recv().await {
                 let out = output_send.clone();
                 tokio::spawn(async move {
