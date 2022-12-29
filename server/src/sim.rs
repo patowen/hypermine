@@ -1,5 +1,8 @@
 use std::sync::Arc;
 
+use common::node::Node;
+use common::worldgen::NodeState;
+use common::Chunks;
 use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
@@ -159,6 +162,7 @@ impl Sim {
                 .collect(),
             voxel_data: Vec::new(),
         };
+        populate_fresh_nodes(&mut self.graph);
         self.graph.clear_fresh();
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
@@ -202,4 +206,21 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
         components.push(Component::Character((*x).clone()));
     }
     components
+}
+
+fn populate_fresh_nodes(graph: &mut DualGraph) {
+    let fresh = graph.fresh().to_vec();
+    graph.clear_fresh();
+    for &node in &fresh {
+        *graph.get_mut(node) = Some(Node {
+            state: graph
+                .parent(node)
+                .and_then(|i| {
+                    let parent_state = &graph.get(graph.neighbor(node, i)?).as_ref()?.state;
+                    Some(parent_state.child(graph, node, i))
+                })
+                .unwrap_or_else(NodeState::root),
+            chunks: Chunks::default(),
+        });
+    }
 }

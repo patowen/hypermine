@@ -80,7 +80,7 @@ impl ChunkLoader {
     }
 
     /// Begin loading a single chunk, if capacity is available
-    pub fn load(&mut self, node: NodeId, params: ChunkParams) -> bool {
+    fn load(&mut self, node: NodeId, params: ChunkParams) -> bool {
         if self.fill == self.capacity {
             return false;
         }
