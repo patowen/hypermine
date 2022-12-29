@@ -1,4 +1,5 @@
 extern crate nalgebra as na;
+mod chunk_loader;
 mod input_queue;
 mod sim;
 
