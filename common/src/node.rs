@@ -1,7 +1,5 @@
 /*the name of this module is pretty arbitrary at the moment*/
 
-use serde::{Serialize, Deserialize};
-
 use crate::graph::Graph;
 use crate::lru_slab::SlotId;
 use crate::world::Material;
@@ -32,7 +30,6 @@ impl Default for Chunk {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),

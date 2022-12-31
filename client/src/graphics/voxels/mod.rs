@@ -156,7 +156,21 @@ impl Voxels {
                     .chunks[chunk]
                 {
                     Generating => continue,
-                    Fresh => continue,
+                    Fresh => {
+                        // Generate voxel data
+                        if let Some(params) = common::worldgen::ChunkParams::new(
+                            self.surfaces.dimension() as u8,
+                            &sim.graph,
+                            node,
+                            chunk,
+                        ) {
+                            if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
+                                sim.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
+                                    Generating;
+                            }
+                        }
+                        continue;
+                    }
                     Populated {
                         ref mut surface,
                         ref voxels,

@@ -8,7 +8,7 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
     graph::{Graph, NodeId},
-    node::{Chunk, DualGraph, Node},
+    node::{DualGraph, Node},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input,
     worldgen::NodeState,
@@ -252,13 +252,6 @@ impl Sim {
             self.graph.insert_child(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
-        for voxel_data in msg.voxel_data.into_iter() {
-            self.graph.get_mut(voxel_data.0).as_mut().unwrap().chunks[voxel_data.1] =
-                Chunk::Populated {
-                    voxels: voxel_data.2,
-                    surface: None,
-                };
-        }
     }
 
     fn spawn(

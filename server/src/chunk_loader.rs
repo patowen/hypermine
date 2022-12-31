@@ -10,7 +10,6 @@ use common::{
 use tokio::sync::mpsc;
 
 pub struct ChunkLoader {
-    pub loaded_chunks: Vec<(NodeId, Vertex, VoxelData)>,
     send: mpsc::Sender<ChunkDesc>,
     recv: mpsc::Receiver<LoadedChunk>,
     capacity: usize,
@@ -36,7 +35,6 @@ impl ChunkLoader {
             }
         });
         ChunkLoader {
-            loaded_chunks: Vec::new(),
             send: input_send,
             recv: output_recv,
             capacity,
@@ -101,9 +99,8 @@ impl ChunkLoader {
             self.fill -= 1;
             graph.get_mut(chunk.node).as_mut().unwrap().chunks[chunk.chunk] = Chunk::Populated {
                 surface: None,
-                voxels: chunk.voxels.clone(),
+                voxels: chunk.voxels,
             };
-            self.loaded_chunks.push((chunk.node, chunk.chunk, chunk.voxels));
         }
     }
 }

@@ -110,7 +110,6 @@ impl Sim {
                 .tree()
                 .map(|(side, parent)| FreshNode { side, parent })
                 .collect(),
-            voxel_data: Vec::new(),
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
@@ -166,7 +165,6 @@ impl Sim {
                     })
                 })
                 .collect(),
-            voxel_data: self.chunk_loader.loaded_chunks.drain(..).collect(),
         };
         populate_fresh_nodes(&mut self.graph);
         self.graph.clear_fresh();

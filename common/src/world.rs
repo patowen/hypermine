@@ -1,6 +1,4 @@
-use serde::{Serialize, Deserialize};
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(u16)]
 pub enum Material {
     Void = 0,
