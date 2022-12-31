@@ -178,7 +178,7 @@ impl Sim {
                 &mut self.graph,
                 self.cfg.chunk_size,
                 position,
-                self.cfg.view_distance.into(),
+                self.cfg.simulation_distance.into(),
             );
         }
 
