@@ -163,11 +163,9 @@ impl Sim {
         };
         populate_fresh_nodes(&mut self.graph);
 
-        for (_, (position, _, _)) in self
-            .world
-            .query::<(&mut Position, &mut Character, &CharacterInput)>()
-            .iter()
-        {
+        // Load all chunks around entities corresponding to clients, which correspond to entities
+        // with a "Character" component.
+        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
             self.chunk_loader.load_chunks(
                 &mut self.graph,
                 self.cfg.chunk_size,
