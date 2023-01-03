@@ -12,10 +12,10 @@ use tracing::warn;
 
 use crate::{
     graphics::{Base, Frustum},
-    loader::{Cleanup, LoadCtx, LoadFuture, Loadable, WorkQueue},
     Config, Loader, Sim,
 };
 use common::{
+    chunk_loader::ChunkLoader,
     dodeca,
     dodeca::Vertex,
     graph::NodeId,
@@ -37,7 +37,7 @@ pub struct Voxels {
     states: LruSlab<SurfaceState>,
     draw: Surface,
     max_chunks: u32,
-    worldgen: WorkQueue<ChunkDesc>,
+    worldgen: ChunkLoader,
 }
 
 impl Voxels {
@@ -69,7 +69,7 @@ impl Voxels {
             dimension,
         );
         Self {
-            worldgen: loader.make_queue(config.chunk_load_parallelism as usize),
+            worldgen: ChunkLoader::new(loader.runtime(), config.chunk_load_parallelism as usize),
             config,
             surface_extraction,
             extraction_scratch,
@@ -99,13 +99,7 @@ impl Voxels {
         for chunk in frame.drawn.drain(..) {
             self.states.peek_mut(chunk).refcount -= 1;
         }
-        while let Some(chunk) = self.worldgen.poll() {
-            sim.graph.get_mut(chunk.node).as_mut().unwrap().chunks[chunk.chunk] =
-                Chunk::Populated {
-                    surface: None,
-                    voxels: chunk.voxels,
-                };
-        }
+        self.worldgen.drive(&mut sim.graph);
 
         // Determine what to load/render
         let view = sim.view();
@@ -136,6 +130,11 @@ impl Voxels {
         let frustum_planes = frustum.planes();
         let local_to_view = math::mtranspose(&view.local);
         let mut extractions = Vec::new();
+        self.worldgen.load_chunks(
+            &mut sim.graph,
+            self.surfaces.dimension() as u8,
+            nodes.iter().map(|(n, _)| n),
+        );
         for &(node, ref node_transform) in &nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
@@ -155,22 +154,7 @@ impl Voxels {
                     .expect("all nodes must be populated before rendering")
                     .chunks[chunk]
                 {
-                    Generating => continue,
-                    Fresh => {
-                        // Generate voxel data
-                        if let Some(params) = common::worldgen::ChunkParams::new(
-                            self.surfaces.dimension() as u8,
-                            &sim.graph,
-                            node,
-                            chunk,
-                        ) {
-                            if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
-                                sim.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
-                                    Generating;
-                            }
-                        }
-                        continue;
-                    }
+                    Generating | Fresh => continue,
                     Populated {
                         ref mut surface,
                         ref voxels,
@@ -306,32 +290,4 @@ struct SurfaceState {
     node: NodeId,
     chunk: common::dodeca::Vertex,
     refcount: u32,
-}
-
-struct ChunkDesc {
-    node: NodeId,
-    params: common::worldgen::ChunkParams,
-}
-
-struct LoadedChunk {
-    node: NodeId,
-    chunk: Vertex,
-    voxels: VoxelData,
-}
-
-impl Cleanup for LoadedChunk {
-    unsafe fn cleanup(self, _gfx: &Base) {}
-}
-
-impl Loadable for ChunkDesc {
-    type Output = LoadedChunk;
-    fn load(self, _ctx: &LoadCtx) -> LoadFuture<'_, Self::Output> {
-        Box::pin(async move {
-            Ok(LoadedChunk {
-                node: self.node,
-                chunk: self.params.chunk(),
-                voxels: self.params.generate_voxels(),
-            })
-        })
-    }
 }

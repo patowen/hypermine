@@ -2,10 +2,7 @@ use crate::worldgen::ChunkParams;
 use crate::{
     dodeca::Vertex,
     graph::NodeId,
-    math,
     node::{Chunk, DualGraph, VoxelData},
-    proto::Position,
-    traversal::nearby_nodes,
 };
 use tokio::{runtime::Handle, sync::mpsc};
 
@@ -17,7 +14,7 @@ pub struct ChunkLoader {
 }
 
 impl ChunkLoader {
-    pub fn new(runtime: Handle, capacity: usize) -> Self {
+    pub fn new(runtime: &Handle, capacity: usize) -> Self {
         let (input_send, mut input_recv) = mpsc::channel::<ChunkDesc>(capacity);
         let (output_send, output_recv) = mpsc::channel::<LoadedChunk>(capacity);
         runtime.spawn(async move {
@@ -42,24 +39,13 @@ impl ChunkLoader {
         }
     }
 
-    pub fn load_chunks(
+    pub fn load_chunks<'a>(
         &mut self,
         graph: &mut DualGraph,
         dimension: u8,
-        position: &Position,
-        distance: f64,
+        nodes: impl Iterator<Item = &'a NodeId>,
     ) {
-        let mut nodes = nearby_nodes(graph, position, distance);
-        // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
-        // performance
-        let view_pos = position.local * math::origin();
-        nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
-            math::mip(&view_pos, &(xf_a * math::origin()))
-                .partial_cmp(&math::mip(&view_pos, &(xf_b * math::origin())))
-                .unwrap_or(std::cmp::Ordering::Less)
-        });
-
-        for &(node, _) in &nodes {
+        for &node in nodes {
             for chunk in Vertex::iter() {
                 if let Chunk::Fresh = graph
                     .get(node)

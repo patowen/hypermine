@@ -10,7 +10,7 @@ use common::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
     },
-    traversal::ensure_nearby,
+    traversal::{ensure_nearby, nearby_nodes},
     EntityId, SimConfig, Step,
 };
 use fxhash::FxHashMap;
@@ -41,7 +41,7 @@ impl Sim {
             world: hecs::World::new(),
             graph: Graph::new(),
             chunk_loader: ChunkLoader::new(
-                runtime::Handle::current(),
+                &runtime::Handle::current(),
                 cfg.server_chunk_load_parallelism as usize,
             ),
             spawns: Vec::new(),
@@ -170,11 +170,20 @@ impl Sim {
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
+            let mut nodes =
+                nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
+            // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
+            // performance
+            let view_pos = position.local * math::origin();
+            nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
+                math::mip(&view_pos, &(xf_a * math::origin()))
+                    .partial_cmp(&math::mip(&view_pos, &(xf_b * math::origin())))
+                    .unwrap_or(std::cmp::Ordering::Less)
+            });
             self.chunk_loader.load_chunks(
                 &mut self.graph,
                 self.cfg.chunk_size,
-                position,
-                self.cfg.simulation_distance.into(),
+                nodes.iter().map(|(n, _)| n),
             );
         }
 
