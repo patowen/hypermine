@@ -1,11 +1,11 @@
-use common::{
+use crate::worldgen::ChunkParams;
+use crate::{
     dodeca::Vertex,
     graph::NodeId,
     math,
     node::{Chunk, DualGraph, VoxelData},
     proto::Position,
     traversal::nearby_nodes,
-    worldgen::ChunkParams,
 };
 use tokio::{runtime::Handle, sync::mpsc};
 
@@ -67,9 +67,7 @@ impl ChunkLoader {
                     .expect("all nodes must be populated before rendering")
                     .chunks[chunk]
                 {
-                    if let Some(params) =
-                        common::worldgen::ChunkParams::new(dimension, graph, node, chunk)
-                    {
+                    if let Some(params) = ChunkParams::new(dimension, graph, node, chunk) {
                         if self.load(node, params) {
                             graph.get_mut(node).as_mut().unwrap().chunks[chunk] = Chunk::Generating;
                         }
@@ -107,7 +105,7 @@ impl ChunkLoader {
 
 struct ChunkDesc {
     node: NodeId,
-    params: common::worldgen::ChunkParams,
+    params: ChunkParams,
 }
 
 struct LoadedChunk {

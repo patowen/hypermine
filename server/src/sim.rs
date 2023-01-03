@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::chunk_loader::ChunkLoader;
 use common::{
     character_controller,
+    chunk_loader::ChunkLoader,
     graph::{Graph, NodeId},
     math,
     node::{populate_fresh_nodes, DualGraph},
