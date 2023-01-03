@@ -1,28 +1,24 @@
 use std::sync::Arc;
 
-use common::node::Node;
-use common::worldgen::NodeState;
-use common::Chunks;
-use fxhash::FxHashMap;
-use hecs::Entity;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
-use tracing::{error_span, info, trace};
-
+use crate::chunk_loader::ChunkLoader;
 use common::{
     character_controller,
     graph::{Graph, NodeId},
     math,
-    node::DualGraph,
+    node::{DualGraph, Node},
     proto::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
     },
     traversal::ensure_nearby,
-    EntityId, SimConfig, Step,
+    worldgen::NodeState,
+    Chunks, EntityId, SimConfig, Step,
 };
-
-use crate::chunk_loader::ChunkLoader;
+use fxhash::FxHashMap;
+use hecs::Entity;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
+use tracing::{error_span, info, trace};
 
 pub struct Sim {
     cfg: Arc<SimConfig>,

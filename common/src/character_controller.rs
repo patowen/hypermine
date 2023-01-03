@@ -1,7 +1,8 @@
 use crate::{
     math,
+    node::DualGraph,
     proto::{CharacterInput, Position},
-    sanitize_motion_input, SimConfig, node::DualGraph,
+    sanitize_motion_input, SimConfig,
 };
 
 pub fn run_character_step(
