@@ -37,7 +37,7 @@ pub struct Voxels {
     states: LruSlab<SurfaceState>,
     draw: Surface,
     max_chunks: u32,
-    worldgen: ChunkLoader,
+    chunk_loader: ChunkLoader,
 }
 
 impl Voxels {
@@ -69,7 +69,7 @@ impl Voxels {
             dimension,
         );
         Self {
-            worldgen: ChunkLoader::new(loader.runtime(), config.chunk_load_parallelism as usize),
+            chunk_loader: ChunkLoader::new(loader.runtime(), config.chunk_load_parallelism as usize),
             config,
             surface_extraction,
             extraction_scratch,
@@ -99,7 +99,7 @@ impl Voxels {
         for chunk in frame.drawn.drain(..) {
             self.states.peek_mut(chunk).refcount -= 1;
         }
-        self.worldgen.drive(&mut sim.graph);
+        self.chunk_loader.drive(&mut sim.graph);
 
         // Determine what to load/render
         let view = sim.view();
@@ -130,7 +130,7 @@ impl Voxels {
         let frustum_planes = frustum.planes();
         let local_to_view = math::mtranspose(&view.local);
         let mut extractions = Vec::new();
-        self.worldgen.load_chunks(
+        self.chunk_loader.load_chunks(
             &mut sim.graph,
             self.surfaces.dimension() as u8,
             nodes.iter().map(|(n, _)| n),
