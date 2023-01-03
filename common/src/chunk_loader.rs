@@ -50,7 +50,7 @@ impl ChunkLoader {
                 if let Chunk::Fresh = graph
                     .get(node)
                     .as_ref()
-                    .expect("all nodes must be populated before rendering")
+                    .expect("all nodes must be populated before loading their chunks")
                     .chunks[chunk]
                 {
                     if let Some(params) = ChunkParams::new(dimension, graph, node, chunk) {

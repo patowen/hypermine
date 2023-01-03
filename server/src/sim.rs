@@ -17,7 +17,6 @@ use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use tokio::runtime;
 use tracing::{error_span, info, trace};
 
 pub struct Sim {
@@ -41,7 +40,7 @@ impl Sim {
             world: hecs::World::new(),
             graph: Graph::new(),
             chunk_loader: ChunkLoader::new(
-                &runtime::Handle::current(),
+                &tokio::runtime::Handle::current(),
                 cfg.server_chunk_load_parallelism as usize,
             ),
             spawns: Vec::new(),
