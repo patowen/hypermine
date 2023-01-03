@@ -69,7 +69,10 @@ impl Voxels {
             dimension,
         );
         Self {
-            chunk_loader: ChunkLoader::new(loader.runtime(), config.chunk_load_parallelism as usize),
+            chunk_loader: ChunkLoader::new(
+                loader.runtime(),
+                config.chunk_load_parallelism as usize,
+            ),
             config,
             surface_extraction,
             extraction_scratch,
