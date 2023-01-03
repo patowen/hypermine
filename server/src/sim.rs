@@ -17,6 +17,7 @@ use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
+use tokio::runtime;
 use tracing::{error_span, info, trace};
 
 pub struct Sim {
@@ -34,15 +35,18 @@ pub struct Sim {
 impl Sim {
     pub fn new(cfg: Arc<SimConfig>) -> Self {
         let mut result = Self {
-            cfg,
             rng: SmallRng::from_entropy(),
             step: 0,
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
             graph: Graph::new(),
-            chunk_loader: ChunkLoader::new(256),
+            chunk_loader: ChunkLoader::new(
+                runtime::Handle::current(),
+                cfg.server_chunk_load_parallelism as usize,
+            ),
             spawns: Vec::new(),
             despawns: Vec::new(),
+            cfg,
         };
 
         ensure_nearby(

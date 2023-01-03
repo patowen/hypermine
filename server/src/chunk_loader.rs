@@ -7,7 +7,7 @@ use common::{
     traversal::nearby_nodes,
     worldgen::ChunkParams,
 };
-use tokio::sync::mpsc;
+use tokio::{runtime::Handle, sync::mpsc};
 
 pub struct ChunkLoader {
     send: mpsc::Sender<ChunkDesc>,
@@ -17,10 +17,10 @@ pub struct ChunkLoader {
 }
 
 impl ChunkLoader {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(runtime: Handle, capacity: usize) -> Self {
         let (input_send, mut input_recv) = mpsc::channel::<ChunkDesc>(capacity);
         let (output_send, output_recv) = mpsc::channel::<LoadedChunk>(capacity);
-        tokio::spawn(async move {
+        runtime.spawn(async move {
             while let Some(chunk_desc) = input_recv.recv().await {
                 let out = output_send.clone();
                 tokio::spawn(async move {
