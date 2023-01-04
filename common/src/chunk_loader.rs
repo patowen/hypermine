@@ -56,6 +56,8 @@ impl ChunkLoader {
                     if let Some(params) = ChunkParams::new(dimension, graph, node, chunk) {
                         if self.load(node, params) {
                             graph.get_mut(node).as_mut().unwrap().chunks[chunk] = Chunk::Generating;
+                        } else {
+                            return;
                         }
                     }
                 }
