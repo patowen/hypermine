@@ -2,15 +2,16 @@ use std::sync::Arc;
 
 use common::{
     character_controller,
-    chunk_loader::ChunkLoader,
+    dodeca::Vertex,
     graph::{Graph, NodeId},
     math,
-    node::{populate_fresh_nodes, DualGraph},
+    node::{populate_fresh_nodes, Chunk, DualGraph},
     proto::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
     },
     traversal::{ensure_nearby, nearby_nodes},
+    worldgen::ChunkParams,
     EntityId, SimConfig, Step,
 };
 use fxhash::FxHashMap;
@@ -26,7 +27,6 @@ pub struct Sim {
     entity_ids: FxHashMap<EntityId, Entity>,
     world: hecs::World,
     graph: DualGraph,
-    chunk_loader: ChunkLoader,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
 }
@@ -39,10 +39,6 @@ impl Sim {
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
             graph: Graph::new(),
-            chunk_loader: ChunkLoader::new(
-                &tokio::runtime::Handle::current(),
-                cfg.server_chunk_load_parallelism as usize,
-            ),
             spawns: Vec::new(),
             despawns: Vec::new(),
             cfg,
@@ -119,7 +115,35 @@ impl Sim {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
-        self.chunk_loader.drive(&mut self.graph);
+        // Load all needed chunks
+        populate_fresh_nodes(&mut self.graph);
+
+        // Load all chunks around entities corresponding to clients, which correspond to entities
+        // with a "Character" component.
+        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
+            let nodes = nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
+            for &(node, _) in &nodes {
+                for chunk in Vertex::iter() {
+                    if let Chunk::Fresh = self
+                        .graph
+                        .get(node)
+                        .as_ref()
+                        .expect("all nodes must be populated before loading their chunks")
+                        .chunks[chunk]
+                    {
+                        if let Some(params) =
+                            ChunkParams::new(self.cfg.chunk_size, &self.graph, node, chunk)
+                        {
+                            self.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
+                                Chunk::Populated {
+                                    voxels: params.generate_voxels(),
+                                    surface: None,
+                                };
+                        }
+                    }
+                }
+            }
+        }
 
         // Simulate
         for (_, (position, character, input)) in self
@@ -164,18 +188,6 @@ impl Sim {
                 })
                 .collect(),
         };
-        populate_fresh_nodes(&mut self.graph);
-
-        // Load all chunks around entities corresponding to clients, which correspond to entities
-        // with a "Character" component.
-        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
-            let nodes = nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
-            self.chunk_loader.load_chunks(
-                &mut self.graph,
-                self.cfg.chunk_size,
-                nodes.iter().map(|(n, _)| n),
-            );
-        }
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
         let delta = StateDelta {
