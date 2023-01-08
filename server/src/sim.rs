@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use common::{
     character_controller,
-    dodeca::Vertex,
+    dodeca::{self, Vertex},
     graph::{Graph, NodeId},
     math,
     node::{populate_fresh_nodes, Chunk, DualGraph},
@@ -160,10 +160,18 @@ impl Sim {
         };
         populate_fresh_nodes(&mut self.graph);
 
+        // We want to load all chunks that a player can interact with in a single frame, so chunk_generation_distance
+        // is set up to cover that distance.
+        // TODO: Use actual max speed instead of max ground speed.
+        // TODO: Account for the radius of the player's collision sphere
+        let chunk_generation_distance = dodeca::BOUNDING_SPHERE_RADIUS
+            + self.cfg.max_ground_speed as f64 * self.cfg.step_interval.as_secs_f64()
+            + 0.001;
+
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
-            let nodes = nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
+            let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
                 for chunk in Vertex::iter() {
                     if let Chunk::Fresh = self

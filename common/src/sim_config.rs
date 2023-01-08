@@ -12,10 +12,6 @@ pub struct SimConfigRaw {
     pub rate: Option<u16>,
     /// Maximum distance at which anything can be seen in meters
     pub view_distance: Option<f32>,
-    /// Maximum distance from each player at which the server runs the simulation
-    pub simulation_distance: Option<f32>,
-    /// Maximum number of chunks that should be loaded concurrently by the server
-    pub server_chunk_load_parallelism: Option<u32>,
     pub input_queue_size_ms: Option<u16>,
     /// Number of voxels along the edge of a chunk
     pub chunk_size: Option<u8>,
@@ -42,8 +38,6 @@ pub struct SimConfig {
     /// Amount of time between each step. Inverse of the rate
     pub step_interval: Duration,
     pub view_distance: f32,
-    pub simulation_distance: f32,
-    pub server_chunk_load_parallelism: u32,
     pub input_queue_size: Duration,
     pub chunk_size: u8,
     pub no_clip_movement_speed: f32,
@@ -61,8 +55,6 @@ impl SimConfig {
         SimConfig {
             step_interval: Duration::from_secs(1) / x.rate.unwrap_or(10) as u32,
             view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,
-            simulation_distance: x.simulation_distance.unwrap_or(45.0) * meters_to_absolute,
-            server_chunk_load_parallelism: x.server_chunk_load_parallelism.unwrap_or(256),
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             chunk_size,
             no_clip_movement_speed: x.no_clip_movement_speed.unwrap_or(12.0) * meters_to_absolute,
