@@ -207,10 +207,6 @@ impl Loader {
     pub fn ctx(&self) -> &LoadCtx {
         &self.shared.ctx
     }
-
-    pub fn runtime(&self) -> &tokio::runtime::Handle {
-        self.runtime.handle()
-    }
 }
 
 impl Drop for Loader {
