@@ -115,36 +115,6 @@ impl Sim {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
-        // Load all needed chunks
-        populate_fresh_nodes(&mut self.graph);
-
-        // Load all chunks around entities corresponding to clients, which correspond to entities
-        // with a "Character" component.
-        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
-            let nodes = nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
-            for &(node, _) in &nodes {
-                for chunk in Vertex::iter() {
-                    if let Chunk::Fresh = self
-                        .graph
-                        .get(node)
-                        .as_ref()
-                        .expect("all nodes must be populated before loading their chunks")
-                        .chunks[chunk]
-                    {
-                        if let Some(params) =
-                            ChunkParams::new(self.cfg.chunk_size, &self.graph, node, chunk)
-                        {
-                            self.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
-                                Chunk::Populated {
-                                    voxels: params.generate_voxels(),
-                                    surface: None,
-                                };
-                        }
-                    }
-                }
-            }
-        }
-
         // Simulate
         for (_, (position, character, input)) in self
             .world
@@ -188,6 +158,34 @@ impl Sim {
                 })
                 .collect(),
         };
+        populate_fresh_nodes(&mut self.graph);
+
+        // Load all chunks around entities corresponding to clients, which correspond to entities
+        // with a "Character" component.
+        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
+            let nodes = nearby_nodes(&self.graph, position, self.cfg.simulation_distance as f64);
+            for &(node, _) in &nodes {
+                for chunk in Vertex::iter() {
+                    if let Chunk::Fresh = self
+                        .graph
+                        .get(node)
+                        .as_ref()
+                        .expect("all nodes must be populated before loading their chunks")
+                        .chunks[chunk]
+                    {
+                        if let Some(params) =
+                            ChunkParams::new(self.cfg.chunk_size, &self.graph, node, chunk)
+                        {
+                            self.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
+                                Chunk::Populated {
+                                    voxels: params.generate_voxels(),
+                                    surface: None,
+                                };
+                        }
+                    }
+                }
+            }
+        }
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
         let delta = StateDelta {
