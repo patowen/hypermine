@@ -1,8 +1,14 @@
 use std::sync::Arc;
 
+use fxhash::FxHashMap;
+use hecs::Entity;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
+use tracing::{error_span, info, trace};
+
 use common::{
     character_controller,
-    dodeca::{self, Vertex},
+    dodeca,
     graph::{Graph, NodeId},
     math,
     node::{populate_fresh_nodes, Chunk, DualGraph},
@@ -14,11 +20,6 @@ use common::{
     worldgen::ChunkParams,
     EntityId, SimConfig, Step,
 };
-use fxhash::FxHashMap;
-use hecs::Entity;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
-use tracing::{error_span, info, trace};
 
 pub struct Sim {
     cfg: Arc<SimConfig>,
@@ -34,6 +35,7 @@ pub struct Sim {
 impl Sim {
     pub fn new(cfg: Arc<SimConfig>) -> Self {
         let mut result = Self {
+            cfg,
             rng: SmallRng::from_entropy(),
             step: 0,
             entity_ids: FxHashMap::default(),
@@ -41,7 +43,6 @@ impl Sim {
             graph: Graph::new(),
             spawns: Vec::new(),
             despawns: Vec::new(),
-            cfg,
         };
 
         ensure_nearby(
@@ -173,7 +174,7 @@ impl Sim {
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
-                for chunk in Vertex::iter() {
+                for chunk in dodeca::Vertex::iter() {
                     if let Chunk::Fresh = self
                         .graph
                         .get(node)
