@@ -7,8 +7,7 @@ use rand::{Rng, SeedableRng};
 use tracing::{error_span, info, trace};
 
 use common::{
-    character_controller,
-    dodeca,
+    character_controller, dodeca,
     graph::{Graph, NodeId},
     math,
     node::{populate_fresh_nodes, Chunk, DualGraph},
@@ -161,7 +160,7 @@ impl Sim {
         };
         populate_fresh_nodes(&mut self.graph);
 
-        // We want to load all chunks that a player can interact with in a single frame, so chunk_generation_distance
+        // We want to load all chunks that a player can interact with in a single step, so chunk_generation_distance
         // is set up to cover that distance.
         // TODO: Use actual max speed instead of max ground speed.
         // TODO: Account for the radius of the player's collision sphere
