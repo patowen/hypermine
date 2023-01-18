@@ -4,7 +4,7 @@ use common::{dodeca::Vertex, graph::NodeId, node::VoxelData, world::Material};
 pub struct VoxelDataWrapper<'a> {
     voxel_data: &'a VoxelData,
     dimension: usize,
-    up: na::Vector4<f64>
+    up: na::Vector4<f64>,
 }
 
 impl VoxelDataWrapper<'_> {

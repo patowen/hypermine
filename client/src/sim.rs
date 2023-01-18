@@ -10,7 +10,8 @@ use crate::{
     point_chunk_ray_tracer::PointChunkRayTracer,
     prediction::PredictedMotion,
     single_block_sphere_collision_checker::SingleBlockSphereCollisionChecker,
-    Net, sphere_chunk_ray_tracer::SphereChunkRayTracer,
+    sphere_chunk_ray_tracer::SphereChunkRayTracer,
+    Net,
 };
 use common::{
     dodeca::Vertex,
@@ -117,12 +118,9 @@ impl Sim {
         }
 
         self.pitch += pitch;
-        if self.pitch > std::f32::consts::FRAC_PI_2 {
-            self.pitch = std::f32::consts::FRAC_PI_2;
-        }
-        if self.pitch < -std::f32::consts::FRAC_PI_2 {
-            self.pitch = -std::f32::consts::FRAC_PI_2;
-        }
+        self.pitch = self
+            .pitch
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
     }
 
     fn get_orientation(&self) -> na::Rotation3<f32> {
@@ -247,11 +245,9 @@ impl Sim {
             self.params.as_ref().unwrap().chunk_size as usize,
             &PointChunkRayTracer {},
             self.position_node,
-            &(self.position_local
-                * na::Vector4::w()).cast(),
-            &(self.position_local
-                * self.get_orientation().to_homogeneous()
-                * -na::Vector4::z()).cast(),
+            &(self.position_local * na::Vector4::w()).cast(),
+            &(self.position_local * self.get_orientation().to_homogeneous() * -na::Vector4::z())
+                .cast(),
             &mut RayTracingResultHandle::new(
                 &mut ray_tracing_result,
                 self.position_node,
@@ -408,9 +404,8 @@ impl Sim {
             },
             self.position_node,
             &(self.position_local * na::Vector4::w()).cast(),
-            &(self.position_local
-                * self.get_orientation().to_homogeneous()
-                * -na::Vector4::z()).cast(),
+            &(self.position_local * self.get_orientation().to_homogeneous() * -na::Vector4::z())
+                .cast(),
             &mut RayTracingResultHandle::new(
                 &mut ray_tracing_result,
                 self.position_node,
@@ -557,8 +552,7 @@ impl Sim {
 
     pub fn view(&self) -> Position {
         Position {
-            local: self.position_local.cast::<f32>()
-                * self.get_orientation().to_homogeneous(),
+            local: self.position_local.cast::<f32>() * self.get_orientation().to_homogeneous(),
             node: self.position_node,
         }
     }
