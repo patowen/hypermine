@@ -278,6 +278,12 @@ fn find_intersection_one_vector(
     let double_linear_term = mip_pos_a * mip_dir_a;
     let constant_term = mip_pos_a.powi(2) - c.powi(2);
 
+    if constant_term.abs() < 1e-6 && double_linear_term < 0.0 {
+        return 0.0;
+    }
+
+    // If the player is already close to the wall, this function can produce incorrect results, so
+    // ensure that we record a collision as long as the player is moving towards the wall.
     let discriminant = double_linear_term * double_linear_term - quadratic_term * constant_term;
 
     // While discriminant can be negative, NaNs propagate the way we want to, so we don't have
@@ -299,7 +305,7 @@ fn find_intersection_two_vectors(
     b: &na::Vector4<f64>,
     c: f64,
 ) -> f64 {
-    // TODO: Improve numerical stability
+    // This could be made more numerically stable, but the precision requirements of collision should be pretty lax.
     let mip_pos_a = math::mip(pos, a);
     let mip_dir_a = math::mip(dir, a);
     let mip_pos_b = math::mip(pos, b);
@@ -310,6 +316,12 @@ fn find_intersection_two_vectors(
     let quadratic_term = mip_dir_a.powi(2) - mip_dir_b.powi(2) + c.powi(2);
     let double_linear_term = mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b;
     let constant_term = mip_pos_a.powi(2) - mip_pos_b.powi(2) - c.powi(2);
+
+    // If the player is already close to the wall, this function can produce incorrect results, so
+    // ensure that we record a collision as long as the player is moving towards the wall.
+    if constant_term.abs() < 1e-6 && double_linear_term < 0.0 {
+        return 0.0;
+    }
 
     let discriminant = double_linear_term * double_linear_term - quadratic_term * constant_term;
 

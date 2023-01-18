@@ -746,7 +746,10 @@ impl PlayerPhysicsPass<'_> {
             for j in i + 1..normals.len() {
                 normals[j] = math::project_ortho(&normals[j], &normals[i]).normalize();
             }
-            subject = math::project_ortho(&subject, &normals[i]);
+            // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
+            // This can be fixed with a bit of extra math.
+            // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
+            subject = math::project_ortho(&subject, &normals[i]) + normals[i] * 1e-2;
         }
         subject
     }
@@ -831,9 +834,6 @@ impl PlayerPhysicsPass<'_> {
         &self,
         relative_displacement: &na::Vector4<f64>,
     ) -> (RayTracingResult, na::Matrix4<f64>) {
-        // Corrective constant to avoid punching through walls with floating point rounding errors
-        const EPSILON: f64 = 1e-3;
-
         let displacement_sqr = math::mip(relative_displacement, relative_displacement);
         if displacement_sqr < 1e-16 {
             return (RayTracingResult::new(0.0), na::Matrix4::identity());
@@ -842,7 +842,7 @@ impl PlayerPhysicsPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let mut ray_tracing_result = RayTracingResult::new(displacement_norm.tanh() + EPSILON);
+        let mut ray_tracing_result = RayTracingResult::new(displacement_norm.tanh());
         if !graph_ray_tracer::trace_ray(
             &self.sim.graph,
             self.sim.params.as_ref().unwrap().chunk_size as usize,
@@ -862,18 +862,13 @@ impl PlayerPhysicsPass<'_> {
             return (RayTracingResult::new(0.0), na::Matrix4::identity());
         }
 
-        // TODO: A more robust and complex margin system will likely be needed once the
-        // overall algorithm settles more.
-        let t_with_epsilon = (ray_tracing_result.t - EPSILON).max(0.0);
-
         let ray_tracing_transform = math::translate(
             &na::Vector4::w(),
             &math::lorentz_normalize(
-                &(na::Vector4::w() + displacement_normalized * t_with_epsilon),
+                &(na::Vector4::w() + displacement_normalized * ray_tracing_result.t),
             ),
         );
 
-        ray_tracing_result.t = t_with_epsilon;
         if let Some(intersection) = ray_tracing_result.intersection.as_mut() {
             intersection.normal =
                 ray_tracing_transform.try_inverse().unwrap() * intersection.normal;
