@@ -278,7 +278,7 @@ fn find_intersection_one_vector(
     let double_linear_term = mip_pos_a * mip_dir_a;
     let constant_term = mip_pos_a.powi(2) - c.powi(2);
 
-    if constant_term.abs() < 1e-6 && double_linear_term < 0.0 {
+    if constant_term >= -1e-4 && constant_term <= 0.0 && double_linear_term < 0.0 {
         return 0.0;
     }
 
@@ -288,7 +288,7 @@ fn find_intersection_one_vector(
 
     // While discriminant can be negative, NaNs propagate the way we want to, so we don't have
     // to check for this.
-    (-double_linear_term - discriminant.sqrt()) / quadratic_term
+    constant_term / (-double_linear_term + discriminant.sqrt())
 }
 
 /// Find the smallest value of `t` where the point in the pos-dir line (v=pos+dir*t) satisfies
@@ -319,7 +319,7 @@ fn find_intersection_two_vectors(
 
     // If the player is already close to the wall, this function can produce incorrect results, so
     // ensure that we record a collision as long as the player is moving towards the wall.
-    if constant_term.abs() < 1e-6 && double_linear_term < 0.0 {
+    if constant_term >= -1e-4 && constant_term <= 0.0 && double_linear_term < 0.0 {
         return 0.0;
     }
 
@@ -327,7 +327,7 @@ fn find_intersection_two_vectors(
 
     // While discriminant can be negative, NaNs propagate the way we want to, so we don't have
     // to check for this.
-    (-double_linear_term - discriminant.sqrt()) / quadratic_term
+    constant_term / (-double_linear_term + discriminant.sqrt())
 }
 
 fn get_usize_range(min: usize, max: usize, point0: f64, point1: f64, width: f64) -> [usize; 2] {

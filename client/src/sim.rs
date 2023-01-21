@@ -743,7 +743,7 @@ impl PlayerPhysicsPass<'_> {
             // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
             // This can be fixed with a bit of extra math.
             // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
-            subject = math::project_ortho(&subject, &normals[i]) + normals[i] * 1e-2;
+            subject = math::project_ortho(&subject, &normals[i]) + normals[i] * 1e-5;
         }
         subject
     }
