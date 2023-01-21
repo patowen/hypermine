@@ -150,10 +150,8 @@ impl Voxels {
                 // Fetch existing chunk, or extract surface of new chunk
                 match sim
                     .graph
-                    .get_mut(node)
-                    .as_mut()
+                    .get_chunk_mut((node, chunk))
                     .expect("all nodes must be populated before rendering")
-                    .chunks[chunk]
                 {
                     Generating => continue,
                     Fresh => {
@@ -161,8 +159,7 @@ impl Voxels {
                         if let Some(params) = common::worldgen::ChunkParams::new(
                             self.surfaces.dimension() as u8,
                             &sim.graph,
-                            node,
-                            chunk,
+                            (node, chunk).into(),
                         ) {
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                 sim.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =

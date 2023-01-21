@@ -1,5 +1,6 @@
 /*the name of this module is pretty arbitrary at the moment*/
 
+use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::world::Material;
@@ -7,6 +8,30 @@ use crate::worldgen::NodeState;
 use crate::Chunks;
 
 pub type DualGraph = Graph<Node>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct ChunkId {
+    pub node: NodeId,
+    pub vertex: Vertex,
+}
+
+impl From<(NodeId, Vertex)> for ChunkId {
+    fn from((node, vertex): (NodeId, Vertex)) -> Self {
+        ChunkId { node, vertex }
+    }
+}
+
+impl DualGraph {
+    pub fn get_chunk_mut(&mut self, chunk: impl Into<ChunkId>) -> Option<&mut Chunk> {
+        let chunk = chunk.into();
+        Some(&mut self.get_mut(chunk.node).as_mut()?.chunks[chunk.vertex])
+    }
+
+    pub fn get_chunk(&self, chunk: impl Into<ChunkId>) -> Option<&Chunk> {
+        let chunk = chunk.into();
+        Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
+    }
+}
 
 pub struct Node {
     pub state: NodeState,

@@ -5,7 +5,7 @@ use crate::{
     dodeca::{Side, Vertex},
     graph::NodeId,
     math,
-    node::{DualGraph, VoxelData},
+    node::{ChunkId, DualGraph, VoxelData},
     terraingen::VoronoiInfo,
     world::Material,
     Plane,
@@ -188,12 +188,12 @@ impl ChunkParams {
     /// Extract data necessary to generate a chunk
     ///
     /// Returns `None` if an unpopulated node is needed.
-    pub fn new(dimension: u8, graph: &DualGraph, node: NodeId, chunk: Vertex) -> Option<Self> {
-        let state = &graph.get(node).as_ref()?.state;
+    pub fn new(dimension: u8, graph: &DualGraph, chunk: ChunkId) -> Option<Self> {
+        let state = &graph.get(chunk.node).as_ref()?.state;
         Some(Self {
             dimension,
-            chunk,
-            env: chunk_incident_enviro_factors(graph, node, chunk)?,
+            chunk: chunk.vertex,
+            env: chunk_incident_enviro_factors(graph, chunk.node, chunk.vertex)?,
             surface: state.surface,
             is_road: state.kind == Sky
                 && ((state.road_state == East) || (state.road_state == West)),

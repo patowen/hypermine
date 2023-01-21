@@ -176,13 +176,11 @@ impl Sim {
                 for chunk in dodeca::Vertex::iter() {
                     if let Chunk::Fresh = self
                         .graph
-                        .get(node)
-                        .as_ref()
+                        .get_chunk((node, chunk))
                         .expect("all nodes must be populated before loading their chunks")
-                        .chunks[chunk]
                     {
                         if let Some(params) =
-                            ChunkParams::new(self.cfg.chunk_size, &self.graph, node, chunk)
+                            ChunkParams::new(self.cfg.chunk_size, &self.graph, (node, chunk).into())
                         {
                             self.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
                                 Chunk::Populated {
