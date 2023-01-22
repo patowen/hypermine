@@ -19,6 +19,7 @@ pub mod math;
 pub mod node;
 mod plane;
 pub mod proto;
+pub mod ray_tracing;
 mod sim_config;
 pub mod terraingen;
 pub mod traversal;
