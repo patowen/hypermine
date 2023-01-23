@@ -110,7 +110,7 @@ impl Vertex {
 
     /// Vertices adjacent to this vertex, opposite the sides in canonical order
     #[inline]
-    pub fn adjacent_verices(self) -> [Vertex; 3] {
+    pub fn adjacent_vertices(self) -> [Vertex; 3] {
         ADJACENT_VERTICES[self as usize]
     }
 
