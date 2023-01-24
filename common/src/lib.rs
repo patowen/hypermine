@@ -21,6 +21,7 @@ mod plane;
 pub mod proto;
 pub mod ray_tracing;
 mod sim_config;
+pub mod sphere_collider;
 pub mod terraingen;
 pub mod traversal;
 pub mod world;

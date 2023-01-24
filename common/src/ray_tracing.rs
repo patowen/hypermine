@@ -31,7 +31,7 @@ pub fn trace_ray(
         - (chunk_ray_tracer.max_radius() + EPSILON))
         .tanh();
 
-    while let Some((chunk, chunk_transform)) = chunk_queue.pop_front() {
+    while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
         let node = graph.get(chunk.node).as_ref().unwrap();
         let Chunk::Populated {
                 voxels: ref voxel_data,
@@ -41,13 +41,13 @@ pub fn trace_ray(
                 status.result = RayTracingResult::Inconclusive;
                 return;
             };
-        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * chunk_transform * ray;
+        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
         chunk_ray_tracer.trace_ray(
             &RtChunkContext {
                 dimension,
                 chunk,
                 transform: transform
-                    * math::mtranspose(&chunk_transform)
+                    * math::mtranspose(&node_transform)
                     * chunk.vertex.dual_to_node().cast(),
                 voxel_data,
                 ray: local_ray,
@@ -100,15 +100,16 @@ pub struct RtChunkContext<'a> {
 }
 
 impl RtChunkContext<'_> {
+    // Also allows access to margins
     pub fn get_voxel(&self, coords: [usize; 3]) -> Material {
-        assert!(coords[0] < self.dimension);
-        assert!(coords[1] < self.dimension);
-        assert!(coords[2] < self.dimension);
         let dimension_with_margin = self.dimension + 2;
+        assert!(coords[0] < dimension_with_margin);
+        assert!(coords[1] < dimension_with_margin);
+        assert!(coords[2] < dimension_with_margin);
         self.voxel_data.get(
-            (coords[0] + 1)
-                + (coords[1] + 1) * dimension_with_margin
-                + (coords[2] + 1) * dimension_with_margin.pow(2),
+            coords[0]
+                + coords[1] * dimension_with_margin
+                + coords[2] * dimension_with_margin.pow(2),
         )
     }
 }
