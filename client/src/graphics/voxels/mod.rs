@@ -127,7 +127,7 @@ impl Voxels {
         // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
         // performance
         let view_pos = view.local * math::origin();
-        nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
+        nodes.sort_unstable_by(|(_, xf_a), (_, xf_b)| {
             math::distance(&view_pos, &(xf_a * math::origin()))
                 .partial_cmp(&math::distance(&view_pos, &(xf_b * math::origin())))
                 .unwrap_or(std::cmp::Ordering::Less)
@@ -180,7 +180,7 @@ impl Voxels {
                             frame.surface.transforms_mut()[slot.0 as usize] =
                                 node_transform * chunk.chunk_to_node().map(|x| x as f32);
                         }
-                        (&mut ref mut surface @ None, &VoxelData::Dense(ref data)) => {
+                        (&mut ref mut surface @ None, VoxelData::Dense(data)) => {
                             // Extract a surface so it can be drawn in future frames
                             if frame.extracted.len() == self.config.chunk_load_parallelism as usize
                             {

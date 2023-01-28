@@ -258,7 +258,7 @@ lazy_static! {
                     }
                     test_sides[result_index] = side;
                     if let Some(adjacent_vertex) = Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2]) {
-                        result[vertex as usize][result_index] = adjacent_vertex;
+                        result[vertex][result_index] = adjacent_vertex;
                     }
                 }
             }

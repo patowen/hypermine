@@ -13,7 +13,7 @@ fn main() {
     common::init_tracing();
 
     if let Err(e) = run() {
-        eprintln!("{:#}", e);
+        eprintln!("{e:#}");
         std::process::exit(1);
     }
 }
@@ -25,7 +25,7 @@ pub fn run() -> Result<()> {
     };
 
     let (certificate_chain, private_key) = match (&cfg.certificate_chain, &cfg.private_key) {
-        (&Some(ref certificate_chain), &Some(ref private_key)) => (
+        (Some(certificate_chain), Some(private_key)) => (
             rustls_pemfile::certs(
                 &mut &*fs::read(certificate_chain).context("reading certificate chain")?,
             )
