@@ -66,41 +66,7 @@ impl CharacterControllerPass<'_> {
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
             //    example of such an artifact is the player moving backwards slightly when they
             //    stop moving after releasing a direction key.
-            let displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
-
-            let displacement_sqr = displacement.norm_squared();
-            if displacement_sqr < 1e-16 {
-                return;
-            }
-
-            let displacement_norm = displacement_sqr.sqrt();
-            let displacement_normalized = displacement / displacement_norm;
-
-            let pos = self.position.local * math::origin();
-            let vel = self.position.local * displacement_normalized.to_homogeneous();
-            let ray_status = ray_tracing::trace_ray(
-                self.graph,
-                self.cfg.chunk_size as usize,
-                &SphereCollider { radius: 0.02 },
-                (self.position.node, Vertex::A).into(),
-                self.position.local,
-                na::Matrix::from_columns(&[pos, vel]),
-                displacement_norm.tanh(),
-            );
-
-            if let ray_tracing::RayTracingResult::Inconclusive = ray_status.result {
-                return;
-            }
-
-            let ray_tracing_transform = math::translate(
-                &na::Vector4::w(),
-                &math::lorentz_normalize(
-                    &(na::Vector4::w()
-                        + displacement_normalized.to_homogeneous() * ray_status.tanh_length),
-                ),
-            );
-
-            self.position.local *= ray_tracing_transform;
+            self.position.local *= self.trace_ray(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
         }
 
         // Renormalize
@@ -112,5 +78,39 @@ impl CharacterControllerPass<'_> {
             self.position.node = next_node;
             self.position.local = transition_xf * self.position.local;
         }
+    }
+
+    fn trace_ray(&self, relative_displacement: &na::Vector3<f32>) -> na::Matrix4<f32> {
+        let relative_displacement = relative_displacement.to_homogeneous();
+        let displacement_sqr = relative_displacement.norm_squared();
+        if displacement_sqr < 1e-16 {
+            return na::Matrix4::identity();
+        }
+
+        let displacement_norm = displacement_sqr.sqrt();
+        let displacement_normalized = relative_displacement / displacement_norm;
+
+        let pos = self.position.local * math::origin();
+        let vel = self.position.local * displacement_normalized;
+        let ray_status = ray_tracing::trace_ray(
+            self.graph,
+            self.cfg.chunk_size as usize,
+            &SphereCollider { radius: 0.02 },
+            (self.position.node, Vertex::A).into(),
+            self.position.local,
+            na::Matrix::from_columns(&[pos, vel]),
+            displacement_norm.tanh(),
+        );
+
+        if let ray_tracing::RayTracingResult::Inconclusive = ray_status.result {
+            return na::Matrix4::identity();
+        }
+
+        math::translate(
+            &math::origin(),
+            &math::lorentz_normalize(
+                &(math::origin() + displacement_normalized * ray_status.tanh_length),
+            ),
+        )
     }
 }
