@@ -6,7 +6,7 @@ use crate::{
 };
 
 pub struct SphereCollider {
-    radius: f32,
+    pub radius: f32,
 }
 
 impl ChunkRayTracer for SphereCollider {
@@ -32,7 +32,7 @@ impl ChunkRayTracer for SphereCollider {
     }
 
     fn max_radius(&self) -> f32 {
-        todo!()
+        self.radius
     }
 }
 

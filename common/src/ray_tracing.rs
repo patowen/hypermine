@@ -15,7 +15,7 @@ pub fn trace_ray(
     transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
     ray: na::Matrix4x2<f32>,
     tanh_length: f32,
-) {
+) -> RayStatus {
     let mut status = RayStatus {
         result: RayTracingResult::Miss,
         tanh_length,
@@ -39,7 +39,7 @@ pub fn trace_ray(
             } = node.chunks[chunk.vertex] else {
                 // Collision checking on unpopulated chunk
                 status.result = RayTracingResult::Inconclusive;
-                return;
+                return status;
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
         chunk_ray_tracer.trace_ray(
@@ -59,7 +59,7 @@ pub fn trace_ray(
         // ray tracing with the neighboring chunk unless it has already been visited. We start at vertex
         // AB for simplicity even if that's not where pos is, although this should be optimized later.
         for coord_boundary in 0..3 {
-            let klein_pos0_val = local_ray[(coord_boundary, 0)] / local_ray[(coord_boundary, 3)];
+            let klein_pos0_val = local_ray[(coord_boundary, 0)] / local_ray[(3, 0)];
             let klein_pos1_val = (local_ray[(coord_boundary, 0)]
                 + local_ray[(coord_boundary, 1)] * status.tanh_length)
                 / (local_ray[(3, 0)] + local_ray[(3, 1)] * status.tanh_length);
@@ -84,6 +84,8 @@ pub fn trace_ray(
             }
         }
     }
+
+    status
 }
 
 pub trait ChunkRayTracer {

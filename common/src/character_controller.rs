@@ -1,8 +1,11 @@
 use crate::{
+    dodeca::Vertex,
     math,
     node::DualGraph,
     proto::{CharacterInput, Position},
-    sanitize_motion_input, SimConfig,
+    ray_tracing, sanitize_motion_input,
+    sphere_collider::SphereCollider,
+    SimConfig,
 };
 
 pub fn run_character_step(
@@ -63,8 +66,41 @@ impl CharacterControllerPass<'_> {
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
             //    example of such an artifact is the player moving backwards slightly when they
             //    stop moving after releasing a direction key.
-            self.position.local *=
-                math::translate_along(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
+            let displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
+
+            let displacement_sqr = displacement.norm_squared();
+            if displacement_sqr < 1e-16 {
+                return;
+            }
+
+            let displacement_norm = displacement_sqr.sqrt();
+            let displacement_normalized = displacement / displacement_norm;
+
+            let pos = self.position.local * math::origin();
+            let vel = self.position.local * displacement_normalized.to_homogeneous();
+            let ray_status = ray_tracing::trace_ray(
+                self.graph,
+                self.cfg.chunk_size as usize,
+                &SphereCollider { radius: 0.02 },
+                (self.position.node, Vertex::A).into(),
+                self.position.local,
+                na::Matrix::from_columns(&[pos, vel]),
+                displacement_norm.tanh(),
+            );
+
+            if let ray_tracing::RayTracingResult::Inconclusive = ray_status.result {
+                return;
+            }
+
+            let ray_tracing_transform = math::translate(
+                &na::Vector4::w(),
+                &math::lorentz_normalize(
+                    &(na::Vector4::w()
+                        + displacement_normalized.to_homogeneous() * ray_status.tanh_length),
+                ),
+            );
+
+            self.position.local *= ray_tracing_transform;
         }
 
         // Renormalize
