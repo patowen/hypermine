@@ -45,35 +45,33 @@ impl SphereCollider {
     ) {
         let float_dimension = ctx.dimension as f32;
 
-        for i in bbox[0][0]..bbox[0][1] {
-            for j in bbox[1][0]..bbox[1][1] {
-                for k in bbox[2][0]..bbox[2][1] {
-                    if (0..8).all(|idx| {
-                        ctx.get_voxel([i + idx % 2, j + (idx >> 1) % 2, k + (idx >> 2) % 2])
-                            == Material::Void
-                    }) {
-                        continue;
-                    }
-
-                    let vert = math::lorentz_normalize(
-                        &na::Vector3::new(i as f32, j as f32, k as f32)
-                            .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension)
-                            .insert_row(3, 1.0),
-                    );
-
-                    let tanh_length_candidate =
-                        find_intersection_one_vector(&ctx.ray, &vert, self.radius.cosh());
-
-                    // If t_candidate is out of range or NaN, don't continue collision checking
-                    if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length)
-                    {
-                        continue;
-                    }
-
-                    let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
-                    status.update(ctx, tanh_length_candidate, translated_square_pos - vert);
-                }
+        for (i, j, k) in (bbox[0][0]..bbox[0][1]).flat_map(|i| {
+            (bbox[1][0]..bbox[1][1])
+                .flat_map(move |j| (bbox[2][0]..bbox[2][1]).map(move |k| (i, j, k)))
+        }) {
+            if (0..8).all(|idx| {
+                ctx.get_voxel([i + idx % 2, j + (idx >> 1) % 2, k + (idx >> 2) % 2])
+                    == Material::Void
+            }) {
+                continue;
             }
+
+            let vert = math::lorentz_normalize(
+                &na::Vector3::new(i as f32, j as f32, k as f32)
+                    .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension)
+                    .insert_row(3, 1.0),
+            );
+
+            let tanh_length_candidate =
+                find_intersection_one_vector(&ctx.ray, &vert, self.radius.cosh());
+
+            // If t_candidate is out of range or NaN, don't continue collision checking
+            if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
+                continue;
+            }
+
+            let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
+            status.update(ctx, tanh_length_candidate, translated_square_pos - vert);
         }
     }
 }
