@@ -121,12 +121,14 @@ pub struct RayStatus {
     pub result: RayTracingResult,
 }
 
+#[derive(Debug)]
 pub enum RayTracingResult {
     Miss,
     Intersection(RayTracingIntersection),
     Inconclusive,
 }
 
+#[derive(Debug)]
 pub struct RayTracingIntersection {
     pub chunk: ChunkId,
     pub normal: na::Vector4<f32>,

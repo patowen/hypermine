@@ -56,8 +56,9 @@ impl SphereCollider {
                     }
 
                     let vert = math::lorentz_normalize(
-                        &na::Vector4::new(i as f32, j as f32, k as f32, 1.0)
-                            .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension),
+                        &na::Vector3::new(i as f32, j as f32, k as f32)
+                            .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension)
+                            .insert_row(3, 1.0),
                     );
 
                     let tanh_length_candidate =
