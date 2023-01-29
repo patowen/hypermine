@@ -29,6 +29,10 @@ impl ChunkRayTracer for SphereCollider {
         });
 
         for axis in 0..3 {
+            self.find_side_collision(ctx, &bbox, axis, status);
+        }
+
+        for axis in 0..3 {
             self.find_edge_collision(ctx, &bbox, axis, status);
         }
 
@@ -41,6 +45,63 @@ impl ChunkRayTracer for SphereCollider {
 }
 
 impl SphereCollider {
+    fn find_side_collision(
+        &self,
+        ctx: &RtChunkContext,
+        bbox: &[[usize; 2]; 3],
+        axis: usize,
+        status: &mut RayStatus,
+    ) {
+        let float_dimension = ctx.dimension as f32;
+        let plane0 = (axis + 1) % 3;
+        let plane1 = (axis + 2) % 3;
+
+        for i in bbox[axis][0]..bbox[axis][1] {
+            let normal = math::lorentz_normalize(&permuted_vector4(
+                axis,
+                1.0,
+                0.0,
+                0.0,
+                i as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+            ));
+
+            let tanh_length_candidate =
+                find_intersection_one_vector(&ctx.ray, &normal, self.radius.sinh());
+
+            // If t_candidate is out of range or NaN, don't continue collision checking
+            if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
+                continue;
+            }
+
+            let mip_dir_norm = math::mip(&ctx.ray.column(1), &normal);
+            let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
+
+            let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
+            let projected_pos =
+                translated_square_pos - normal * math::mip(&translated_square_pos, &normal);
+            let projected_pos = projected_pos / projected_pos.w;
+            let j0 =
+                (projected_pos[plane0] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
+                    .floor();
+            let j1 =
+                (projected_pos[plane1] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
+                    .floor();
+
+            if !(j0 >= 0.0 && j0 < float_dimension && j1 >= 0.0 && j1 < float_dimension) {
+                continue;
+            }
+            let j0 = j0 as usize;
+            let j1 = j1 as usize;
+
+            if ctx.get_voxel(permuted_array3(axis, i_with_offset, j0 + 1, j1 + 1)) == Material::Void
+            {
+                continue;
+            }
+
+            status.update(ctx, tanh_length_candidate, normal * -mip_dir_norm.signum());
+        }
+    }
+
     fn find_edge_collision(
         &self,
         ctx: &RtChunkContext,
@@ -95,7 +156,11 @@ impl SphereCollider {
                 continue;
             }
 
-            status.update(ctx, tanh_length_candidate, translated_square_pos - projected_pos);
+            status.update(
+                ctx,
+                tanh_length_candidate,
+                translated_square_pos - projected_pos,
+            );
         }
     }
 
