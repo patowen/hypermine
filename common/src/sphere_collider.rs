@@ -66,7 +66,7 @@ impl SphereCollider {
             ));
 
             let tanh_length_candidate =
-                find_intersection_one_vector(&ctx.ray, &normal, self.radius.sinh());
+                solve_sphere_plane_intersection(&ctx.ray, &normal, self.radius.sinh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
@@ -126,7 +126,7 @@ impl SphereCollider {
             let edge_dir = permuted_vector4(axis, 1.0, 0.0, 0.0, 0.0);
 
             let tanh_length_candidate =
-                find_intersection_two_vectors(&ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
+                solve_sphere_line_intersection(&ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
@@ -190,7 +190,7 @@ impl SphereCollider {
             );
 
             let tanh_length_candidate =
-                find_intersection_one_vector(&ctx.ray, &vert, self.radius.cosh());
+                solve_sphere_point_intersection(&ctx.ray, &vert, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
@@ -203,52 +203,71 @@ impl SphereCollider {
     }
 }
 
-/// Find the smallest value of `t` where the point in the pos-dir line (v=pos+dir*t) satisfies
-/// `<v,a>^2 / <v,v> == c^2`
-///
-/// If `a` is direction-like, this finds intersections with a surface that is `sinh(c)` units
-/// away from the plane whose normal is `a`.  If `a` is point-like, this finds intersections
-/// with a sphere centered at `a` with radius `cosh(c)`.
+/// Finds the tanh of the distance a sphere will have to travel along a ray before it
+/// intersects the given point.
 ///
 /// Returns NaN if there's no such intersection
-fn find_intersection_one_vector(ray: &na::Matrix4x2<f32>, a: &na::Vector4<f32>, c: f32) -> f32 {
-    let mip_pos_a = math::mip(&ray.column(0), a);
-    let mip_dir_a = math::mip(&ray.column(1), a);
-
-    solve_quadratic(
-        mip_pos_a.powi(2) - c.powi(2),
-        mip_pos_a * mip_dir_a,
-        mip_dir_a.powi(2) + c.powi(2),
-    )
-}
-
-/// Find the smallest value of `t` where the point in the pos-dir line (v=pos+dir*t) satisfies
-/// `(<v,a>^2 - <v,b>^2) / <v,v> == c^2`
-///
-/// This finds intersections with a surface that is `cosh(c)` units away from the line
-/// with a point at `a` with direction `b`, where `<a,b>==0`.
-///
-/// Returns NaN if there's no such intersection
-fn find_intersection_two_vectors(
+fn solve_sphere_point_intersection(
     ray: &na::Matrix4x2<f32>,
-    a: &na::Vector4<f32>,
-    b: &na::Vector4<f32>,
-    c: f32,
+    point_position: &na::Vector4<f32>,
+    cosh_radius: f32,
 ) -> f32 {
-    // This could be made more numerically stable, but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.column(0), a);
-    let mip_dir_a = math::mip(&ray.column(1), a);
-    let mip_pos_b = math::mip(&ray.column(0), b);
-    let mip_dir_b = math::mip(&ray.column(1), b);
+    // This could be made more numerically stable by using a formula that depends on sinh_radius,
+    // but the precision requirements of collision should be pretty lax.
+    let mip_pos_a = math::mip(&ray.column(0), point_position);
+    let mip_dir_a = math::mip(&ray.column(1), point_position);
 
     solve_quadratic(
-        mip_pos_a.powi(2) - mip_pos_b.powi(2) - c.powi(2),
-        mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b,
-        mip_dir_a.powi(2) - mip_dir_b.powi(2) + c.powi(2),
+        mip_pos_a.powi(2) - cosh_radius.powi(2),
+        mip_pos_a * mip_dir_a,
+        mip_dir_a.powi(2) + cosh_radius.powi(2),
     )
 }
 
-/// Find the lower solution `t` of `constant_term + 2 * double_linear_term * t + quadratic_term * t * t == 0`
+/// Finds the tanh of the distance a sphere will have to travel along a ray before it
+/// intersects the given line.
+///
+/// Returns NaN if there's no such intersection
+fn solve_sphere_line_intersection(
+    ray: &na::Matrix4x2<f32>,
+    line_position: &na::Vector4<f32>,
+    line_direction: &na::Vector4<f32>,
+    cosh_radius: f32,
+) -> f32 {
+    // This could be made more numerically stable by using a formula that depends on sinh_radius,
+    // but the precision requirements of collision should be pretty lax.
+    let mip_pos_a = math::mip(&ray.column(0), line_position);
+    let mip_dir_a = math::mip(&ray.column(1), line_position);
+    let mip_pos_b = math::mip(&ray.column(0), line_direction);
+    let mip_dir_b = math::mip(&ray.column(1), line_direction);
+
+    solve_quadratic(
+        mip_pos_a.powi(2) - mip_pos_b.powi(2) - cosh_radius.powi(2),
+        mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b,
+        mip_dir_a.powi(2) - mip_dir_b.powi(2) + cosh_radius.powi(2),
+    )
+}
+
+/// Finds the tanh of the distance a sphere will have to travel along a ray before it
+/// intersects the given plane.
+///
+/// Returns NaN if there's no such intersection
+fn solve_sphere_plane_intersection(
+    ray: &na::Matrix4x2<f32>,
+    plane_normal: &na::Vector4<f32>,
+    sinh_radius: f32,
+) -> f32 {
+    let mip_pos_a = math::mip(&ray.column(0), plane_normal);
+    let mip_dir_a = math::mip(&ray.column(1), plane_normal);
+
+    solve_quadratic(
+        mip_pos_a.powi(2) - sinh_radius.powi(2),
+        mip_pos_a * mip_dir_a,
+        mip_dir_a.powi(2) + sinh_radius.powi(2),
+    )
+}
+
+/// Finds the lower solution `t` of `constant_term + 2 * double_linear_term * t + quadratic_term * t * t == 0`
 ///
 /// Returns NaN if no such solution exists.
 ///
