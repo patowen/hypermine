@@ -64,10 +64,15 @@ pub fn trace_ray(
                 + local_ray[(coord_boundary, 1)] * status.tanh_length)
                 / (local_ray[(3, 0)] + local_ray[(3, 1)] * status.tanh_length);
 
-            // Check for neighboring nodes. TODO: The use of unwrap here will cause a crash if you arrive at an ungenerated chunk.
+            // Check for neighboring nodes
             if klein_pos0_val <= klein_boundary0 || klein_pos1_val <= klein_boundary0 {
                 let side = chunk.vertex.canonical_sides()[coord_boundary];
-                let next_chunk = (graph.neighbor(chunk.node, side).unwrap(), chunk.vertex).into();
+                let Some(neighbor) = graph.neighbor(chunk.node, side) else {
+                    // Collision checking on nonexistent node
+                    status.result = RayTracingResult::Inconclusive;
+                    return status;
+                };
+                let next_chunk = (neighbor, chunk.vertex).into();
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue
                         .push_back((next_chunk, side.reflection().cast::<f32>() * node_transform));
