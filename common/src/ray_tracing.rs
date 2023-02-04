@@ -70,7 +70,7 @@ pub fn trace_ray(
                 let next_chunk = (graph.neighbor(chunk.node, side).unwrap(), chunk.vertex).into();
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue
-                        .push_back((next_chunk, side.reflection().cast::<f32>() * transform));
+                        .push_back((next_chunk, side.reflection().cast::<f32>() * node_transform));
                 }
             }
 
@@ -79,7 +79,7 @@ pub fn trace_ray(
                 let vertex = chunk.vertex.adjacent_vertices()[coord_boundary];
                 let next_chunk = (chunk.node, vertex).into();
                 if visited_chunks.insert(next_chunk) {
-                    chunk_queue.push_back((next_chunk, transform));
+                    chunk_queue.push_back((next_chunk, node_transform));
                 }
             }
         }
