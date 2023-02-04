@@ -215,23 +215,11 @@ fn find_intersection_one_vector(ray: &na::Matrix4x2<f32>, a: &na::Vector4<f32>, 
     let mip_pos_a = math::mip(&ray.column(0), a);
     let mip_dir_a = math::mip(&ray.column(1), a);
 
-    // The following 3 variables are terms of the quadratic formula. We use double the linear
-    // term because it removes the annoying constants from that formula.
-    let quadratic_term = mip_dir_a.powi(2) + c.powi(2);
-    let double_linear_term = mip_pos_a * mip_dir_a;
-    let constant_term = mip_pos_a.powi(2) - c.powi(2);
-
-    if (-1e-4..=0.0).contains(&constant_term) && double_linear_term < 0.0 {
-        return 0.0;
-    }
-
-    // If the player is already close to the wall, this function can produce incorrect results, so
-    // ensure that we record a collision as long as the player is moving towards the wall.
-    let discriminant = double_linear_term * double_linear_term - quadratic_term * constant_term;
-
-    // While discriminant can be negative, NaNs propagate the way we want to, so we don't have
-    // to check for this.
-    constant_term / (-double_linear_term + discriminant.sqrt())
+    solve_quadratic(
+        mip_pos_a.powi(2) - c.powi(2),
+        mip_pos_a * mip_dir_a,
+        mip_dir_a.powi(2) + c.powi(2),
+    )
 }
 
 /// Find the smallest value of `t` where the point in the pos-dir line (v=pos+dir*t) satisfies
@@ -253,22 +241,35 @@ fn find_intersection_two_vectors(
     let mip_pos_b = math::mip(&ray.column(0), b);
     let mip_dir_b = math::mip(&ray.column(1), b);
 
-    // The following 3 variables are terms of the quadratic formula. We use double the linear
-    // term because it removes the annoying constants from that formula.
-    let quadratic_term = mip_dir_a.powi(2) - mip_dir_b.powi(2) + c.powi(2);
-    let double_linear_term = mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b;
-    let constant_term = mip_pos_a.powi(2) - mip_pos_b.powi(2) - c.powi(2);
+    solve_quadratic(
+        mip_pos_a.powi(2) - mip_pos_b.powi(2) - c.powi(2),
+        mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b,
+        mip_dir_a.powi(2) - mip_dir_b.powi(2) + c.powi(2),
+    )
+}
 
-    // If the player is already close to the wall, this function can produce incorrect results, so
-    // ensure that we record a collision as long as the player is moving towards the wall.
-    if (-1e-4..=0.0).contains(&constant_term) && double_linear_term < 0.0 {
+/// Find the lower solution `t` of `constant_term + 2 * double_linear_term * t + quadratic_term * t * t == 0`
+///
+/// Returns NaN if no such solution exists.
+///
+/// If a small perturbation to these terms would result in a solution of `t == 0.0`, this function has logic to
+/// to return 0.0 if three conditions hold in the context of collision checking:
+/// 1. The collider must be intersecting the object. This manifests as `constant_term <= 0.0`.
+/// 2. The collider must not be too far inside the object. This manifests as `constant_term >= -EPSILON`.
+/// 3. The direction of motion must be towards the collider. This manifests as `double_linear_term < 0.0`.
+fn solve_quadratic(constant_term: f32, double_linear_term: f32, quadratic_term: f32) -> f32 {
+    const EPSILON: f32 = 1e-4;
+
+    // Extra logic to ensure precision issues don't allow a collider to clip through a surface
+    if (-EPSILON..=0.0).contains(&constant_term) && double_linear_term < 0.0 {
         return 0.0;
     }
 
     let discriminant = double_linear_term * double_linear_term - quadratic_term * constant_term;
 
-    // While discriminant can be negative, NaNs propagate the way we want to, so we don't have
-    // to check for this.
+    // We use an alternative quadratic formula to ensure that we return a positive number if `constant_term > 0.0`.
+    // Otherwise, the edge case of a small positive `constant_term` could be mishandled.
+    // Note that discriminant can be negative, which allows this function to return NaN when there is no solution.
     constant_term / (-double_linear_term + discriminant.sqrt())
 }
 
