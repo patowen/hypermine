@@ -55,17 +55,18 @@ pub fn trace_ray(
             &mut status,
         );
 
+        let klein_ray_start = na::Point3::from_homogeneous(local_ray.position().into()).unwrap();
+        let klein_ray_end =
+            na::Point3::from_homogeneous(local_ray.point(status.tanh_length)).unwrap();
+
         // If pos or pos+dir*max_t lies beyond the chunk boundary, with a buffer to account for radius, repeat
         // ray tracing with the neighboring chunk unless it has already been visited. We start at vertex
         // AB for simplicity even if that's not where pos is, although this should be optimized later.
         for coord_boundary in 0..3 {
-            let klein_pos0_val = local_ray.position()[coord_boundary] / local_ray.position().w;
-            let klein_pos1_val = (local_ray.position()[coord_boundary]
-                + local_ray.direction()[coord_boundary] * status.tanh_length)
-                / (local_ray.position().w + local_ray.direction().w * status.tanh_length);
-
             // Check for neighboring nodes
-            if klein_pos0_val <= klein_boundary0 || klein_pos1_val <= klein_boundary0 {
+            if klein_ray_start[coord_boundary] <= klein_boundary0
+                || klein_ray_end[coord_boundary] <= klein_boundary0
+            {
                 let side = chunk.vertex.canonical_sides()[coord_boundary];
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
@@ -80,7 +81,9 @@ pub fn trace_ray(
             }
 
             // Check for neighboring chunks within the same node
-            if klein_pos0_val >= klein_boundary1 || klein_pos1_val >= klein_boundary1 {
+            if klein_ray_start[coord_boundary] >= klein_boundary1
+                || klein_ray_end[coord_boundary] >= klein_boundary1
+            {
                 let vertex = chunk.vertex.adjacent_vertices()[coord_boundary];
                 let next_chunk = (chunk.node, vertex).into();
                 if visited_chunks.insert(next_chunk) {

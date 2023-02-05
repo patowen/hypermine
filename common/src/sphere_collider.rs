@@ -12,12 +12,12 @@ pub struct SphereCollider {
 impl ChunkRayTracer for SphereCollider {
     fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
         let float_size = ctx.dimension as f32;
-        let voxel_start = (ctx.ray.position() / ctx.ray.position().w).xyz()
+        let voxel_start = na::Point3::from_homogeneous(ctx.ray.position().into()).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_size;
-        let end_pos = ctx.ray.point(status.tanh_length);
-        let voxel_end =
-            (end_pos / end_pos[3]).xyz() * Vertex::dual_to_chunk_factor() as f32 * float_size;
+        let voxel_end = na::Point3::from_homogeneous(ctx.ray.point(status.tanh_length)).unwrap()
+            * Vertex::dual_to_chunk_factor() as f32
+            * float_size;
         let max_voxel_radius = self.radius * Vertex::dual_to_chunk_factor() as f32 * float_size;
         let bbox = [0, 1, 2].map(|coord| {
             get_usize_range(
