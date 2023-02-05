@@ -55,7 +55,7 @@ pub fn trace_ray(
             &mut status,
         );
 
-        let klein_ray_start = na::Point3::from_homogeneous(local_ray.position().into()).unwrap();
+        let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
             na::Point3::from_homogeneous(local_ray.point(status.tanh_length)).unwrap();
 
@@ -157,26 +157,22 @@ impl RayStatus {
     }
 }
 
-pub struct Ray(na::Matrix4x2<f32>);
+pub struct Ray {
+    pub position: na::Vector4<f32>,
+    pub direction: na::Vector4<f32>,
+}
 
 impl Ray {
     pub fn new(position: na::Vector4<f32>, direction: na::Vector4<f32>) -> Ray {
-        Ray(na::Matrix::from_columns(&[position, direction]))
-    }
-
-    #[inline]
-    pub fn position(&self) -> na::VectorSlice4<f32> {
-        self.0.column(0)
-    }
-
-    #[inline]
-    pub fn direction(&self) -> na::VectorSlice4<f32> {
-        self.0.column(1)
+        Ray {
+            position,
+            direction,
+        }
     }
 
     /// Returns a point along this ray tanh_distance units away from the origin
     pub fn point(&self, tanh_distance: f32) -> na::Vector4<f32> {
-        self.position() + self.direction() * tanh_distance
+        self.position + self.direction * tanh_distance
     }
 }
 
@@ -185,6 +181,9 @@ impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
 
     #[inline]
     fn mul(self, rhs: &Ray) -> Self::Output {
-        Ray(self * rhs.0)
+        Ray {
+            position: self * rhs.position,
+            direction: self * rhs.direction,
+        }
     }
 }

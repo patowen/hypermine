@@ -12,7 +12,7 @@ pub struct SphereCollider {
 impl ChunkRayTracer for SphereCollider {
     fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
         let float_size = ctx.dimension as f32;
-        let voxel_start = na::Point3::from_homogeneous(ctx.ray.position().into()).unwrap()
+        let voxel_start = na::Point3::from_homogeneous(ctx.ray.position).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_size;
         let voxel_end = na::Point3::from_homogeneous(ctx.ray.point(status.tanh_length)).unwrap()
@@ -73,7 +73,7 @@ impl SphereCollider {
                 continue;
             }
 
-            let mip_dir_norm = math::mip(&ctx.ray.direction(), &normal);
+            let mip_dir_norm = math::mip(&ctx.ray.direction, &normal);
             let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
 
             let translated_square_pos = ctx.ray.point(tanh_length_candidate);
@@ -214,8 +214,8 @@ fn solve_sphere_point_intersection(
 ) -> f32 {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.position(), point_position);
-    let mip_dir_a = math::mip(&ray.direction(), point_position);
+    let mip_pos_a = math::mip(&ray.position, point_position);
+    let mip_dir_a = math::mip(&ray.direction, point_position);
 
     solve_quadratic(
         mip_pos_a.powi(2) - cosh_radius.powi(2),
@@ -236,10 +236,10 @@ fn solve_sphere_line_intersection(
 ) -> f32 {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.position(), line_position);
-    let mip_dir_a = math::mip(&ray.direction(), line_position);
-    let mip_pos_b = math::mip(&ray.position(), line_direction);
-    let mip_dir_b = math::mip(&ray.direction(), line_direction);
+    let mip_pos_a = math::mip(&ray.position, line_position);
+    let mip_dir_a = math::mip(&ray.direction, line_position);
+    let mip_pos_b = math::mip(&ray.position, line_direction);
+    let mip_dir_b = math::mip(&ray.direction, line_direction);
 
     solve_quadratic(
         mip_pos_a.powi(2) - mip_pos_b.powi(2) - cosh_radius.powi(2),
@@ -257,8 +257,8 @@ fn solve_sphere_plane_intersection(
     plane_normal: &na::Vector4<f32>,
     sinh_radius: f32,
 ) -> f32 {
-    let mip_pos_a = math::mip(&ray.position(), plane_normal);
-    let mip_dir_a = math::mip(&ray.direction(), plane_normal);
+    let mip_pos_a = math::mip(&ray.position, plane_normal);
+    let mip_dir_a = math::mip(&ray.direction, plane_normal);
 
     solve_quadratic(
         mip_pos_a.powi(2) - sinh_radius.powi(2),
