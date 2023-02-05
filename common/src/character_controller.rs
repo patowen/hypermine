@@ -111,7 +111,7 @@ impl CharacterControllerPass<'_> {
         math::translate(
             &math::origin(),
             &math::lorentz_normalize(
-                &(math::origin() + displacement_normalized * ray_status.tanh_length),
+                &(math::origin() + displacement_normalized * ray_status.tanh_distance),
             ),
         )
     }

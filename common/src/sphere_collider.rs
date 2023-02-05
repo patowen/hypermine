@@ -15,7 +15,7 @@ impl ChunkRayTracer for SphereCollider {
         let voxel_start = na::Point3::from_homogeneous(ctx.ray.position).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_size;
-        let voxel_end = na::Point3::from_homogeneous(ctx.ray.point(status.tanh_length)).unwrap()
+        let voxel_end = na::Point3::from_homogeneous(ctx.ray.point(status.tanh_distance)).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_size;
         let max_voxel_radius = self.radius * Vertex::dual_to_chunk_factor() as f32 * float_size;
@@ -65,18 +65,18 @@ impl SphereCollider {
                 i as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
             ));
 
-            let tanh_length_candidate =
+            let tanh_distance_candidate =
                 solve_sphere_plane_intersection(ctx.ray, &normal, self.radius.sinh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
+            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
                 continue;
             }
 
             let mip_dir_norm = math::mip(&ctx.ray.direction, &normal);
             let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
 
-            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
+            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
             let projected_pos =
                 translated_square_pos - normal * math::mip(&translated_square_pos, &normal);
             let projected_pos = projected_pos / projected_pos.w;
@@ -98,7 +98,11 @@ impl SphereCollider {
                 continue;
             }
 
-            status.update(ctx, tanh_length_candidate, normal * -mip_dir_norm.signum());
+            status.update(
+                ctx,
+                tanh_distance_candidate,
+                normal * -mip_dir_norm.signum(),
+            );
         }
     }
 
@@ -125,15 +129,15 @@ impl SphereCollider {
             ));
             let edge_dir = permuted_vector4(axis, 1.0, 0.0, 0.0, 0.0);
 
-            let tanh_length_candidate =
+            let tanh_distance_candidate =
                 solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
+            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
+            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
             let projected_pos = -edge_pos * math::mip(&translated_square_pos, &edge_pos)
                 + edge_dir * math::mip(&translated_square_pos, &edge_dir);
             let projected_pos = projected_pos / projected_pos.w;
@@ -158,7 +162,7 @@ impl SphereCollider {
 
             status.update(
                 ctx,
-                tanh_length_candidate,
+                tanh_distance_candidate,
                 translated_square_pos - projected_pos,
             );
         }
@@ -189,16 +193,16 @@ impl SphereCollider {
                     .insert_row(3, 1.0),
             );
 
-            let tanh_length_candidate =
+            let tanh_distance_candidate =
                 solve_sphere_point_intersection(ctx.ray, &vert, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
+            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
-            status.update(ctx, tanh_length_candidate, translated_square_pos - vert);
+            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
+            status.update(ctx, tanh_distance_candidate, translated_square_pos - vert);
         }
     }
 }

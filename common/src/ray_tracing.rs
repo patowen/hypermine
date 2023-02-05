@@ -14,11 +14,11 @@ pub fn trace_ray(
     chunk: ChunkId,
     transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
     ray: Ray,
-    tanh_length: f32,
+    tanh_distance: f32,
 ) -> RayStatus {
     let mut status = RayStatus {
         result: RayTracingResult::Miss,
-        tanh_length,
+        tanh_distance,
     };
 
     let mut visited_chunks: HashSet<ChunkId> = HashSet::new();
@@ -57,7 +57,7 @@ pub fn trace_ray(
 
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.point(status.tanh_length)).unwrap();
+            na::Point3::from_homogeneous(local_ray.point(status.tanh_distance)).unwrap();
 
         // If pos or pos+dir*max_t lies beyond the chunk boundary, with a buffer to account for radius, repeat
         // ray tracing with the neighboring chunk unless it has already been visited. We start at vertex
@@ -125,7 +125,7 @@ impl RtChunkContext<'_> {
 }
 
 pub struct RayStatus {
-    pub tanh_length: f32,
+    pub tanh_distance: f32,
     pub result: RayTracingResult,
 }
 
@@ -146,10 +146,10 @@ impl RayStatus {
     pub fn update(
         &mut self,
         context: &RtChunkContext<'_>,
-        tanh_length: f32,
+        tanh_distance: f32,
         normal: na::Vector4<f32>,
     ) {
-        self.tanh_length = tanh_length;
+        self.tanh_distance = tanh_distance;
         self.result = RayTracingResult::Intersection(RayTracingIntersection {
             chunk: context.chunk,
             normal: context.transform * normal,
