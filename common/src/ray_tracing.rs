@@ -25,11 +25,9 @@ pub fn trace_ray(
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
     chunk_queue.push_back((chunk, na::Matrix4::identity()));
 
-    const EPSILON: f32 = 1e-5;
-    let klein_boundary0 = (chunk_ray_tracer.max_radius() + EPSILON).tanh();
-    let klein_boundary1 = ((Vertex::chunk_to_dual_factor() as f32).atanh()
-        - (chunk_ray_tracer.max_radius() + EPSILON))
-        .tanh();
+    let klein_lower_boundary = chunk_ray_tracer.max_radius().tanh();
+    let klein_upper_boundary =
+        ((Vertex::chunk_to_dual_factor() as f32).atanh() - chunk_ray_tracer.max_radius()).tanh();
 
     while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
         let node = graph.get(chunk.node).as_ref().unwrap();
@@ -64,8 +62,8 @@ pub fn trace_ray(
         // AB for simplicity even if that's not where pos is, although this should be optimized later.
         for coord_boundary in 0..3 {
             // Check for neighboring nodes
-            if klein_ray_start[coord_boundary] <= klein_boundary0
-                || klein_ray_end[coord_boundary] <= klein_boundary0
+            if klein_ray_start[coord_boundary] <= klein_lower_boundary
+                || klein_ray_end[coord_boundary] <= klein_lower_boundary
             {
                 let side = chunk.vertex.canonical_sides()[coord_boundary];
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
@@ -81,8 +79,8 @@ pub fn trace_ray(
             }
 
             // Check for neighboring chunks within the same node
-            if klein_ray_start[coord_boundary] >= klein_boundary1
-                || klein_ray_end[coord_boundary] >= klein_boundary1
+            if klein_ray_start[coord_boundary] >= klein_upper_boundary
+                || klein_ray_end[coord_boundary] >= klein_upper_boundary
             {
                 let vertex = chunk.vertex.adjacent_vertices()[coord_boundary];
                 let next_chunk = (chunk.node, vertex).into();
