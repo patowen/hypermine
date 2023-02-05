@@ -16,19 +16,27 @@ pub fn trace_ray(
     ray: Ray,
     tanh_distance: f32,
 ) -> RayStatus {
+    // A collision check is assumed to be a miss until a collision is found.
+    // This `status` variable gets updated over time before being returned.
     let mut status = RayStatus {
         result: RayTracingResult::Miss,
         tanh_distance,
     };
 
+    // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
+    // The `chunk_queue` contains ordered pairs containing the `ChunkId` and the transformation needed to switch
+    // from the original node coordinates to the current chunk's node coordinates.
     let mut visited_chunks: HashSet<ChunkId> = HashSet::new();
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
     chunk_queue.push_back((chunk, na::Matrix4::identity()));
 
+    // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
+    // the corresponding neighboring chunk will also be used for collision checking.
     let klein_lower_boundary = chunk_ray_tracer.max_radius().tanh();
     let klein_upper_boundary =
         ((Vertex::chunk_to_dual_factor() as f32).atanh() - chunk_ray_tracer.max_radius()).tanh();
 
+    // Breadth-first search loop
     while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
         let node = graph.get(chunk.node).as_ref().unwrap();
         let Chunk::Populated {
@@ -40,6 +48,8 @@ pub fn trace_ray(
                 return status;
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * &ray;
+
+        // Check collision within a single chunk
         chunk_ray_tracer.trace_ray(
             &RtChunkContext {
                 dimension,
@@ -53,19 +63,20 @@ pub fn trace_ray(
             &mut status,
         );
 
+        // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
+        // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
+        // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
             na::Point3::from_homogeneous(local_ray.point(status.tanh_distance)).unwrap();
 
-        // If pos or pos+dir*max_t lies beyond the chunk boundary, with a buffer to account for radius, repeat
-        // ray tracing with the neighboring chunk unless it has already been visited. We start at vertex
-        // AB for simplicity even if that's not where pos is, although this should be optimized later.
-        for coord_boundary in 0..3 {
+        // Add neighboring chunks as necessary, using one coordinate at a time.
+        for coord in 0..3 {
             // Check for neighboring nodes
-            if klein_ray_start[coord_boundary] <= klein_lower_boundary
-                || klein_ray_end[coord_boundary] <= klein_lower_boundary
+            if klein_ray_start[coord] <= klein_lower_boundary
+                || klein_ray_end[coord] <= klein_lower_boundary
             {
-                let side = chunk.vertex.canonical_sides()[coord_boundary];
+                let side = chunk.vertex.canonical_sides()[coord];
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
                     status.result = RayTracingResult::Inconclusive;
@@ -79,10 +90,10 @@ pub fn trace_ray(
             }
 
             // Check for neighboring chunks within the same node
-            if klein_ray_start[coord_boundary] >= klein_upper_boundary
-                || klein_ray_end[coord_boundary] >= klein_upper_boundary
+            if klein_ray_start[coord] >= klein_upper_boundary
+                || klein_ray_end[coord] >= klein_upper_boundary
             {
-                let vertex = chunk.vertex.adjacent_vertices()[coord_boundary];
+                let vertex = chunk.vertex.adjacent_vertices()[coord];
                 let next_chunk = (chunk.node, vertex).into();
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue.push_back((next_chunk, node_transform));
