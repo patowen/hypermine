@@ -13,7 +13,7 @@ pub fn trace_ray(
     chunk_ray_tracer: &impl ChunkRayTracer,
     chunk: ChunkId,
     transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
-    ray: na::Matrix4x2<f32>,
+    ray: Ray,
     tanh_length: f32,
 ) -> RayStatus {
     let mut status = RayStatus {
@@ -41,7 +41,7 @@ pub fn trace_ray(
                 status.result = RayTracingResult::Inconclusive;
                 return status;
             };
-        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
+        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * &ray;
         chunk_ray_tracer.trace_ray(
             &RtChunkContext {
                 dimension,
@@ -50,7 +50,7 @@ pub fn trace_ray(
                     * math::mtranspose(&node_transform)
                     * chunk.vertex.dual_to_node().cast(),
                 voxel_data,
-                ray: local_ray,
+                ray: &local_ray,
             },
             &mut status,
         );
@@ -59,10 +59,10 @@ pub fn trace_ray(
         // ray tracing with the neighboring chunk unless it has already been visited. We start at vertex
         // AB for simplicity even if that's not where pos is, although this should be optimized later.
         for coord_boundary in 0..3 {
-            let klein_pos0_val = local_ray[(coord_boundary, 0)] / local_ray[(3, 0)];
-            let klein_pos1_val = (local_ray[(coord_boundary, 0)]
-                + local_ray[(coord_boundary, 1)] * status.tanh_length)
-                / (local_ray[(3, 0)] + local_ray[(3, 1)] * status.tanh_length);
+            let klein_pos0_val = local_ray.position()[coord_boundary] / local_ray.position().w;
+            let klein_pos1_val = (local_ray.position()[coord_boundary]
+                + local_ray.direction()[coord_boundary] * status.tanh_length)
+                / (local_ray.position().w + local_ray.direction().w * status.tanh_length);
 
             // Check for neighboring nodes
             if klein_pos0_val <= klein_boundary0 || klein_pos1_val <= klein_boundary0 {
@@ -103,7 +103,7 @@ pub struct RtChunkContext<'a> {
     pub chunk: ChunkId,
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,
-    pub ray: na::Matrix4x2<f32>,
+    pub ray: &'a Ray,
 }
 
 impl RtChunkContext<'_> {
@@ -151,5 +151,37 @@ impl RayStatus {
             chunk: context.chunk,
             normal: context.transform * normal,
         });
+    }
+}
+
+pub struct Ray(na::Matrix4x2<f32>);
+
+impl Ray {
+    pub fn new(position: na::Vector4<f32>, direction: na::Vector4<f32>) -> Ray {
+        Ray(na::Matrix::from_columns(&[position, direction]))
+    }
+
+    #[inline]
+    pub fn position(&self) -> na::VectorSlice4<f32> {
+        self.0.column(0)
+    }
+
+    #[inline]
+    pub fn direction(&self) -> na::VectorSlice4<f32> {
+        self.0.column(1)
+    }
+
+    /// Returns a point along this ray tanh_distance units away from the origin
+    pub fn point(&self, tanh_distance: f32) -> na::Vector4<f32> {
+        self.position() + self.direction() * tanh_distance
+    }
+}
+
+impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
+    type Output = Ray;
+
+    #[inline]
+    fn mul(self, rhs: &Ray) -> Self::Output {
+        Ray(self * rhs.0)
     }
 }

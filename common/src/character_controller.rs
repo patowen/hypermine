@@ -66,7 +66,8 @@ impl CharacterControllerPass<'_> {
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
             //    example of such an artifact is the player moving backwards slightly when they
             //    stop moving after releasing a direction key.
-            self.position.local *= self.trace_ray(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
+            self.position.local *=
+                self.trace_ray(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
         }
 
         // Renormalize
@@ -90,15 +91,16 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let pos = self.position.local * math::origin();
-        let vel = self.position.local * displacement_normalized;
         let ray_status = ray_tracing::trace_ray(
             self.graph,
             self.cfg.chunk_size as usize,
             &SphereCollider { radius: 0.02 },
             (self.position.node, Vertex::A).into(),
             self.position.local,
-            na::Matrix::from_columns(&[pos, vel]),
+            ray_tracing::Ray::new(
+                self.position.local * math::origin(),
+                self.position.local * displacement_normalized,
+            ),
             displacement_norm.tanh(),
         );
 

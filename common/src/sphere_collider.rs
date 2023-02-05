@@ -1,7 +1,7 @@
 use crate::{
     dodeca::Vertex,
     math,
-    ray_tracing::{ChunkRayTracer, RayStatus, RtChunkContext},
+    ray_tracing::{ChunkRayTracer, Ray, RayStatus, RtChunkContext},
     world::Material,
 };
 
@@ -12,10 +12,10 @@ pub struct SphereCollider {
 impl ChunkRayTracer for SphereCollider {
     fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
         let float_size = ctx.dimension as f32;
-        let voxel_start = (ctx.ray.column(0) / ctx.ray[(3, 0)]).xyz()
+        let voxel_start = (ctx.ray.position() / ctx.ray.position().w).xyz()
             * Vertex::dual_to_chunk_factor() as f32
             * float_size;
-        let end_pos = ctx.ray * na::vector![1.0, status.tanh_length];
+        let end_pos = ctx.ray.point(status.tanh_length);
         let voxel_end =
             (end_pos / end_pos[3]).xyz() * Vertex::dual_to_chunk_factor() as f32 * float_size;
         let max_voxel_radius = self.radius * Vertex::dual_to_chunk_factor() as f32 * float_size;
@@ -66,17 +66,17 @@ impl SphereCollider {
             ));
 
             let tanh_length_candidate =
-                solve_sphere_plane_intersection(&ctx.ray, &normal, self.radius.sinh());
+                solve_sphere_plane_intersection(ctx.ray, &normal, self.radius.sinh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
                 continue;
             }
 
-            let mip_dir_norm = math::mip(&ctx.ray.column(1), &normal);
+            let mip_dir_norm = math::mip(&ctx.ray.direction(), &normal);
             let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
 
-            let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
+            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
             let projected_pos =
                 translated_square_pos - normal * math::mip(&translated_square_pos, &normal);
             let projected_pos = projected_pos / projected_pos.w;
@@ -126,14 +126,14 @@ impl SphereCollider {
             let edge_dir = permuted_vector4(axis, 1.0, 0.0, 0.0, 0.0);
 
             let tanh_length_candidate =
-                solve_sphere_line_intersection(&ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
+                solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
+            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
             let projected_pos = -edge_pos * math::mip(&translated_square_pos, &edge_pos)
                 + edge_dir * math::mip(&translated_square_pos, &edge_dir);
             let projected_pos = projected_pos / projected_pos.w;
@@ -190,14 +190,14 @@ impl SphereCollider {
             );
 
             let tanh_length_candidate =
-                solve_sphere_point_intersection(&ctx.ray, &vert, self.radius.cosh());
+                solve_sphere_point_intersection(ctx.ray, &vert, self.radius.cosh());
 
             // If t_candidate is out of range or NaN, don't continue collision checking
             if !(tanh_length_candidate >= 0.0 && tanh_length_candidate < status.tanh_length) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray * na::vector![1.0, tanh_length_candidate];
+            let translated_square_pos = ctx.ray.point(tanh_length_candidate);
             status.update(ctx, tanh_length_candidate, translated_square_pos - vert);
         }
     }
@@ -208,14 +208,14 @@ impl SphereCollider {
 ///
 /// Returns NaN if there's no such intersection
 fn solve_sphere_point_intersection(
-    ray: &na::Matrix4x2<f32>,
+    ray: &Ray,
     point_position: &na::Vector4<f32>,
     cosh_radius: f32,
 ) -> f32 {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.column(0), point_position);
-    let mip_dir_a = math::mip(&ray.column(1), point_position);
+    let mip_pos_a = math::mip(&ray.position(), point_position);
+    let mip_dir_a = math::mip(&ray.direction(), point_position);
 
     solve_quadratic(
         mip_pos_a.powi(2) - cosh_radius.powi(2),
@@ -229,17 +229,17 @@ fn solve_sphere_point_intersection(
 ///
 /// Returns NaN if there's no such intersection
 fn solve_sphere_line_intersection(
-    ray: &na::Matrix4x2<f32>,
+    ray: &Ray,
     line_position: &na::Vector4<f32>,
     line_direction: &na::Vector4<f32>,
     cosh_radius: f32,
 ) -> f32 {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.column(0), line_position);
-    let mip_dir_a = math::mip(&ray.column(1), line_position);
-    let mip_pos_b = math::mip(&ray.column(0), line_direction);
-    let mip_dir_b = math::mip(&ray.column(1), line_direction);
+    let mip_pos_a = math::mip(&ray.position(), line_position);
+    let mip_dir_a = math::mip(&ray.direction(), line_position);
+    let mip_pos_b = math::mip(&ray.position(), line_direction);
+    let mip_dir_b = math::mip(&ray.direction(), line_direction);
 
     solve_quadratic(
         mip_pos_a.powi(2) - mip_pos_b.powi(2) - cosh_radius.powi(2),
@@ -253,12 +253,12 @@ fn solve_sphere_line_intersection(
 ///
 /// Returns NaN if there's no such intersection
 fn solve_sphere_plane_intersection(
-    ray: &na::Matrix4x2<f32>,
+    ray: &Ray,
     plane_normal: &na::Vector4<f32>,
     sinh_radius: f32,
 ) -> f32 {
-    let mip_pos_a = math::mip(&ray.column(0), plane_normal);
-    let mip_dir_a = math::mip(&ray.column(1), plane_normal);
+    let mip_pos_a = math::mip(&ray.position(), plane_normal);
+    let mip_dir_a = math::mip(&ray.direction(), plane_normal);
 
     solve_quadratic(
         mip_pos_a.powi(2) - sinh_radius.powi(2),
