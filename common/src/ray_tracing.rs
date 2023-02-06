@@ -59,6 +59,12 @@ pub fn trace_ray(
                     * chunk.vertex.dual_to_node().cast(),
                 voxel_data,
                 ray: &local_ray,
+                bounding_box: CubicVoxelRegion::from_ray_segment_and_radius(
+                    dimension,
+                    &local_ray,
+                    status.tanh_distance,
+                    chunk_ray_tracer.max_radius(),
+                ),
             },
             &mut status,
         );
@@ -116,6 +122,7 @@ pub struct RtChunkContext<'a> {
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,
     pub ray: &'a Ray,
+    pub bounding_box: CubicVoxelRegion,
 }
 
 impl RtChunkContext<'_> {

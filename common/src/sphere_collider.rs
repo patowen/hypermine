@@ -1,7 +1,7 @@
 use crate::{
     dodeca::Vertex,
     math,
-    ray_tracing::{ChunkRayTracer, CubicVoxelRegion, Ray, RayStatus, RtChunkContext},
+    ray_tracing::{ChunkRayTracer, Ray, RayStatus, RtChunkContext},
     world::Material,
 };
 
@@ -11,22 +11,15 @@ pub struct SphereCollider {
 
 impl ChunkRayTracer for SphereCollider {
     fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
-        let bbox = CubicVoxelRegion::from_ray_segment_and_radius(
-            ctx.dimension,
-            ctx.ray,
-            status.tanh_distance,
-            self.radius,
-        );
-
         for axis in 0..3 {
-            self.find_side_collision(ctx, &bbox, axis, status);
+            self.find_side_collision(ctx, axis, status);
         }
 
         for axis in 0..3 {
-            self.find_edge_collision(ctx, &bbox, axis, status);
+            self.find_edge_collision(ctx, axis, status);
         }
 
-        self.find_vertex_collision(ctx, &bbox, status);
+        self.find_vertex_collision(ctx, status);
     }
 
     fn max_radius(&self) -> f32 {
@@ -35,18 +28,12 @@ impl ChunkRayTracer for SphereCollider {
 }
 
 impl SphereCollider {
-    fn find_side_collision(
-        &self,
-        ctx: &RtChunkContext,
-        bbox: &CubicVoxelRegion,
-        axis: usize,
-        status: &mut RayStatus,
-    ) {
+    fn find_side_collision(&self, ctx: &RtChunkContext, axis: usize, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
         let plane0 = (axis + 1) % 3;
         let plane1 = (axis + 2) % 3;
 
-        for i in bbox.voxel_plane_iterator(axis) {
+        for i in ctx.bounding_box.voxel_plane_iterator(axis) {
             let normal = math::lorentz_normalize(&permuted_vector4(
                 axis,
                 1.0,
@@ -91,18 +78,12 @@ impl SphereCollider {
         }
     }
 
-    fn find_edge_collision(
-        &self,
-        ctx: &RtChunkContext,
-        bbox: &CubicVoxelRegion,
-        axis: usize,
-        status: &mut RayStatus,
-    ) {
+    fn find_edge_collision(&self, ctx: &RtChunkContext, axis: usize, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
         let plane0 = (axis + 1) % 3;
         let plane1 = (axis + 2) % 3;
 
-        for (i, j) in bbox.voxel_line_iterator(plane0, plane1) {
+        for (i, j) in ctx.bounding_box.voxel_line_iterator(plane0, plane1) {
             let edge_pos = math::lorentz_normalize(&permuted_vector4(
                 axis,
                 0.0,
@@ -147,15 +128,10 @@ impl SphereCollider {
         }
     }
 
-    fn find_vertex_collision(
-        &self,
-        ctx: &RtChunkContext,
-        bbox: &CubicVoxelRegion,
-        status: &mut RayStatus,
-    ) {
+    fn find_vertex_collision(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
 
-        for (x, y, z) in bbox.voxel_iterator(0, 1, 2) {
+        for (x, y, z) in ctx.bounding_box.voxel_iterator(0, 1, 2) {
             // Skip vertices that have no voxels adjacent to them
             if (0..2).all(|dx| {
                 (0..2).all(|dy| {
