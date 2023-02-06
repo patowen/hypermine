@@ -80,6 +80,7 @@ impl SphereCollider {
 
     fn find_edge_collision(&self, ctx: &RtChunkContext, axis: usize, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
+        // TODO: Consider using alternate form of coordinates: t, u, and v, instead of axis, plane0, and plane1.
         let plane0 = (axis + 1) % 3;
         let plane1 = (axis + 2) % 3;
 
@@ -113,13 +114,10 @@ impl SphereCollider {
             }
             let k = k as usize;
 
-            if (0..4).all(|idx| {
-                ctx.get_voxel(permuted_array3(
-                    axis,
-                    k + 1,
-                    i + idx % 2,
-                    j + (idx >> 1) % 2,
-                )) == Material::Void
+            if (0..2).all(|di| {
+                (0..2).all(|dj| {
+                    ctx.get_voxel(permuted_array3(axis, k + 1, i + di, j + dj)) == Material::Void
+                })
             }) {
                 continue;
             }
@@ -132,7 +130,7 @@ impl SphereCollider {
         let float_dimension = ctx.dimension as f32;
 
         for (x, y, z) in ctx.bounding_box.voxel_iterator(0, 1, 2) {
-            // Skip vertices that have no voxels adjacent to them
+            // Skip vertices that have no solid voxels adjacent to them
             if (0..2).all(|dx| {
                 (0..2).all(|dy| {
                     (0..2).all(|dz| ctx.get_voxel([x + dx, y + dy, z + dz]) == Material::Void)
