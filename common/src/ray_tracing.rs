@@ -196,3 +196,74 @@ impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
         }
     }
 }
+
+pub struct CubicVoxelRegion {
+    bounds: [[usize; 2]; 3],
+}
+
+impl CubicVoxelRegion {
+    pub fn from_ray_segment_and_radius(
+        dimension: usize,
+        ray: &Ray,
+        tanh_distance: f32,
+        radius: f32,
+    ) -> CubicVoxelRegion {
+        let float_dimension = dimension as f32;
+        let voxel_start = na::Point3::from_homogeneous(ray.position).unwrap()
+            * Vertex::dual_to_chunk_factor() as f32
+            * float_dimension;
+        let voxel_end = na::Point3::from_homogeneous(ray.point(tanh_distance)).unwrap()
+            * Vertex::dual_to_chunk_factor() as f32
+            * float_dimension;
+        let max_voxel_radius = radius * Vertex::dual_to_chunk_factor() as f32 * float_dimension;
+        let bounds = [0, 1, 2].map(|coord| {
+            if !voxel_start[coord].is_finite() || !voxel_end[coord].is_finite() {
+                return [0, dimension + 1];
+            }
+            let result_min =
+                (voxel_start[coord].min(voxel_end[coord]) - max_voxel_radius).max(-0.5) + 1.0;
+            let result_max = (voxel_start[coord].max(voxel_end[coord]) + max_voxel_radius)
+                .min(dimension as f32 + 0.5)
+                + 1.0;
+
+            if result_min > result_max {
+                // Empty range
+                return [1, 0];
+            }
+
+            [result_min.floor() as usize, result_max.floor() as usize]
+        });
+
+        CubicVoxelRegion { bounds }
+    }
+
+    /// Creates an iterator over voxels, represented as ordered triples
+    pub fn voxel_iterator(
+        &self,
+        coord0: usize,
+        coord1: usize,
+        coord2: usize,
+    ) -> impl Iterator<Item = (usize, usize, usize)> {
+        let bounds = self.bounds;
+        (bounds[coord0][0]..bounds[coord0][1]).flat_map(move |i| {
+            (bounds[coord1][0]..bounds[coord1][1])
+                .flat_map(move |j| (bounds[coord2][0]..bounds[coord2][1]).map(move |k| (i, j, k)))
+        })
+    }
+
+    /// Creates an iterator over voxel lines, represented as ordered pairs determining the line's two fixed coordinates
+    pub fn voxel_line_iterator(
+        &self,
+        coord0: usize,
+        coord1: usize,
+    ) -> impl Iterator<Item = (usize, usize)> {
+        let bounds = self.bounds;
+        (bounds[coord0][0]..bounds[coord0][1])
+            .flat_map(move |i| (bounds[coord1][0]..bounds[coord1][1]).map(move |j| (i, j)))
+    }
+
+    /// Creates an iterator over voxel planes, represented as integers determining the plane's fixed coordinate
+    pub fn voxel_plane_iterator(&self, coord: usize) -> impl Iterator<Item = usize> {
+        self.bounds[coord][0]..self.bounds[coord][1]
+    }
+}
