@@ -65,20 +65,19 @@ impl SphereCollider {
                 i as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
             ));
 
-            let tanh_distance_candidate =
+            let tanh_distance =
                 solve_sphere_plane_intersection(ctx.ray, &normal, self.radius.sinh());
 
-            // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
+            // If tanh_distance is out of range or NaN, no collision occurred.
+            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
                 continue;
             }
 
             let mip_dir_norm = math::mip(&ctx.ray.direction, &normal);
             let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
 
-            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
-            let projected_pos =
-                translated_square_pos - normal * math::mip(&translated_square_pos, &normal);
+            let collision_point = ctx.ray.point(tanh_distance);
+            let projected_pos = collision_point - normal * math::mip(&collision_point, &normal);
             let projected_pos = projected_pos / projected_pos.w;
             let j0 =
                 (projected_pos[plane0] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
@@ -98,11 +97,7 @@ impl SphereCollider {
                 continue;
             }
 
-            status.update(
-                ctx,
-                tanh_distance_candidate,
-                normal * -mip_dir_norm.signum(),
-            );
+            status.update(ctx, tanh_distance, normal * -mip_dir_norm.signum());
         }
     }
 
@@ -129,17 +124,17 @@ impl SphereCollider {
             ));
             let edge_dir = permuted_vector4(axis, 1.0, 0.0, 0.0, 0.0);
 
-            let tanh_distance_candidate =
+            let tanh_distance =
                 solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
 
-            // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
+            // If tanh_distance is out of range or NaN, no collision occurred.
+            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
-            let projected_pos = -edge_pos * math::mip(&translated_square_pos, &edge_pos)
-                + edge_dir * math::mip(&translated_square_pos, &edge_dir);
+            let collision_point = ctx.ray.point(tanh_distance);
+            let projected_pos = -edge_pos * math::mip(&collision_point, &edge_pos)
+                + edge_dir * math::mip(&collision_point, &edge_dir);
             let projected_pos = projected_pos / projected_pos.w;
             let k = (projected_pos[axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
                 .floor();
@@ -160,11 +155,7 @@ impl SphereCollider {
                 continue;
             }
 
-            status.update(
-                ctx,
-                tanh_distance_candidate,
-                translated_square_pos - projected_pos,
-            );
+            status.update(ctx, tanh_distance, collision_point - projected_pos);
         }
     }
 
@@ -176,33 +167,36 @@ impl SphereCollider {
     ) {
         let float_dimension = ctx.dimension as f32;
 
-        for (i, j, k) in (bbox[0][0]..bbox[0][1]).flat_map(|i| {
+        for (x, y, z) in (bbox[0][0]..bbox[0][1]).flat_map(|i| {
             (bbox[1][0]..bbox[1][1])
                 .flat_map(move |j| (bbox[2][0]..bbox[2][1]).map(move |k| (i, j, k)))
         }) {
-            if (0..8).all(|idx| {
-                ctx.get_voxel([i + idx % 2, j + (idx >> 1) % 2, k + (idx >> 2) % 2])
-                    == Material::Void
+            // Skip vertices that have no voxels adjacent to them
+            if (0..2).all(|dx| {
+                (0..2).all(|dy| {
+                    (0..2).all(|dz| ctx.get_voxel([x + dx, y + dy, z + dz]) == Material::Void)
+                })
             }) {
                 continue;
             }
 
-            let vert = math::lorentz_normalize(
-                &na::Vector3::new(i as f32, j as f32, k as f32)
+            // Determine the cube-centric coordinates of the vertex
+            let vertex_position = math::lorentz_normalize(
+                &na::Vector3::new(x as f32, y as f32, z as f32)
                     .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension)
                     .insert_row(3, 1.0),
             );
 
-            let tanh_distance_candidate =
-                solve_sphere_point_intersection(ctx.ray, &vert, self.radius.cosh());
+            let tanh_distance =
+                solve_sphere_point_intersection(ctx.ray, &vertex_position, self.radius.cosh());
 
-            // If t_candidate is out of range or NaN, don't continue collision checking
-            if !(tanh_distance_candidate >= 0.0 && tanh_distance_candidate < status.tanh_distance) {
+            // If tanh_distance is out of range or NaN, no collision occurred.
+            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
                 continue;
             }
 
-            let translated_square_pos = ctx.ray.point(tanh_distance_candidate);
-            status.update(ctx, tanh_distance_candidate, translated_square_pos - vert);
+            let collision_point = ctx.ray.point(tanh_distance);
+            status.update(ctx, tanh_distance, collision_point - vertex_position);
         }
     }
 }
