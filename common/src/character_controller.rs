@@ -94,7 +94,7 @@ impl CharacterControllerPass<'_> {
         let ray_status = ray_tracing::trace_ray(
             self.graph,
             self.cfg.chunk_size as usize,
-            &SphereCollider { radius: 0.02 },
+            &SphereCollider { radius: self.cfg.character_radius },
             (self.position.node, Vertex::A).into(),
             self.position.local,
             ray_tracing::Ray::new(
