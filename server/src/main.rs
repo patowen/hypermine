@@ -1,3 +1,5 @@
+#![allow(clippy::needless_borrowed_reference)]
+
 mod config;
 
 use std::{fs, net::UdpSocket, path::Path};
