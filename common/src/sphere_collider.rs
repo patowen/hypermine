@@ -223,29 +223,29 @@ fn solve_sphere_plane_intersection(
     )
 }
 
-/// Finds the lower solution `t` of `constant_term + 2 * double_linear_term * t + quadratic_term * t * t == 0`
+/// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`
 ///
 /// Returns NaN if no such solution exists.
 ///
-/// If a small perturbation to these terms would result in a solution of `t == 0.0`, this function has logic to
+/// If a small perturbation to these terms would result in a solution of `x == 0.0`, this function has logic to
 /// to return 0.0 if three conditions hold in the context of collision checking:
 /// 1. The collider must be intersecting the object. This manifests as `constant_term <= 0.0`.
 /// 2. The collider must not be too far inside the object. This manifests as `constant_term >= -EPSILON`.
 /// 3. The direction of motion must be towards the collider. This manifests as `double_linear_term < 0.0`.
-fn solve_quadratic(constant_term: f32, double_linear_term: f32, quadratic_term: f32) -> f32 {
+fn solve_quadratic(constant_term: f32, half_linear_term: f32, quadratic_term: f32) -> f32 {
     const EPSILON: f32 = 1e-4;
 
     // Extra logic to ensure precision issues don't allow a collider to clip through a surface
-    if (-EPSILON..=0.0).contains(&constant_term) && double_linear_term < 0.0 {
+    if (-EPSILON..=0.0).contains(&constant_term) && half_linear_term < 0.0 {
         return 0.0;
     }
 
-    let discriminant = double_linear_term * double_linear_term - quadratic_term * constant_term;
+    let discriminant = half_linear_term * half_linear_term - quadratic_term * constant_term;
 
     // We use an alternative quadratic formula to ensure that we return a positive number if `constant_term > 0.0`.
     // Otherwise, the edge case of a small positive `constant_term` could be mishandled.
     // Note that discriminant can be negative, which allows this function to return NaN when there is no solution.
-    constant_term / (-double_linear_term + discriminant.sqrt())
+    constant_term / (-half_linear_term + discriminant.sqrt())
 }
 
 /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
