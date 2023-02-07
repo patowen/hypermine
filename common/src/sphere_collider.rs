@@ -28,18 +28,20 @@ impl ChunkRayTracer for SphereCollider {
 }
 
 impl SphereCollider {
-    fn find_side_collision(&self, ctx: &RtChunkContext, axis: usize, status: &mut RayStatus) {
+    fn find_side_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
-        let plane0 = (axis + 1) % 3;
-        let plane1 = (axis + 2) % 3;
+        let u_axis = (t_axis + 1) % 3;
+        let v_axis = (t_axis + 2) % 3;
 
-        for i in ctx.bounding_box.voxel_plane_iterator(axis) {
-            let normal = math::lorentz_normalize(&permuted_vector4(
-                axis,
-                1.0,
-                0.0,
-                0.0,
-                i as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+        for t in ctx.bounding_box.voxel_plane_iterator(t_axis) {
+            let normal = math::lorentz_normalize(&tuv_to_xyz(
+                t_axis,
+                na::Vector4::new(
+                    1.0,
+                    0.0,
+                    0.0,
+                    t as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+                ),
             ));
 
             let tanh_distance =
@@ -51,26 +53,25 @@ impl SphereCollider {
             }
 
             let mip_dir_norm = math::mip(&ctx.ray.direction, &normal);
-            let i_with_offset = if mip_dir_norm < 0.0 { i } else { i + 1 };
+            let t_with_offset = if mip_dir_norm < 0.0 { t } else { t + 1 };
 
             let collision_point = ctx.ray.point(tanh_distance);
             let projected_pos = collision_point - normal * math::mip(&collision_point, &normal);
             let projected_pos = projected_pos / projected_pos.w;
-            let j0 =
-                (projected_pos[plane0] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
+            let u =
+                (projected_pos[u_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
                     .floor();
-            let j1 =
-                (projected_pos[plane1] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
+            let v =
+                (projected_pos[v_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
                     .floor();
 
-            if !(j0 >= 0.0 && j0 < float_dimension && j1 >= 0.0 && j1 < float_dimension) {
+            if !(u >= 0.0 && u < float_dimension && v >= 0.0 && v < float_dimension) {
                 continue;
             }
-            let j0 = j0 as usize;
-            let j1 = j1 as usize;
+            let u = u as usize;
+            let v = v as usize;
 
-            if ctx.get_voxel(permuted_array3(axis, i_with_offset, j0 + 1, j1 + 1)) == Material::Void
-            {
+            if ctx.get_voxel(tuv_to_xyz(t_axis, [t_with_offset, u + 1, v + 1])) == Material::Void {
                 continue;
             }
 
@@ -78,21 +79,22 @@ impl SphereCollider {
         }
     }
 
-    fn find_edge_collision(&self, ctx: &RtChunkContext, axis: usize, status: &mut RayStatus) {
+    fn find_edge_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
         let float_dimension = ctx.dimension as f32;
-        // TODO: Consider using alternate form of coordinates: t, u, and v, instead of axis, plane0, and plane1.
-        let plane0 = (axis + 1) % 3;
-        let plane1 = (axis + 2) % 3;
+        let u_axis = (t_axis + 1) % 3;
+        let v_axis = (t_axis + 2) % 3;
 
-        for (i, j) in ctx.bounding_box.voxel_line_iterator(plane0, plane1) {
-            let edge_pos = math::lorentz_normalize(&permuted_vector4(
-                axis,
-                0.0,
-                i as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
-                j as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
-                1.0,
+        for (u, v) in ctx.bounding_box.voxel_line_iterator(u_axis, v_axis) {
+            let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
+                t_axis,
+                na::Vector4::new(
+                    0.0,
+                    u as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+                    v as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+                    1.0,
+                ),
             ));
-            let edge_dir = permuted_vector4(axis, 1.0, 0.0, 0.0, 0.0);
+            let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
 
             let tanh_distance =
                 solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
@@ -106,17 +108,18 @@ impl SphereCollider {
             let projected_pos = -edge_pos * math::mip(&collision_point, &edge_pos)
                 + edge_dir * math::mip(&collision_point, &edge_dir);
             let projected_pos = projected_pos / projected_pos.w;
-            let k = (projected_pos[axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
-                .floor();
+            let t =
+                (projected_pos[t_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
+                    .floor();
 
-            if !(k >= 0.0 && k < float_dimension) {
+            if !(t >= 0.0 && t < float_dimension) {
                 continue;
             }
-            let k = k as usize;
+            let t = t as usize;
 
-            if (0..2).all(|di| {
-                (0..2).all(|dj| {
-                    ctx.get_voxel(permuted_array3(axis, k + 1, i + di, j + dj)) == Material::Void
+            if (0..2).all(|du| {
+                (0..2).all(|dv| {
+                    ctx.get_voxel(tuv_to_xyz(t_axis, [t + 1, u + du, v + dv])) == Material::Void
                 })
             }) {
                 continue;
@@ -249,25 +252,15 @@ fn solve_quadratic(constant_term: f32, double_linear_term: f32, quadratic_term: 
     constant_term / (-double_linear_term + discriminant.sqrt())
 }
 
-fn permuted_array3<N: Default>(axis: usize, axis_val: N, other_val0: N, other_val1: N) -> [N; 3] {
-    let mut result: [N; 3] = Default::default();
-    result[axis] = axis_val;
-    result[(axis + 1) % 3] = other_val0;
-    result[(axis + 2) % 3] = other_val1;
-    result
-}
-
-fn permuted_vector4<N: na::RealField + Copy>(
-    axis: usize,
-    axis_coord: N,
-    other_coord0: N,
-    other_coord1: N,
-    w: N,
-) -> na::Vector4<N> {
-    let mut result = na::Vector4::zeros();
-    result[axis] = axis_coord;
-    result[(axis + 1) % 3] = other_coord0;
-    result[(axis + 2) % 3] = other_coord1;
-    result[3] = w;
+/// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
+/// `t_axis` determines which of the three x-y-z coordinates corresponds to the t-coordinate. This function works with
+/// any indexable entity with at least three entries. Any entry after the third entry is ignored.
+fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, tuv: T) -> T {
+    let mut result = tuv;
+    (
+        result[t_axis],
+        result[(t_axis + 1) % 3],
+        result[(t_axis + 2) % 3],
+    ) = (result[0], result[1], result[2]);
     result
 }
