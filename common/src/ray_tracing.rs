@@ -53,6 +53,7 @@ pub fn trace_ray(
         chunk_ray_tracer.trace_ray(
             &RtChunkContext {
                 dimension,
+                dimension_f32: dimension as f32,
                 chunk,
                 transform: transform
                     * math::mtranspose(&node_transform)
@@ -118,6 +119,7 @@ pub trait ChunkRayTracer {
 
 pub struct RtChunkContext<'a> {
     pub dimension: usize,
+    pub dimension_f32: f32,
     pub chunk: ChunkId,
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,

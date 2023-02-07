@@ -29,7 +29,6 @@ impl ChunkRayTracer for SphereCollider {
 
 impl SphereCollider {
     fn find_side_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
-        let float_dimension = ctx.dimension as f32;
         let u_axis = (t_axis + 1) % 3;
         let v_axis = (t_axis + 2) % 3;
 
@@ -40,7 +39,7 @@ impl SphereCollider {
                     1.0,
                     0.0,
                     0.0,
-                    t as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+                    t as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
                 ),
             ));
 
@@ -57,21 +56,15 @@ impl SphereCollider {
 
             let collision_point = ctx.ray.point(tanh_distance);
             let projected_pos = collision_point - normal * math::mip(&collision_point, &normal);
-            let projected_pos = projected_pos / projected_pos.w;
-            let u =
-                (projected_pos[u_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
-                    .floor();
-            let v =
-                (projected_pos[v_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
-                    .floor();
 
-            if !(u >= 0.0 && u < float_dimension && v >= 0.0 && v < float_dimension) {
+            let Some(u) = dual_to_voxel(ctx, projected_pos[u_axis] / projected_pos.w) else {
                 continue;
-            }
-            let u = u as usize;
-            let v = v as usize;
+            };
+            let Some(v) = dual_to_voxel(ctx, projected_pos[v_axis] / projected_pos.w) else {
+                continue;
+            };
 
-            if ctx.get_voxel(tuv_to_xyz(t_axis, [t_with_offset, u + 1, v + 1])) == Material::Void {
+            if ctx.get_voxel(tuv_to_xyz(t_axis, [t_with_offset, u, v])) == Material::Void {
                 continue;
             }
 
@@ -80,7 +73,6 @@ impl SphereCollider {
     }
 
     fn find_edge_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
-        let float_dimension = ctx.dimension as f32;
         let u_axis = (t_axis + 1) % 3;
         let v_axis = (t_axis + 2) % 3;
 
@@ -89,8 +81,8 @@ impl SphereCollider {
                 t_axis,
                 na::Vector4::new(
                     0.0,
-                    u as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
-                    v as f32 / float_dimension * Vertex::chunk_to_dual_factor() as f32,
+                    u as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
+                    v as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
                     1.0,
                 ),
             ));
@@ -107,19 +99,15 @@ impl SphereCollider {
             let collision_point = ctx.ray.point(tanh_distance);
             let projected_pos = -edge_pos * math::mip(&collision_point, &edge_pos)
                 + edge_dir * math::mip(&collision_point, &edge_dir);
-            let projected_pos = projected_pos / projected_pos.w;
-            let t =
-                (projected_pos[t_axis] * Vertex::dual_to_chunk_factor() as f32 * float_dimension)
-                    .floor();
 
-            if !(t >= 0.0 && t < float_dimension) {
+            let Some(t) = dual_to_voxel(ctx, projected_pos[t_axis] / projected_pos.w) else {
                 continue;
-            }
-            let t = t as usize;
+            };
 
+            // Ensure that the edge has a solid voxel adjacent to it
             if (0..2).all(|du| {
                 (0..2).all(|dv| {
-                    ctx.get_voxel(tuv_to_xyz(t_axis, [t + 1, u + du, v + dv])) == Material::Void
+                    ctx.get_voxel(tuv_to_xyz(t_axis, [t, u + du, v + dv])) == Material::Void
                 })
             }) {
                 continue;
@@ -263,4 +251,18 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
         result[(t_axis + 2) % 3],
     ) = (result[0], result[1], result[2]);
     result
+}
+
+/// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
+/// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
+#[inline]
+fn dual_to_voxel(ctx: &RtChunkContext, dual_coord: f32) -> Option<usize> {
+    let voxel_coord =
+        (dual_coord * Vertex::dual_to_chunk_factor() as f32 * ctx.dimension_f32).floor();
+
+    if !(voxel_coord >= 0.0 && voxel_coord < ctx.dimension_f32) {
+        None
+    } else {
+        Some(voxel_coord as usize + 1)
+    }
 }
