@@ -75,7 +75,7 @@ pub fn trace_ray(
         // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.point(status.tanh_distance)).unwrap();
+            na::Point3::from_homogeneous(local_ray.ray_point(status.tanh_distance)).unwrap();
 
         // Add neighboring chunks as necessary, using one coordinate at a time.
         for coord in 0..3 {
@@ -189,7 +189,7 @@ impl Ray {
     }
 
     /// Returns a point along this ray tanh_distance units away from the origin
-    pub fn point(&self, tanh_distance: f32) -> na::Vector4<f32> {
+    pub fn ray_point(&self, tanh_distance: f32) -> na::Vector4<f32> {
         self.position + self.direction * tanh_distance
     }
 }
@@ -221,7 +221,7 @@ impl CubicVoxelRegion {
         let voxel_start = na::Point3::from_homogeneous(ray.position).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_dimension;
-        let voxel_end = na::Point3::from_homogeneous(ray.point(tanh_distance)).unwrap()
+        let voxel_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * float_dimension;
         let max_voxel_radius = radius * Vertex::dual_to_chunk_factor() as f32 * float_dimension;
@@ -247,7 +247,7 @@ impl CubicVoxelRegion {
     }
 
     /// Creates an iterator over voxels, represented as ordered triples
-    pub fn voxel_iterator(
+    pub fn grid_point_iterator(
         &self,
         coord0: usize,
         coord1: usize,
@@ -261,7 +261,7 @@ impl CubicVoxelRegion {
     }
 
     /// Creates an iterator over voxel lines, represented as ordered pairs determining the line's two fixed coordinates
-    pub fn voxel_line_iterator(
+    pub fn grid_line_iterator(
         &self,
         coord0: usize,
         coord1: usize,
@@ -272,7 +272,7 @@ impl CubicVoxelRegion {
     }
 
     /// Creates an iterator over voxel planes, represented as integers determining the plane's fixed coordinate
-    pub fn voxel_plane_iterator(&self, coord: usize) -> impl Iterator<Item = usize> {
+    pub fn grid_plane_iterator(&self, coord: usize) -> impl Iterator<Item = usize> {
         self.bounds[coord][0]..self.bounds[coord][1]
     }
 }
