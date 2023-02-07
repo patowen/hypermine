@@ -35,12 +35,7 @@ impl SphereCollider {
         for t in ctx.bounding_box.voxel_plane_iterator(t_axis) {
             let normal = math::lorentz_normalize(&tuv_to_xyz(
                 t_axis,
-                na::Vector4::new(
-                    1.0,
-                    0.0,
-                    0.0,
-                    t as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
-                ),
+                na::Vector4::new(1.0, 0.0, 0.0, grid_to_dual(ctx, t)),
             ));
 
             let tanh_distance =
@@ -79,12 +74,7 @@ impl SphereCollider {
         for (u, v) in ctx.bounding_box.voxel_line_iterator(u_axis, v_axis) {
             let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
                 t_axis,
-                na::Vector4::new(
-                    0.0,
-                    u as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
-                    v as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32,
-                    1.0,
-                ),
+                na::Vector4::new(0.0, grid_to_dual(ctx, u), grid_to_dual(ctx, v), 1.0),
             ));
             let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
 
@@ -265,4 +255,9 @@ fn dual_to_voxel(ctx: &RtChunkContext, dual_coord: f32) -> Option<usize> {
     } else {
         Some(voxel_coord as usize + 1)
     }
+}
+
+#[inline]
+fn grid_to_dual(ctx: &RtChunkContext, grid_coord: usize) -> f32 {
+    grid_coord as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32
 }
