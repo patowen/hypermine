@@ -48,26 +48,30 @@ pub fn trace_ray(
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * &ray;
 
-        // Check collision within a single chunk
-        chunk_ray_tracer.trace_ray(
-            &RtChunkContext {
-                dimension,
-                dimension_f32: dimension as f32,
-                chunk,
-                transform: transform
-                    * math::mtranspose(&node_transform)
-                    * chunk.vertex.dual_to_node().cast(),
-                voxel_data,
-                ray: &local_ray,
-                bounding_box: CubicVoxelRegion::from_ray_segment_and_radius(
-                    dimension,
-                    &local_ray,
-                    status.tanh_distance,
-                    chunk_ray_tracer.max_radius(),
-                ),
-            },
-            &mut status,
+        let bounding_box = CubicVoxelRegion::from_ray_segment_and_radius(
+            dimension,
+            &local_ray,
+            status.tanh_distance,
+            chunk_ray_tracer.max_radius(),
         );
+
+        // Check collision within a single chunk
+        if let Some(bounding_box) = bounding_box {
+            chunk_ray_tracer.trace_ray(
+                &RtChunkContext {
+                    dimension,
+                    dimension_f32: dimension as f32,
+                    chunk,
+                    transform: transform
+                        * math::mtranspose(&node_transform)
+                        * chunk.vertex.dual_to_node().cast(),
+                    voxel_data,
+                    ray: &local_ray,
+                    bounding_box,
+                },
+                &mut status,
+            );
+        }
 
         // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
         // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
@@ -218,47 +222,53 @@ impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
     }
 }
 
+/// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
 pub struct CubicVoxelRegion {
+    // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with margins.
+    // Any voxel that intersects the cube of interest is included in these bounds. By adding or subtracting 1 in the right
+    // places, these bounds can be used to find other useful info related to the cube of interset, such as what grid points
+    // it contains.
     bounds: [[usize; 2]; 3],
 }
 
 impl CubicVoxelRegion {
+    /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
+    /// bounding box lies entirely outside the chunk, including its margins.
     pub fn from_ray_segment_and_radius(
         dimension: usize,
         ray: &Ray,
         tanh_distance: f32,
         radius: f32,
-    ) -> CubicVoxelRegion {
-        let float_dimension = dimension as f32;
-        let voxel_start = na::Point3::from_homogeneous(ray.position).unwrap()
+    ) -> Option<CubicVoxelRegion> {
+        let dimension_f32 = dimension as f32;
+        let grid_start = na::Point3::from_homogeneous(ray.position).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
-            * float_dimension;
-        let voxel_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
+            * dimension_f32;
+        let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
-            * float_dimension;
-        let max_voxel_radius = radius * Vertex::dual_to_chunk_factor() as f32 * float_dimension;
-        let bounds = [0, 1, 2].map(|coord| {
-            if !voxel_start[coord].is_finite() || !voxel_end[coord].is_finite() {
-                return [0, dimension + 1];
-            }
-            let result_min =
-                (voxel_start[coord].min(voxel_end[coord]) - max_voxel_radius).max(-0.5) + 1.0;
-            let result_max = (voxel_start[coord].max(voxel_end[coord]) + max_voxel_radius)
-                .min(dimension as f32 + 0.5)
-                + 1.0;
+            * dimension_f32;
+        let max_grid_radius = radius * Vertex::dual_to_chunk_factor() as f32 * dimension_f32;
+        let mut bounds = [[0; 2]; 3];
+        for axis in 0..3 {
+            let grid_min = grid_start[axis].min(grid_end[axis]) - max_grid_radius;
+            let grid_max = grid_start[axis].max(grid_end[axis]) + max_grid_radius;
+            let voxel_min = (grid_min + 1.0).floor().max(0.0);
+            let voxel_max = (grid_max + 1.0).floor().min(dimension_f32 + 1.0);
 
-            if result_min > result_max {
-                // Empty range
-                return [1, 0];
+            // This will happen when voxel_min is greater than dimension+1 or voxel_max is less than 0, which
+            // occurs when the cube is out of range.
+            if voxel_min > voxel_max {
+                return None;
             }
 
-            [result_min.floor() as usize, result_max.floor() as usize]
-        });
+            // We convert to usize here instead of earlier because out-of-range voxel coordinates can be negative.
+            bounds[axis] = [voxel_min.floor() as usize, voxel_max.floor() as usize];
+        }
 
-        CubicVoxelRegion { bounds }
+        Some(CubicVoxelRegion { bounds })
     }
 
-    /// Creates an iterator over voxels, represented as ordered triples
+    /// Creates an iterator over grid points contained in the region, represented as ordered triples
     pub fn grid_point_iterator(
         &self,
         coord0: usize,
@@ -272,7 +282,7 @@ impl CubicVoxelRegion {
         })
     }
 
-    /// Creates an iterator over voxel lines, represented as ordered pairs determining the line's two fixed coordinates
+    /// Creates an iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
     pub fn grid_line_iterator(
         &self,
         coord0: usize,
@@ -283,7 +293,7 @@ impl CubicVoxelRegion {
             .flat_map(move |i| (bounds[coord1][0]..bounds[coord1][1]).map(move |j| (i, j)))
     }
 
-    /// Creates an iterator over voxel planes, represented as integers determining the plane's fixed coordinate
+    /// Creates an iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
     pub fn grid_plane_iterator(&self, coord: usize) -> impl Iterator<Item = usize> {
         self.bounds[coord][0]..self.bounds[coord][1]
     }
