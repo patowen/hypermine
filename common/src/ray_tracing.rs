@@ -1,7 +1,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use crate::{
-    dodeca::Vertex,
+    dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, DualGraph, VoxelData},
     world::Material,
@@ -84,15 +84,31 @@ pub fn trace_ray(
                 || klein_ray_end[coord] <= klein_lower_boundary
             {
                 let side = chunk.vertex.canonical_sides()[coord];
+                let next_node_transform = side.reflection().cast::<f32>() * node_transform;
+                // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
+                // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
+                // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners.
+                let ray_node_distance = (next_node_transform * ray.position)
+                    .xyz()
+                    .magnitude()
+                    .acosh();
+                let ray_length = status.tanh_distance.atanh();
+                if ray_node_distance - ray_length
+                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_ray_tracer.max_radius()
+                {
+                    // Ray cannot intersect node
+                    continue;
+                }
+                // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
                     status.result = RayTracingResult::Inconclusive;
                     return status;
                 };
+                // Assuming everything goes well, add the new chunk to the queue.
                 let next_chunk = (neighbor, chunk.vertex).into();
                 if visited_chunks.insert(next_chunk) {
-                    chunk_queue
-                        .push_back((next_chunk, side.reflection().cast::<f32>() * node_transform));
+                    chunk_queue.push_back((next_chunk, next_node_transform));
                 }
             }
 
