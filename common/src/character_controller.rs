@@ -104,9 +104,9 @@ impl CharacterControllerPass<'_> {
             displacement_norm.tanh(),
         );
 
-        if let ray_tracing::RayTracingResult::Inconclusive = ray_status.result {
+        let Ok(ray_status) = ray_status else {
             return na::Matrix4::identity();
-        }
+        };
 
         math::translate(
             &math::origin(),

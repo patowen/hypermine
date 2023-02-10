@@ -15,12 +15,12 @@ pub fn trace_ray(
     transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
     ray: Ray,
     tanh_distance: f32,
-) -> RayStatus {
+) -> Result<RayStatus, RayTracingError> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `status` variable gets updated over time before being returned.
     let mut status = RayStatus {
-        result: RayTracingResult::Miss,
         tanh_distance,
+        intersection: None,
     };
 
     // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
@@ -44,8 +44,7 @@ pub fn trace_ray(
                 ..
             } = node.chunks[chunk.vertex] else {
                 // Collision checking on unpopulated chunk
-                status.result = RayTracingResult::Inconclusive;
-                return status;
+                return Err(RayTracingError::OutOfBounds);
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * &ray;
 
@@ -102,8 +101,7 @@ pub fn trace_ray(
                 // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
-                    status.result = RayTracingResult::Inconclusive;
-                    return status;
+                    return Err(RayTracingError::OutOfBounds);
                 };
                 // Assuming everything goes well, add the new chunk to the queue.
                 let next_chunk = (neighbor, chunk.vertex).into();
@@ -125,7 +123,7 @@ pub fn trace_ray(
         }
     }
 
-    status
+    Ok(status)
 }
 
 pub trait ChunkRayTracer {
@@ -160,14 +158,12 @@ impl RtChunkContext<'_> {
 
 pub struct RayStatus {
     pub tanh_distance: f32,
-    pub result: RayTracingResult,
+    pub intersection: Option<RayTracingIntersection>,
 }
 
 #[derive(Debug)]
-pub enum RayTracingResult {
-    Miss,
-    Intersection(RayTracingIntersection),
-    Inconclusive,
+pub enum RayTracingError {
+    OutOfBounds,
 }
 
 #[derive(Debug)]
@@ -184,7 +180,7 @@ impl RayStatus {
         normal: na::Vector4<f32>,
     ) {
         self.tanh_distance = tanh_distance;
-        self.result = RayTracingResult::Intersection(RayTracingIntersection {
+        self.intersection = Some(RayTracingIntersection {
             chunk: context.chunk,
             normal: context.transform * normal,
         });
