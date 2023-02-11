@@ -1,16 +1,17 @@
 use crate::{
     dodeca::Vertex,
     math,
-    ray_tracing::{ChunkRayTracer, Ray, RayTracingResult, RtChunkContext},
+    ray_tracing::{ChunkRayTracer, ChunkRayTracingContext, Ray, RayTracingResult},
     world::Material,
 };
 
+/// Handles collisions for spherical objects whose origin is the sphere's center.
 pub struct SphereCollider {
     pub radius: f32,
 }
 
 impl ChunkRayTracer for SphereCollider {
-    fn trace_ray(&self, ctx: &RtChunkContext, result: &mut RayTracingResult) {
+    fn trace_ray(&self, ctx: &ChunkRayTracingContext, result: &mut RayTracingResult) {
         for axis in 0..3 {
             self.find_face_collision(ctx, axis, result);
         }
@@ -31,7 +32,7 @@ impl SphereCollider {
     /// Detect collisions where a sphere contacts the front side of a voxel face
     fn find_face_collision(
         &self,
-        ctx: &RtChunkContext,
+        ctx: &ChunkRayTracingContext,
         t_axis: usize,
         result: &mut RayTracingResult,
     ) {
@@ -86,7 +87,7 @@ impl SphereCollider {
     /// Detect collisions where a sphere contacts a voxel edge
     fn find_edge_collision(
         &self,
-        ctx: &RtChunkContext,
+        ctx: &ChunkRayTracingContext,
         t_axis: usize,
         result: &mut RayTracingResult,
     ) {
@@ -133,7 +134,7 @@ impl SphereCollider {
     }
 
     /// Detect collisions where a sphere contacts a voxel vertex
-    fn find_vertex_collision(&self, ctx: &RtChunkContext, result: &mut RayTracingResult) {
+    fn find_vertex_collision(&self, ctx: &ChunkRayTracingContext, result: &mut RayTracingResult) {
         let float_dimension = ctx.dimension as f32;
 
         // Loop through all grid points contained in the bounding box
@@ -274,7 +275,7 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
 /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
 #[inline]
-fn dual_to_voxel(ctx: &RtChunkContext, dual_coord: f32) -> Option<usize> {
+fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize> {
     let voxel_coord =
         (dual_coord * Vertex::dual_to_chunk_factor() as f32 * ctx.dimension_f32).floor();
 
@@ -285,7 +286,9 @@ fn dual_to_voxel(ctx: &RtChunkContext, dual_coord: f32) -> Option<usize> {
     }
 }
 
+/// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
+/// can be used to find the positions of voxel gridlines.
 #[inline]
-fn grid_to_dual(ctx: &RtChunkContext, grid_coord: usize) -> f32 {
+fn grid_to_dual(ctx: &ChunkRayTracingContext, grid_coord: usize) -> f32 {
     grid_coord as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32
 }

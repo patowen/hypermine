@@ -7,6 +7,15 @@ use crate::{
     world::Material,
 };
 
+/// Performs ray tracing against the voxels in the `DualGraph`. This function is suitable for collision checking with
+/// any different collider shape. Each collider would have a different implemenation of `ChunkRayTracer`, which describes
+/// how the collision checking math works within a single chunk.
+///
+/// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting intersection
+/// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
+/// system of `start_chunk`'s node.
+///
+/// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for intersections.
 pub fn trace_ray(
     graph: &DualGraph,
     dimension: usize,
@@ -58,7 +67,7 @@ pub fn trace_ray(
         // Check collision within a single chunk
         if let Some(bounding_box) = bounding_box {
             chunk_ray_tracer.trace_ray(
-                &RtChunkContext {
+                &ChunkRayTracingContext {
                     dimension,
                     dimension_f32: dimension as f32,
                     chunk,
@@ -129,12 +138,19 @@ pub fn trace_ray(
     Ok(result)
 }
 
+/// Wraps any logic needed for a particular collider to perform ray tracing within a given chunk
 pub trait ChunkRayTracer {
-    fn trace_ray(&self, ctx: &RtChunkContext, result: &mut RayTracingResult);
+    /// Performs ray tracing with a single chunk. If an intersection is found, `result` is updated
+    /// to reflect this intersection, overriding any old intersections that may have been found.
+    fn trace_ray(&self, ctx: &ChunkRayTracingContext, result: &mut RayTracingResult);
+
+    /// Returns the radius of the sphere of influence of the collider. `trace_ray` might not be called on
+    /// chunks outside this sphere of influence.
     fn max_radius(&self) -> f32;
 }
 
-pub struct RtChunkContext<'a> {
+/// Contains all the immutable data needed for `ChunkRayTracer` to perform its logic
+pub struct ChunkRayTracingContext<'a> {
     pub dimension: usize,
     pub dimension_f32: f32,
     pub chunk: ChunkId,
@@ -144,13 +160,15 @@ pub struct RtChunkContext<'a> {
     pub bounding_box: CubicVoxelRegion,
 }
 
-impl RtChunkContext<'_> {
-    // Also allows access to margins
+impl ChunkRayTracingContext<'_> {
+    /// Convenience function to get data from a single voxel given its coordinates.
+    /// Each coordinate runs from `0` to `dimension + 1` inclusive, as margins are included.
+    /// To get data within the chunk, use coordinates in the range from `1` to `dimension` inclusive.
     pub fn get_voxel(&self, coords: [usize; 3]) -> Material {
         let dimension_with_margin = self.dimension + 2;
-        assert!(coords[0] < dimension_with_margin);
-        assert!(coords[1] < dimension_with_margin);
-        assert!(coords[2] < dimension_with_margin);
+        debug_assert!(coords[0] < dimension_with_margin);
+        debug_assert!(coords[1] < dimension_with_margin);
+        debug_assert!(coords[2] < dimension_with_margin);
         self.voxel_data.get(
             coords[0]
                 + coords[1] * dimension_with_margin
@@ -159,8 +177,14 @@ impl RtChunkContext<'_> {
     }
 }
 
+/// Contains all information that was discovered as a result of ray tracing.
 pub struct RayTracingResult {
+    /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
+    /// ray segment gets shorter each time.
     pub tanh_distance: f32,
+
+    /// Information about the intersection at the end of the ray segment. If this is `None`, there
+    /// are no intersections.
     pub intersection: Option<RayTracingIntersection>,
 }
 
@@ -169,16 +193,22 @@ pub enum RayTracingError {
     OutOfBounds,
 }
 
-#[derive(Debug)]
+/// Information about the intersection at the end of a ray segment.
 pub struct RayTracingIntersection {
+    /// Which chunk in the graph the intersection was found in
     pub chunk: ChunkId,
+
+    /// The normal vector of the ray tracing intersection surface in the original coordinate system
+    /// of the ray tracing
     pub normal: na::Vector4<f32>,
 }
 
 impl RayTracingResult {
+    /// Convenience function to report a new intersection found when ray tracing. The `normal` parameter
+    /// should be provided in the chunk's "dual" coordinate system.
     pub fn update(
         &mut self,
-        context: &RtChunkContext<'_>,
+        context: &ChunkRayTracingContext<'_>,
         tanh_distance: f32,
         normal: na::Vector4<f32>,
     ) {
@@ -190,6 +220,8 @@ impl RayTracingResult {
     }
 }
 
+/// A ray in hyperbolic space. The fields must be lorentz normalized, with `mip(position, position) == -1`,
+/// `mip(direction, direction) == 1`, and `mip(position, direction) == 0`.
 pub struct Ray {
     pub position: na::Vector4<f32>,
     pub direction: na::Vector4<f32>,
@@ -203,7 +235,8 @@ impl Ray {
         }
     }
 
-    /// Returns a point along this ray tanh_distance units away from the origin
+    /// Returns a point along this ray `atanh(tanh_distance)` units away from the origin. This point
+    /// is _not_ lorentz normalized.
     pub fn ray_point(&self, tanh_distance: f32) -> na::Vector4<f32> {
         self.position + self.direction * tanh_distance
     }
@@ -240,12 +273,14 @@ impl CubicVoxelRegion {
         radius: f32,
     ) -> Option<CubicVoxelRegion> {
         let dimension_f32 = dimension as f32;
+        // Convert the ray to grid coordinates
         let grid_start = na::Point3::from_homogeneous(ray.position).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * dimension_f32;
         let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
             * Vertex::dual_to_chunk_factor() as f32
             * dimension_f32;
+        // Convert the radius to grid coordinates using a crude conservative estimate
         let max_grid_radius = radius * Vertex::dual_to_chunk_factor() as f32 * dimension_f32;
         let mut bounds = [[0; 2]; 3];
         for axis in 0..3 {

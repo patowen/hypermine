@@ -66,7 +66,7 @@ impl CharacterControllerPass<'_> {
             // This is necessary to avoid the following two issues:
             // 1. Input lag, which would occur if only the old velocity was used
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
-            //    example of such an artifact is the player moving backwards slightly when they
+            //    example of such an artifact is the character moving backwards slightly when they
             //    stop moving after releasing a direction key.
             let expected_displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
 
@@ -77,7 +77,7 @@ impl CharacterControllerPass<'_> {
                 *self.velocity = na::Vector3::zeros();
                 // We are not using collision normals yet, so print them to the console to allow
                 // sanity checking. Note that the "orientation" quaternion is not used here, so the
-                // numbers will only make sense if the player doesn't look around.
+                // numbers will only make sense if the character doesn't look around.
                 info!("Collision: normal = {:?}", collision.normal);
             }
         }
@@ -93,6 +93,7 @@ impl CharacterControllerPass<'_> {
         }
     }
 
+    /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
     fn check_collision(&self, relative_displacement: &na::Vector3<f32>) -> CollisionCheckingResult {
         // Split relative_displacement into its norm and a unit vector
         let relative_displacement = relative_displacement.to_homogeneous();
@@ -138,6 +139,8 @@ impl CharacterControllerPass<'_> {
             collision: ray_tracing_result
                 .intersection
                 .map(|intersection| Collision {
+                    // RayTracingResult has its `normal` given relative to the character's original position,
+                    // but we want the normal relative to the character after the character moves to meet the wall.
                     normal: (math::mtranspose(&allowed_displacement) * intersection.normal)
                         .xyz()
                         .normalize(),
@@ -147,11 +150,15 @@ impl CharacterControllerPass<'_> {
 }
 
 struct CollisionCheckingResult {
+    /// Multiplying the character's position by this matrix will move the character as far as it can up to its intended
+    /// displacement until it hits the wall.
     allowed_displacement: na::Matrix4<f32>,
     collision: Option<Collision>,
 }
 
 struct Collision {
+    /// This collision normal faces away from the collision surface and is given in the perspective of the character
+    /// _after_ it is transformed by `allowed_displacement`.
     normal: na::Vector3<f32>,
 }
 
