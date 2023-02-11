@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     dodeca::{Side, SIDE_COUNT},
-    math, node::ChunkId,
+    math,
+    node::ChunkId,
 };
 
 /// Graph of the right dodecahedral tiling of H^3
