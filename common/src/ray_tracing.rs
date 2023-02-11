@@ -22,7 +22,7 @@ pub fn trace_ray(
     chunk_ray_tracer: &impl ChunkRayTracer,
     start_chunk: ChunkId,
     start_node_transform: na::Matrix4<f32>,
-    ray: Ray,
+    ray: &Ray,
     tanh_distance: f32,
 ) -> Result<RayTracingResult, RayTracingError> {
     // A collision check is assumed to be a miss until a collision is found.
@@ -55,7 +55,7 @@ pub fn trace_ray(
                 // Collision checking on unpopulated chunk
                 return Err(RayTracingError::OutOfBounds);
             };
-        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * &ray;
+        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
         let bounding_box = CubicVoxelRegion::from_ray_segment_and_radius(
             dimension,

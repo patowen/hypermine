@@ -107,6 +107,8 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
+        let ray = ray_tracing::Ray::new(math::origin(), displacement_normalized);
+
         let ray_tracing_result = ray_tracing::trace_ray(
             self.graph,
             self.cfg.chunk_size as usize,
@@ -115,7 +117,7 @@ impl CharacterControllerPass<'_> {
             },
             (self.position.node, Vertex::A).into(),
             self.position.local,
-            ray_tracing::Ray::new(math::origin(), displacement_normalized),
+            &ray,
             displacement_norm.tanh(),
         );
 
@@ -128,10 +130,8 @@ impl CharacterControllerPass<'_> {
         };
 
         let allowed_displacement = math::translate(
-            &math::origin(),
-            &math::lorentz_normalize(
-                &(math::origin() + displacement_normalized * ray_tracing_result.tanh_distance),
-            ),
+            &ray.position,
+            &math::lorentz_normalize(&ray.ray_point(ray_tracing_result.tanh_distance)),
         );
 
         CollisionCheckingResult {
