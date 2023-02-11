@@ -11,14 +11,14 @@ pub fn trace_ray(
     graph: &DualGraph,
     dimension: usize,
     chunk_ray_tracer: &impl ChunkRayTracer,
-    chunk: ChunkId,
+    start_chunk: ChunkId,
     transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
     ray: Ray,
     tanh_distance: f32,
-) -> Result<RayStatus, RayTracingError> {
+) -> Result<RayTracingResult, RayTracingError> {
     // A collision check is assumed to be a miss until a collision is found.
-    // This `status` variable gets updated over time before being returned.
-    let mut status = RayStatus {
+    // This `result` variable gets updated over time before being returned.
+    let mut result = RayTracingResult {
         tanh_distance,
         intersection: None,
     };
@@ -28,7 +28,7 @@ pub fn trace_ray(
     // from the original node coordinates to the current chunk's node coordinates.
     let mut visited_chunks: HashSet<ChunkId> = HashSet::new();
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
-    chunk_queue.push_back((chunk, na::Matrix4::identity()));
+    chunk_queue.push_back((start_chunk, na::Matrix4::identity()));
 
     // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
     // the corresponding neighboring chunk will also be used for collision checking.
@@ -51,7 +51,7 @@ pub fn trace_ray(
         let bounding_box = CubicVoxelRegion::from_ray_segment_and_radius(
             dimension,
             &local_ray,
-            status.tanh_distance,
+            result.tanh_distance,
             chunk_ray_tracer.max_radius(),
         );
 
@@ -69,7 +69,7 @@ pub fn trace_ray(
                     ray: &local_ray,
                     bounding_box,
                 },
-                &mut status,
+                &mut result,
             );
         }
 
@@ -78,7 +78,7 @@ pub fn trace_ray(
         // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.ray_point(status.tanh_distance)).unwrap();
+            na::Point3::from_homogeneous(local_ray.ray_point(result.tanh_distance)).unwrap();
 
         // Add neighboring chunks as necessary, using one coordinate at a time.
         for coord in 0..3 {
@@ -95,7 +95,7 @@ pub fn trace_ray(
                     .xyz()
                     .magnitude()
                     .acosh();
-                let ray_length = status.tanh_distance.atanh();
+                let ray_length = result.tanh_distance.atanh();
                 if ray_node_distance - ray_length
                     > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_ray_tracer.max_radius()
                 {
@@ -127,11 +127,11 @@ pub fn trace_ray(
         }
     }
 
-    Ok(status)
+    Ok(result)
 }
 
 pub trait ChunkRayTracer {
-    fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus);
+    fn trace_ray(&self, ctx: &RtChunkContext, result: &mut RayTracingResult);
     fn max_radius(&self) -> f32;
 }
 
@@ -160,7 +160,7 @@ impl RtChunkContext<'_> {
     }
 }
 
-pub struct RayStatus {
+pub struct RayTracingResult {
     pub tanh_distance: f32,
     pub intersection: Option<RayTracingIntersection>,
 }
@@ -176,7 +176,7 @@ pub struct RayTracingIntersection {
     pub normal: na::Vector4<f32>,
 }
 
-impl RayStatus {
+impl RayTracingResult {
     pub fn update(
         &mut self,
         context: &RtChunkContext<'_>,

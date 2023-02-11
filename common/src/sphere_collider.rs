@@ -1,7 +1,7 @@
 use crate::{
     dodeca::Vertex,
     math,
-    ray_tracing::{ChunkRayTracer, Ray, RayStatus, RtChunkContext},
+    ray_tracing::{ChunkRayTracer, Ray, RayTracingResult, RtChunkContext},
     world::Material,
 };
 
@@ -10,16 +10,16 @@ pub struct SphereCollider {
 }
 
 impl ChunkRayTracer for SphereCollider {
-    fn trace_ray(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
+    fn trace_ray(&self, ctx: &RtChunkContext, result: &mut RayTracingResult) {
         for axis in 0..3 {
-            self.find_face_collision(ctx, axis, status);
+            self.find_face_collision(ctx, axis, result);
         }
 
         for axis in 0..3 {
-            self.find_edge_collision(ctx, axis, status);
+            self.find_edge_collision(ctx, axis, result);
         }
 
-        self.find_vertex_collision(ctx, status);
+        self.find_vertex_collision(ctx, result);
     }
 
     fn max_radius(&self) -> f32 {
@@ -29,7 +29,12 @@ impl ChunkRayTracer for SphereCollider {
 
 impl SphereCollider {
     /// Detect collisions where a sphere contacts the front side of a voxel face
-    fn find_face_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
+    fn find_face_collision(
+        &self,
+        ctx: &RtChunkContext,
+        t_axis: usize,
+        result: &mut RayTracingResult,
+    ) {
         let u_axis = (t_axis + 1) % 3;
         let v_axis = (t_axis + 2) % 3;
 
@@ -46,7 +51,7 @@ impl SphereCollider {
                 solve_sphere_plane_intersection(ctx.ray, &normal, self.radius.sinh());
 
             // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
+            if !(tanh_distance >= 0.0 && tanh_distance < result.tanh_distance) {
                 continue;
             }
 
@@ -73,13 +78,18 @@ impl SphereCollider {
                 continue;
             }
 
-            // A collision was found. Update the status.
-            status.update(ctx, tanh_distance, normal * collision_side);
+            // A collision was found. Update the result.
+            result.update(ctx, tanh_distance, normal * collision_side);
         }
     }
 
     /// Detect collisions where a sphere contacts a voxel edge
-    fn find_edge_collision(&self, ctx: &RtChunkContext, t_axis: usize, status: &mut RayStatus) {
+    fn find_edge_collision(
+        &self,
+        ctx: &RtChunkContext,
+        t_axis: usize,
+        result: &mut RayTracingResult,
+    ) {
         let u_axis = (t_axis + 1) % 3;
         let v_axis = (t_axis + 2) % 3;
 
@@ -95,7 +105,7 @@ impl SphereCollider {
                 solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
 
             // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
+            if !(tanh_distance >= 0.0 && tanh_distance < result.tanh_distance) {
                 continue;
             }
 
@@ -117,13 +127,13 @@ impl SphereCollider {
                 continue;
             }
 
-            // A collision was found. Update the status.
-            status.update(ctx, tanh_distance, ray_endpoint - contact_point);
+            // A collision was found. Update the result.
+            result.update(ctx, tanh_distance, ray_endpoint - contact_point);
         }
     }
 
     /// Detect collisions where a sphere contacts a voxel vertex
-    fn find_vertex_collision(&self, ctx: &RtChunkContext, status: &mut RayStatus) {
+    fn find_vertex_collision(&self, ctx: &RtChunkContext, result: &mut RayTracingResult) {
         let float_dimension = ctx.dimension as f32;
 
         // Loop through all grid points contained in the bounding box
@@ -148,13 +158,13 @@ impl SphereCollider {
                 solve_sphere_point_intersection(ctx.ray, &vertex_position, self.radius.cosh());
 
             // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < status.tanh_distance) {
+            if !(tanh_distance >= 0.0 && tanh_distance < result.tanh_distance) {
                 continue;
             }
 
-            // A collision was found. Update the status.
+            // A collision was found. Update the result.
             let ray_endpoint = ctx.ray.ray_point(tanh_distance);
-            status.update(ctx, tanh_distance, ray_endpoint - vertex_position);
+            result.update(ctx, tanh_distance, ray_endpoint - vertex_position);
         }
     }
 }

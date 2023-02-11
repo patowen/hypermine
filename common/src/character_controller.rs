@@ -91,10 +91,12 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let ray_status = ray_tracing::trace_ray(
+        let ray_tracing_result = ray_tracing::trace_ray(
             self.graph,
             self.cfg.chunk_size as usize,
-            &SphereCollider { radius: self.cfg.character_radius },
+            &SphereCollider {
+                radius: self.cfg.character_radius,
+            },
             (self.position.node, Vertex::A).into(),
             self.position.local,
             ray_tracing::Ray::new(
@@ -104,14 +106,14 @@ impl CharacterControllerPass<'_> {
             displacement_norm.tanh(),
         );
 
-        let Ok(ray_status) = ray_status else {
+        let Ok(ray_tracing_result) = ray_tracing_result else {
             return na::Matrix4::identity();
         };
 
         math::translate(
             &math::origin(),
             &math::lorentz_normalize(
-                &(math::origin() + displacement_normalized * ray_status.tanh_distance),
+                &(math::origin() + displacement_normalized * ray_tracing_result.tanh_distance),
             ),
         )
     }
