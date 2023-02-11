@@ -1,3 +1,5 @@
+use tracing::{error, info};
+
 use crate::{
     dodeca::Vertex,
     math,
@@ -59,15 +61,25 @@ impl CharacterControllerPass<'_> {
                 *self.velocity += current_to_target_velocity;
             }
 
-            // Update position by using the average of the old velocity and new velocity, which has
-            // the effect of modeling a velocity that changes linearly over the timestep. This is
-            // necessary to avoid the following two issues:
+            // Set expected displacement by using the average of the old velocity and new velocity,
+            // which has the effect of modeling a velocity that changes linearly over the timestep.
+            // This is necessary to avoid the following two issues:
             // 1. Input lag, which would occur if only the old velocity was used
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
             //    example of such an artifact is the player moving backwards slightly when they
             //    stop moving after releasing a direction key.
-            self.position.local *=
-                self.trace_ray(&((*self.velocity + old_velocity) * 0.5 * self.dt_seconds));
+            let expected_displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
+
+            // Update position with collision checking
+            let collision_checking_result = self.check_collision(&expected_displacement);
+            self.position.local *= collision_checking_result.allowed_displacement;
+            if let Some(collision) = collision_checking_result.collision {
+                *self.velocity = na::Vector3::zeros();
+                // We are not using collision normals yet, so print them to the console to allow
+                // sanity checking. Note that the "orientation" quaternion is not used here, so the
+                // numbers will only make sense if the player doesn't look around.
+                info!("Collision: normal = {:?}", collision.normal);
+            }
         }
 
         // Renormalize
@@ -81,11 +93,14 @@ impl CharacterControllerPass<'_> {
         }
     }
 
-    fn trace_ray(&self, relative_displacement: &na::Vector3<f32>) -> na::Matrix4<f32> {
+    fn check_collision(&self, relative_displacement: &na::Vector3<f32>) -> CollisionCheckingResult {
+        // Split relative_displacement into its norm and a unit vector
         let relative_displacement = relative_displacement.to_homogeneous();
         let displacement_sqr = relative_displacement.norm_squared();
         if displacement_sqr < 1e-16 {
-            return na::Matrix4::identity();
+            // Fallback for if the displacement vector isn't large enough to reliably be normalized.
+            // Any value that is sufficiently large compared to f32::MIN_POSITIVE should work as the cutoff.
+            return CollisionCheckingResult::stationary();
         }
 
         let displacement_norm = displacement_sqr.sqrt();
@@ -106,15 +121,50 @@ impl CharacterControllerPass<'_> {
             displacement_norm.tanh(),
         );
 
-        let Ok(ray_tracing_result) = ray_tracing_result else {
-            return na::Matrix4::identity();
+        let ray_tracing_result = match ray_tracing_result {
+            Ok(r) => r,
+            Err(e) => {
+                error!("Collision checking returned {:?}", e);
+                return CollisionCheckingResult::stationary();
+            }
         };
 
-        math::translate(
+        let allowed_displacement = math::translate(
             &math::origin(),
             &math::lorentz_normalize(
                 &(math::origin() + displacement_normalized * ray_tracing_result.tanh_distance),
             ),
-        )
+        );
+
+        CollisionCheckingResult {
+            allowed_displacement,
+            collision: ray_tracing_result
+                .intersection
+                .map(|intersection| Collision {
+                    normal: (math::mtranspose(&allowed_displacement) * intersection.normal)
+                        .xyz()
+                        .normalize(),
+                }),
+        }
+    }
+}
+
+struct CollisionCheckingResult {
+    allowed_displacement: na::Matrix4<f32>,
+    collision: Option<Collision>,
+}
+
+struct Collision {
+    normal: na::Vector3<f32>,
+}
+
+impl CollisionCheckingResult {
+    /// Return a CollisionCheckingResult with no movement and no collision; useful if the character is not moving
+    /// and has nothing to check collision against. Also useful as a last resort fallback if an unexpected error occurs.
+    fn stationary() -> CollisionCheckingResult {
+        CollisionCheckingResult {
+            allowed_displacement: na::Matrix4::identity(),
+            collision: None,
+        }
     }
 }
