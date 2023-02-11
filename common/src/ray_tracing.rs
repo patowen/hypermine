@@ -12,7 +12,7 @@ pub fn trace_ray(
     dimension: usize,
     chunk_ray_tracer: &impl ChunkRayTracer,
     start_chunk: ChunkId,
-    transform: na::Matrix4<f32>, // TODO: Consider where this transformation gets applied
+    start_node_transform: na::Matrix4<f32>,
     ray: Ray,
     tanh_distance: f32,
 ) -> Result<RayTracingResult, RayTracingError> {
@@ -28,7 +28,7 @@ pub fn trace_ray(
     // from the original node coordinates to the current chunk's node coordinates.
     let mut visited_chunks: HashSet<ChunkId> = HashSet::new();
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
-    chunk_queue.push_back((start_chunk, na::Matrix4::identity()));
+    chunk_queue.push_back((start_chunk, start_node_transform));
 
     // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
     // the corresponding neighboring chunk will also be used for collision checking.
@@ -62,8 +62,7 @@ pub fn trace_ray(
                     dimension,
                     dimension_f32: dimension as f32,
                     chunk,
-                    transform: transform
-                        * math::mtranspose(&node_transform)
+                    transform: math::mtranspose(&node_transform)
                         * chunk.vertex.dual_to_node().cast(),
                     voxel_data,
                     ray: &local_ray,
@@ -81,12 +80,12 @@ pub fn trace_ray(
             na::Point3::from_homogeneous(local_ray.ray_point(result.tanh_distance)).unwrap();
 
         // Add neighboring chunks as necessary, using one coordinate at a time.
-        for coord in 0..3 {
+        for axis in 0..3 {
             // Check for neighboring nodes
-            if klein_ray_start[coord] <= klein_lower_boundary
-                || klein_ray_end[coord] <= klein_lower_boundary
+            if klein_ray_start[axis] <= klein_lower_boundary
+                || klein_ray_end[axis] <= klein_lower_boundary
             {
-                let side = chunk.vertex.canonical_sides()[coord];
+                let side = chunk.vertex.canonical_sides()[axis];
                 let next_node_transform = side.reflection().cast::<f32>() * node_transform;
                 // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                 // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
@@ -115,10 +114,10 @@ pub fn trace_ray(
             }
 
             // Check for neighboring chunks within the same node
-            if klein_ray_start[coord] >= klein_upper_boundary
-                || klein_ray_end[coord] >= klein_upper_boundary
+            if klein_ray_start[axis] >= klein_upper_boundary
+                || klein_ray_end[axis] >= klein_upper_boundary
             {
-                let vertex = chunk.vertex.adjacent_vertices()[coord];
+                let vertex = chunk.vertex.adjacent_vertices()[axis];
                 let next_chunk = (chunk.node, vertex).into();
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue.push_back((next_chunk, node_transform));
@@ -271,30 +270,30 @@ impl CubicVoxelRegion {
     /// Creates an iterator over grid points contained in the region, represented as ordered triples
     pub fn grid_point_iterator(
         &self,
-        coord0: usize,
-        coord1: usize,
-        coord2: usize,
+        axis0: usize,
+        axis1: usize,
+        axis2: usize,
     ) -> impl Iterator<Item = (usize, usize, usize)> {
         let bounds = self.bounds;
-        (bounds[coord0][0]..bounds[coord0][1]).flat_map(move |i| {
-            (bounds[coord1][0]..bounds[coord1][1])
-                .flat_map(move |j| (bounds[coord2][0]..bounds[coord2][1]).map(move |k| (i, j, k)))
+        (bounds[axis0][0]..bounds[axis0][1]).flat_map(move |i| {
+            (bounds[axis1][0]..bounds[axis1][1])
+                .flat_map(move |j| (bounds[axis2][0]..bounds[axis2][1]).map(move |k| (i, j, k)))
         })
     }
 
     /// Creates an iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
     pub fn grid_line_iterator(
         &self,
-        coord0: usize,
-        coord1: usize,
+        axis0: usize,
+        axis1: usize,
     ) -> impl Iterator<Item = (usize, usize)> {
         let bounds = self.bounds;
-        (bounds[coord0][0]..bounds[coord0][1])
-            .flat_map(move |i| (bounds[coord1][0]..bounds[coord1][1]).map(move |j| (i, j)))
+        (bounds[axis0][0]..bounds[axis0][1])
+            .flat_map(move |i| (bounds[axis1][0]..bounds[axis1][1]).map(move |j| (i, j)))
     }
 
     /// Creates an iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
-    pub fn grid_plane_iterator(&self, coord: usize) -> impl Iterator<Item = usize> {
-        self.bounds[coord][0]..self.bounds[coord][1]
+    pub fn grid_plane_iterator(&self, axis: usize) -> impl Iterator<Item = usize> {
+        self.bounds[axis][0]..self.bounds[axis][1]
     }
 }

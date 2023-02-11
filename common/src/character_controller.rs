@@ -114,10 +114,7 @@ impl CharacterControllerPass<'_> {
             },
             (self.position.node, Vertex::A).into(),
             self.position.local,
-            ray_tracing::Ray::new(
-                self.position.local * math::origin(),
-                self.position.local * displacement_normalized,
-            ),
+            ray_tracing::Ray::new(math::origin(), displacement_normalized),
             displacement_norm.tanh(),
         );
 
