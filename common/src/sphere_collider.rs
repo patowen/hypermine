@@ -298,11 +298,50 @@ mod tests {
 
     #[test]
     fn solve_sphere_plane_intersection_example() {
+        // Hit the z=0 plane with a radius of 0.2
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::new(0.8, 0.0, 0.6, 0.0));
+        let normal = -na::Vector4::z();
+        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_plane_intersection(
+            &ray,
+            &normal,
+            0.2_f32.sinh(),
+        )));
+        assert_abs_diff_eq!(math::mip(&hit_point, &normal), 0.2_f32.sinh());
+    }
+
+    #[test]
+    fn solve_sphere_plane_intersection_direct_hit() {
+        // Directly hit the z=0 plane with a ray 0.5 units away and a radius of 0.2.
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let normal = -na::Vector4::z();
+        assert_abs_diff_eq!(
+            solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()),
+            0.3_f32.tanh(),
+            epsilon = 1e-4
+        );
+    }
+
+    #[test]
+    fn solve_sphere_plane_intersection_miss() {
+        // No collision with the plane anywhere along the ray's line
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::x());
+        let normal = -na::Vector4::z();
+        assert!(solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()).is_nan());
+    }
+
+    #[test]
+    fn solve_sphere_plane_intersection_margin() {
+        // Sphere is already contacting the plane, with some error
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let tanh_distance =
-            solve_sphere_plane_intersection(&ray, &(-na::Vector4::z()), 0.1_f32.sinh());
-        println!("{}", tanh_distance.atanh())
+        let normal = -na::Vector4::z();
+        assert_eq!(
+            solve_sphere_plane_intersection(&ray, &normal, 0.2001_f32.sinh()),
+            0.0
+        );
     }
 
     #[test]
