@@ -198,8 +198,9 @@ pub struct RayHit {
     /// Which chunk in the graph the hit occurred
     pub chunk: ChunkId,
 
-    /// The normal vector of the hit surface in the original coordinate system
-    /// of the ray tracing
+    /// Represents the normal vector of the hit surface in the original coordinate system
+    /// of the ray tracing. To get the actual normal vector, project it so that it is orthogonal
+    /// to the ray's endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
 }
 

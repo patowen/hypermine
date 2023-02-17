@@ -139,6 +139,8 @@ impl CharacterControllerPass<'_> {
             collision: ray_tracing_result.hit.map(|hit| Collision {
                 // RayTracingResult has its `normal` given relative to the character's original position,
                 // but we want the normal relative to the character after the character moves to meet the wall.
+                // This normal now represents a contact point at the origin, so we omit the w-coordinate
+                // to ensure that it's orthogonal to the origin.
                 normal: (math::mtranspose(&allowed_displacement) * hit.normal)
                     .xyz()
                     .normalize(),
@@ -156,7 +158,8 @@ struct CollisionCheckingResult {
 
 struct Collision {
     /// This collision normal faces away from the collision surface and is given in the perspective of the character
-    /// _after_ it is transformed by `allowed_displacement`.
+    /// _after_ it is transformed by `allowed_displacement`. The 4th coordinate of this normal vector is assumed to be
+    /// 0.0 and is therefore omitted.
     normal: na::Vector3<f32>,
 }
 
