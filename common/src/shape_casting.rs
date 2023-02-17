@@ -8,7 +8,7 @@ use crate::{
 };
 
 /// Performs shape casting (swept collision query) against the voxels in the `DualGraph`. This function is suitable for
-/// collision checking with any different collider shape. Each collider would have a different implemenation of `ChunkRayTracer`,
+/// collision checking with any different collider shape. Each collider would have a different implemenation of `ChunkShapeCaster`,
 /// which describes how the collision checking math works within a single chunk.
 ///
 /// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
@@ -19,7 +19,7 @@ use crate::{
 pub fn shape_cast(
     graph: &DualGraph,
     dimension: usize,
-    chunk_ray_tracer: &impl ChunkRayTracer,
+    chunk_shape_caster: &impl ChunkShapeCaster,
     start_chunk: ChunkId,
     start_node_transform: na::Matrix4<f32>,
     ray: &Ray,
@@ -41,9 +41,9 @@ pub fn shape_cast(
 
     // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
     // the corresponding neighboring chunk will also be used for collision checking.
-    let klein_lower_boundary = chunk_ray_tracer.max_radius().tanh();
+    let klein_lower_boundary = chunk_shape_caster.max_radius().tanh();
     let klein_upper_boundary =
-        ((Vertex::chunk_to_dual_factor() as f32).atanh() - chunk_ray_tracer.max_radius()).tanh();
+        ((Vertex::chunk_to_dual_factor() as f32).atanh() - chunk_shape_caster.max_radius()).tanh();
 
     // Breadth-first search loop
     while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
@@ -64,13 +64,13 @@ pub fn shape_cast(
             dual_to_grid_factor,
             &local_ray,
             endpoint.tanh_distance,
-            chunk_ray_tracer.max_radius(),
+            chunk_shape_caster.max_radius(),
         );
 
         // Check collision within a single chunk
         if let Some(bounding_box) = bounding_box {
-            chunk_ray_tracer.trace_ray(
-                &ChunkRayTracingContext {
+            chunk_shape_caster.shape_cast(
+                &ChunkShapeCastingContext {
                     dimension,
                     dual_to_grid_factor,
                     chunk,
@@ -108,7 +108,7 @@ pub fn shape_cast(
                     .acosh();
                 let ray_length = endpoint.tanh_distance.atanh();
                 if ray_node_distance - ray_length
-                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_ray_tracer.max_radius()
+                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_shape_caster.max_radius()
                 {
                     // Ray cannot intersect node
                     continue;
@@ -142,18 +142,18 @@ pub fn shape_cast(
 }
 
 /// Wraps any logic needed for a particular collider to perform ray tracing within a given chunk
-pub trait ChunkRayTracer {
+pub trait ChunkShapeCaster {
     /// Performs ray tracing with a single chunk. If an intersection is found, `endpoint` is updated
     /// to reflect this intersection, overriding any old intersections that may have been found.
-    fn trace_ray(&self, ctx: &ChunkRayTracingContext, endpoint: &mut RayEndpoint);
+    fn shape_cast(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint);
 
-    /// Returns the radius of the sphere of influence of the collider. `trace_ray` might not be called on
+    /// Returns the radius of the sphere of influence of the collider. `shape_cast` might not be called on
     /// chunks outside this sphere of influence.
     fn max_radius(&self) -> f32;
 }
 
-/// Contains all the immutable data needed for `ChunkRayTracer` to perform its logic
-pub struct ChunkRayTracingContext<'a> {
+/// Contains all the immutable data needed for `ChunkShapeCaster` to perform its logic
+pub struct ChunkShapeCastingContext<'a> {
     pub dimension: usize,
     pub dual_to_grid_factor: f32,
     pub chunk: ChunkId,
@@ -163,7 +163,7 @@ pub struct ChunkRayTracingContext<'a> {
     pub bounding_box: VoxelAABB,
 }
 
-impl ChunkRayTracingContext<'_> {
+impl ChunkShapeCastingContext<'_> {
     /// Convenience function to get data from a single voxel given its coordinates.
     /// Each coordinate runs from `0` to `dimension + 1` inclusive, as margins are included.
     /// To get data within the chunk, use coordinates in the range from `1` to `dimension` inclusive.
@@ -212,7 +212,7 @@ impl RayEndpoint {
     /// should be provided in the chunk's "dual" coordinate system.
     pub fn update(
         &mut self,
-        context: &ChunkRayTracingContext<'_>,
+        context: &ChunkShapeCastingContext<'_>,
         tanh_distance: f32,
         normal: na::Vector4<f32>,
     ) {

@@ -1,6 +1,6 @@
 use crate::{
     math,
-    shape_casting::{ChunkRayTracer, ChunkRayTracingContext, Ray, RayEndpoint},
+    shape_casting::{ChunkShapeCaster, ChunkShapeCastingContext, Ray, RayEndpoint},
     world::Material,
 };
 
@@ -9,8 +9,8 @@ pub struct SphereCollider {
     pub radius: f32,
 }
 
-impl ChunkRayTracer for SphereCollider {
-    fn trace_ray(&self, ctx: &ChunkRayTracingContext, endpoint: &mut RayEndpoint) {
+impl ChunkShapeCaster for SphereCollider {
+    fn shape_cast(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
         for axis in 0..3 {
             self.find_face_collision(ctx, axis, endpoint);
         }
@@ -31,7 +31,7 @@ impl SphereCollider {
     /// Detect collisions where a sphere contacts the front side of a voxel face
     fn find_face_collision(
         &self,
-        ctx: &ChunkRayTracingContext,
+        ctx: &ChunkShapeCastingContext,
         t_axis: usize,
         endpoint: &mut RayEndpoint,
     ) {
@@ -86,7 +86,7 @@ impl SphereCollider {
     /// Detect collisions where a sphere contacts a voxel edge
     fn find_edge_collision(
         &self,
-        ctx: &ChunkRayTracingContext,
+        ctx: &ChunkShapeCastingContext,
         t_axis: usize,
         endpoint: &mut RayEndpoint,
     ) {
@@ -133,7 +133,7 @@ impl SphereCollider {
     }
 
     /// Detect collisions where a sphere contacts a voxel vertex
-    fn find_vertex_collision(&self, ctx: &ChunkRayTracingContext, endpoint: &mut RayEndpoint) {
+    fn find_vertex_collision(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
         // Loop through all grid points contained in the bounding box
         for (x, y, z) in ctx.bounding_box.grid_point_iterator(0, 1, 2) {
             // Skip vertices that have no solid voxels adjacent to them
@@ -274,7 +274,7 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
 /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
 #[inline]
-fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize> {
+fn dual_to_voxel(ctx: &ChunkShapeCastingContext, dual_coord: f32) -> Option<usize> {
     let floor_grid_coord = (dual_coord * ctx.dual_to_grid_factor).floor();
 
     if !(floor_grid_coord >= 0.0 && floor_grid_coord < ctx.dimension as f32) {
@@ -287,7 +287,7 @@ fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize>
 /// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
 /// can be used to find the positions of voxel gridlines.
 #[inline]
-fn grid_to_dual(ctx: &ChunkRayTracingContext, grid_coord: usize) -> f32 {
+fn grid_to_dual(ctx: &ChunkShapeCastingContext, grid_coord: usize) -> f32 {
     grid_coord as f32 / ctx.dual_to_grid_factor
 }
 
@@ -300,7 +300,8 @@ mod tests {
     fn solve_sphere_plane_intersection_example() {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let tanh_distance = solve_sphere_plane_intersection(&ray, &(-na::Vector4::z()), 0.1_f32.sinh());
+        let tanh_distance =
+            solve_sphere_plane_intersection(&ray, &(-na::Vector4::z()), 0.1_f32.sinh());
         println!("{}", tanh_distance.atanh())
     }
 
@@ -323,6 +324,7 @@ mod tests {
         assert_eq!(tuv_to_xyz(0, [2, 4, 6]), [2, 4, 6]);
         assert_eq!(tuv_to_xyz(1, [2, 4, 6]), [6, 2, 4]);
         assert_eq!(tuv_to_xyz(2, [2, 4, 6]), [4, 6, 2]);
+
         assert_eq!(tuv_to_xyz(1, [2, 4, 6, 8]), [6, 2, 4, 8]);
     }
 }
