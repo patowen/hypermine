@@ -232,7 +232,8 @@ fn solve_sphere_plane_intersection(
     )
 }
 
-/// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`
+/// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`.
+/// Assumes that `quadratic_term` is positive.
 ///
 /// Returns NaN if no such solution exists.
 ///
@@ -288,4 +289,40 @@ fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize>
 #[inline]
 fn grid_to_dual(ctx: &ChunkRayTracingContext, grid_coord: usize) -> f32 {
     grid_coord as f32 / ctx.dual_to_grid_factor
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::*;
+
+    #[test]
+    fn solve_sphere_plane_intersection_example() {
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let tanh_distance = solve_sphere_plane_intersection(&ray, &(-na::Vector4::z()), 0.1_f32.sinh());
+        println!("{}", tanh_distance.atanh())
+    }
+
+    #[test]
+    fn solve_quadratic_example() {
+        let a = 1.0;
+        let b = 2.0;
+        let c = -5.0;
+        let x = solve_quadratic(c, b / 2.0, a);
+
+        // x should be a solution
+        assert_abs_diff_eq!(a * x * x + b * x + c, 0.0, epsilon = 1e-4);
+
+        // x should be the smallest solution, less than the parabola's vertex.
+        assert!(x < -b / (2.0 * a));
+    }
+
+    #[test]
+    fn tuv_to_xyz_example() {
+        assert_eq!(tuv_to_xyz(0, [2, 4, 6]), [2, 4, 6]);
+        assert_eq!(tuv_to_xyz(1, [2, 4, 6]), [6, 2, 4]);
+        assert_eq!(tuv_to_xyz(2, [2, 4, 6]), [4, 6, 2]);
+        assert_eq!(tuv_to_xyz(1, [2, 4, 6, 8]), [6, 2, 4, 8]);
+    }
 }
