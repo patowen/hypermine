@@ -293,8 +293,53 @@ fn grid_to_dual(ctx: &ChunkShapeCastingContext, grid_coord: usize) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        dodeca::Vertex,
+        graph::NodeId,
+        node::{ChunkId, VoxelData},
+        shape_casting::VoxelAABB,
+    };
+
     use super::*;
     use approx::*;
+
+    #[test]
+    fn shape_cast_examples() {
+        let radius = 0.2;
+        let ray_length = 1.0_f32;
+        let ray = Ray::new(na::Vector4::w(), na::Vector4::x());
+        let mut endpoint = RayEndpoint {
+            tanh_distance: ray_length.tanh(),
+            hit: None,
+        };
+        let transform = na::Matrix4::identity();
+        const DIMENSION: usize = 12;
+
+        let voxel_data = VoxelData::Dense(Box::new([Material::Void; (DIMENSION + 2).pow(3)]));
+
+        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * DIMENSION as f32;
+
+        let bounding_box = VoxelAABB::from_ray_segment_and_radius(
+            DIMENSION,
+            dual_to_grid_factor,
+            &ray,
+            endpoint.tanh_distance,
+            radius,
+        )
+        .unwrap();
+
+        let ctx = ChunkShapeCastingContext {
+            dimension: DIMENSION,
+            dual_to_grid_factor,
+            chunk: ChunkId::new(NodeId::ROOT, Vertex::A),
+            transform,
+            voxel_data: &voxel_data,
+            ray: &ray,
+            bounding_box,
+        };
+
+        SphereCollider { radius }.shape_cast(&ctx, &mut endpoint);
+    }
 
     #[test]
     fn solve_sphere_plane_intersection_example() {
