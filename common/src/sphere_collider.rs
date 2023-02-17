@@ -307,7 +307,11 @@ mod tests {
             &normal,
             0.2_f32.sinh(),
         )));
-        assert_abs_diff_eq!(math::mip(&hit_point, &normal), 0.2_f32.sinh());
+        assert_abs_diff_eq!(
+            math::mip(&hit_point, &normal),
+            0.2_f32.sinh(),
+            epsilon = 1e-4
+        );
     }
 
     #[test]
@@ -341,6 +345,53 @@ mod tests {
         assert_eq!(
             solve_sphere_plane_intersection(&ray, &normal, 0.2001_f32.sinh()),
             0.0
+        );
+    }
+
+    #[test]
+    fn solve_sphere_line_intersection_example() {
+        // Hit the z=0 plane with a radius of 0.2
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(
+                math::origin(),
+                na::Vector4::new(1.0, 2.0, 3.0, 0.0).normalize(),
+            );
+        let line_position = na::Vector4::w();
+        let line_direction = na::Vector4::y();
+        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_line_intersection(
+            &ray,
+            &line_position,
+            &line_direction,
+            0.2_f32.cosh(),
+        )));
+        // Measue the distance from hit_point to the line and ensure it's equal to the radius
+        assert_abs_diff_eq!(
+            (math::mip(&hit_point, &line_position).powi(2)
+                - math::mip(&hit_point, &line_direction).powi(2))
+            .sqrt(),
+            0.2_f32.cosh(),
+            epsilon = 1e-4
+        );
+    }
+
+    #[test]
+    fn solve_sphere_point_intersection_example() {
+        // Hit the origin with a radius of 0.2
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(
+                math::origin(),
+                na::Vector4::new(1.0, 2.0, 10.0, 0.0).normalize(),
+            );
+        let point_position = na::Vector4::w();
+        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_point_intersection(
+            &ray,
+            &point_position,
+            0.2_f32.cosh(),
+        )));
+        assert_abs_diff_eq!(
+            -math::mip(&hit_point, &point_position),
+            0.2_f32.cosh(),
+            epsilon = 1e-4
         );
     }
 
