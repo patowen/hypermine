@@ -21,7 +21,7 @@ pub mod math;
 pub mod node;
 mod plane;
 pub mod proto;
-pub mod ray_tracing;
+pub mod shape_casting;
 mod sim_config;
 pub mod sphere_collider;
 pub mod terraingen;

@@ -1,6 +1,6 @@
 use crate::{
     math,
-    ray_tracing::{ChunkRayTracer, ChunkRayTracingContext, Ray, RayEndpoint},
+    shape_casting::{ChunkRayTracer, ChunkRayTracingContext, Ray, RayEndpoint},
     world::Material,
 };
 

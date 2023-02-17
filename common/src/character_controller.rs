@@ -5,7 +5,7 @@ use crate::{
     math,
     node::{ChunkId, DualGraph},
     proto::{CharacterInput, Position},
-    ray_tracing, sanitize_motion_input,
+    sanitize_motion_input, shape_casting,
     sphere_collider::SphereCollider,
     SimConfig,
 };
@@ -107,9 +107,9 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let ray = ray_tracing::Ray::new(math::origin(), displacement_normalized);
+        let ray = shape_casting::Ray::new(math::origin(), displacement_normalized);
 
-        let ray_tracing_result = ray_tracing::trace_ray(
+        let ray_tracing_result = shape_casting::shape_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             &SphereCollider {

@@ -7,16 +7,16 @@ use crate::{
     world::Material,
 };
 
-/// Performs ray tracing against the voxels in the `DualGraph`. This function is suitable for collision checking with
-/// any different collider shape. Each collider would have a different implemenation of `ChunkRayTracer`, which describes
-/// how the collision checking math works within a single chunk.
+/// Performs shape casting (swept collision query) against the voxels in the `DualGraph`. This function is suitable for
+/// collision checking with any different collider shape. Each collider would have a different implemenation of `ChunkRayTracer`,
+/// which describes how the collision checking math works within a single chunk.
 ///
 /// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
 /// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
 /// system of `start_chunk`'s node.
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for hits.
-pub fn trace_ray(
+pub fn shape_cast(
     graph: &DualGraph,
     dimension: usize,
     chunk_ray_tracer: &impl ChunkRayTracer,
