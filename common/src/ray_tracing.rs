@@ -57,7 +57,7 @@ pub fn trace_ray(
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
-        let bounding_box = CubicVoxelRegion::from_ray_segment_and_radius(
+        let bounding_box = VoxelAABB::from_ray_segment_and_radius(
             dimension,
             &local_ray,
             endpoint.tanh_distance,
@@ -157,7 +157,7 @@ pub struct ChunkRayTracingContext<'a> {
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,
     pub ray: &'a Ray,
-    pub bounding_box: CubicVoxelRegion,
+    pub bounding_box: VoxelAABB,
 }
 
 impl ChunkRayTracingContext<'_> {
@@ -256,7 +256,7 @@ impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
-pub struct CubicVoxelRegion {
+pub struct VoxelAABB {
     // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with margins.
     // Any voxel that intersects the cube of interest is included in these bounds. By adding or subtracting 1 in the right
     // places, these bounds can be used to find other useful info related to the cube of interset, such as what grid points
@@ -264,7 +264,7 @@ pub struct CubicVoxelRegion {
     bounds: [[usize; 2]; 3],
 }
 
-impl CubicVoxelRegion {
+impl VoxelAABB {
     /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
     /// bounding box lies entirely outside the chunk, including its margins.
     pub fn from_ray_segment_and_radius(
@@ -272,7 +272,7 @@ impl CubicVoxelRegion {
         ray: &Ray,
         tanh_distance: f32,
         radius: f32,
-    ) -> Option<CubicVoxelRegion> {
+    ) -> Option<VoxelAABB> {
         let dimension_f32 = dimension as f32;
         // Convert the ray to grid coordinates
         let grid_start = na::Point3::from_homogeneous(ray.position).unwrap()
@@ -300,7 +300,7 @@ impl CubicVoxelRegion {
             bounds[axis] = [voxel_min.floor() as usize, voxel_max.floor() as usize];
         }
 
-        Some(CubicVoxelRegion { bounds })
+        Some(VoxelAABB { bounds })
     }
 
     /// Creates an iterator over grid points contained in the region, represented as ordered triples
