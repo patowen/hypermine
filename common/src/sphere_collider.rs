@@ -135,8 +135,6 @@ impl SphereCollider {
 
     /// Detect collisions where a sphere contacts a voxel vertex
     fn find_vertex_collision(&self, ctx: &ChunkRayTracingContext, endpoint: &mut RayEndpoint) {
-        let float_dimension = ctx.dimension as f32;
-
         // Loop through all grid points contained in the bounding box
         for (x, y, z) in ctx.bounding_box.grid_point_iterator(0, 1, 2) {
             // Skip vertices that have no solid voxels adjacent to them
@@ -151,7 +149,7 @@ impl SphereCollider {
             // Determine the cube-centric coordinates of the vertex
             let vertex_position = math::lorentz_normalize(
                 &na::Vector3::new(x as f32, y as f32, z as f32)
-                    .scale(Vertex::chunk_to_dual_factor() as f32 / float_dimension)
+                    .scale(Vertex::chunk_to_dual_factor() as f32 / ctx.dimension_f32)
                     .insert_row(3, 1.0),
             );
 
