@@ -11,11 +11,11 @@ use crate::{
 /// any different collider shape. Each collider would have a different implemenation of `ChunkRayTracer`, which describes
 /// how the collision checking math works within a single chunk.
 ///
-/// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting intersection
+/// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
 /// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
 /// system of `start_chunk`'s node.
 ///
-/// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for intersections.
+/// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for hits.
 pub fn trace_ray(
     graph: &DualGraph,
     dimension: usize,
@@ -24,12 +24,12 @@ pub fn trace_ray(
     start_node_transform: na::Matrix4<f32>,
     ray: &Ray,
     tanh_distance: f32,
-) -> Result<RayTracingResult, RayTracingError> {
+) -> Result<RayEndpoint, RayTracingError> {
     // A collision check is assumed to be a miss until a collision is found.
-    // This `result` variable gets updated over time before being returned.
-    let mut result = RayTracingResult {
+    // This `endpoint` variable gets updated over time before being returned.
+    let mut endpoint = RayEndpoint {
         tanh_distance,
-        intersection: None,
+        hit: None,
     };
 
     // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
@@ -60,7 +60,7 @@ pub fn trace_ray(
         let bounding_box = CubicVoxelRegion::from_ray_segment_and_radius(
             dimension,
             &local_ray,
-            result.tanh_distance,
+            endpoint.tanh_distance,
             chunk_ray_tracer.max_radius(),
         );
 
@@ -77,7 +77,7 @@ pub fn trace_ray(
                     ray: &local_ray,
                     bounding_box,
                 },
-                &mut result,
+                &mut endpoint,
             );
         }
 
@@ -86,7 +86,7 @@ pub fn trace_ray(
         // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.ray_point(result.tanh_distance)).unwrap();
+            na::Point3::from_homogeneous(local_ray.ray_point(endpoint.tanh_distance)).unwrap();
 
         // Add neighboring chunks as necessary, using one coordinate at a time.
         for axis in 0..3 {
@@ -103,7 +103,7 @@ pub fn trace_ray(
                     .xyz()
                     .magnitude()
                     .acosh();
-                let ray_length = result.tanh_distance.atanh();
+                let ray_length = endpoint.tanh_distance.atanh();
                 if ray_node_distance - ray_length
                     > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_ray_tracer.max_radius()
                 {
@@ -135,14 +135,14 @@ pub fn trace_ray(
         }
     }
 
-    Ok(result)
+    Ok(endpoint)
 }
 
 /// Wraps any logic needed for a particular collider to perform ray tracing within a given chunk
 pub trait ChunkRayTracer {
-    /// Performs ray tracing with a single chunk. If an intersection is found, `result` is updated
+    /// Performs ray tracing with a single chunk. If an intersection is found, `endpoint` is updated
     /// to reflect this intersection, overriding any old intersections that may have been found.
-    fn trace_ray(&self, ctx: &ChunkRayTracingContext, result: &mut RayTracingResult);
+    fn trace_ray(&self, ctx: &ChunkRayTracingContext, endpoint: &mut RayEndpoint);
 
     /// Returns the radius of the sphere of influence of the collider. `trace_ray` might not be called on
     /// chunks outside this sphere of influence.
@@ -177,15 +177,15 @@ impl ChunkRayTracingContext<'_> {
     }
 }
 
-/// Contains all information that was discovered as a result of ray tracing.
-pub struct RayTracingResult {
+/// Where a cast ray ended, and all information about the hit at the end if such a hit occurred.
+pub struct RayEndpoint {
     /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
     /// ray segment gets shorter each time.
     pub tanh_distance: f32,
 
     /// Information about the intersection at the end of the ray segment. If this is `None`, there
     /// are no intersections.
-    pub intersection: Option<RayTracingIntersection>,
+    pub hit: Option<RayHit>,
 }
 
 #[derive(Debug)]
@@ -194,17 +194,17 @@ pub enum RayTracingError {
 }
 
 /// Information about the intersection at the end of a ray segment.
-pub struct RayTracingIntersection {
-    /// Which chunk in the graph the intersection was found in
+pub struct RayHit {
+    /// Which chunk in the graph the hit occurred
     pub chunk: ChunkId,
 
-    /// The normal vector of the ray tracing intersection surface in the original coordinate system
+    /// The normal vector of the hit surface in the original coordinate system
     /// of the ray tracing
     pub normal: na::Vector4<f32>,
 }
 
-impl RayTracingResult {
-    /// Convenience function to report a new intersection found when ray tracing. The `normal` parameter
+impl RayEndpoint {
+    /// Convenience function to report a new hit found when ray tracing. The `normal` parameter
     /// should be provided in the chunk's "dual" coordinate system.
     pub fn update(
         &mut self,
@@ -213,7 +213,7 @@ impl RayTracingResult {
         normal: na::Vector4<f32>,
     ) {
         self.tanh_distance = tanh_distance;
-        self.intersection = Some(RayTracingIntersection {
+        self.hit = Some(RayHit {
             chunk: context.chunk,
             normal: context.transform * normal,
         });

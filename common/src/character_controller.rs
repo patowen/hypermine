@@ -136,15 +136,13 @@ impl CharacterControllerPass<'_> {
 
         CollisionCheckingResult {
             allowed_displacement,
-            collision: ray_tracing_result
-                .intersection
-                .map(|intersection| Collision {
-                    // RayTracingResult has its `normal` given relative to the character's original position,
-                    // but we want the normal relative to the character after the character moves to meet the wall.
-                    normal: (math::mtranspose(&allowed_displacement) * intersection.normal)
-                        .xyz()
-                        .normalize(),
-                }),
+            collision: ray_tracing_result.hit.map(|hit| Collision {
+                // RayTracingResult has its `normal` given relative to the character's original position,
+                // but we want the normal relative to the character after the character moves to meet the wall.
+                normal: (math::mtranspose(&allowed_displacement) * hit.normal)
+                    .xyz()
+                    .normalize(),
+            }),
         }
     }
 }
