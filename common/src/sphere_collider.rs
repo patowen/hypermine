@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn solve_sphere_line_intersection_example() {
-        // Hit the z=0 plane with a radius of 0.2
+        // Hit the x=z=0 line with a radius of 0.2
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 math::origin(),
@@ -375,14 +375,65 @@ mod tests {
     }
 
     #[test]
+    fn solve_sphere_line_intersection_direct_hit() {
+        // Directly hit the x=z=0 line with a ray 0.5 units away and a radius of 0.2.
+
+        // Ensure the ray is slightly off-center so that the distance math is shown to be correct
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.7, 0.0))
+            * math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let line_position = na::Vector4::w();
+        let line_direction = na::Vector4::y();
+        assert_abs_diff_eq!(
+            solve_sphere_line_intersection(&ray, &line_position, &line_direction, 0.2_f32.cosh()),
+            0.3_f32.tanh(),
+            epsilon = 1e-4
+        );
+    }
+
+    #[test]
+    fn solve_sphere_line_intersection_miss() {
+        // No collision with the line anywhere along the ray's line
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::x());
+        let line_position = na::Vector4::w();
+        let line_direction = na::Vector4::y();
+        assert!(solve_sphere_line_intersection(
+            &ray,
+            &line_position,
+            &line_direction,
+            0.2_f32.cosh()
+        )
+        .is_nan());
+    }
+
+    #[test]
+    fn solve_sphere_line_intersection_margin() {
+        // Sphere is already contacting the line, with some error
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let line_position = na::Vector4::w();
+        let line_direction = na::Vector4::y();
+        assert_eq!(
+            solve_sphere_line_intersection(
+                &ray,
+                &line_position,
+                &line_direction,
+                0.2001_f32.cosh()
+            ),
+            0.0
+        );
+    }
+
+    #[test]
     fn solve_sphere_point_intersection_example() {
         // Hit the origin with a radius of 0.2
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 math::origin(),
-                na::Vector4::new(1.0, 2.0, 10.0, 0.0).normalize(),
+                na::Vector4::new(1.0, 2.0, 6.0, 0.0).normalize(),
             );
-        let point_position = na::Vector4::w();
+        let point_position = math::origin();
         let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_point_intersection(
             &ray,
             &point_position,
@@ -392,6 +443,40 @@ mod tests {
             -math::mip(&hit_point, &point_position),
             0.2_f32.cosh(),
             epsilon = 1e-4
+        );
+    }
+
+    #[test]
+    fn solve_sphere_point_intersection_direct_hit() {
+        // Directly hit the origin with a ray 0.5 units away and a radius of 0.2.
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let point_position = math::origin();
+        assert_abs_diff_eq!(
+            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()),
+            0.3_f32.tanh(),
+            epsilon = 1e-4
+        );
+    }
+
+    #[test]
+    fn solve_sphere_point_intersection_miss() {
+        // No collision with the point anywhere along the ray's line
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::x());
+        let point_position = math::origin();
+        assert!(solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).is_nan());
+    }
+
+    #[test]
+    fn solve_sphere_point_intersection_margin() {
+        // Sphere is already contacting the point, with some error
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
+            * &Ray::new(math::origin(), na::Vector4::z());
+        let point_position = math::origin();
+        assert_eq!(
+            solve_sphere_point_intersection(&ray, &point_position, 0.2001_f32.cosh()),
+            0.0
         );
     }
 
