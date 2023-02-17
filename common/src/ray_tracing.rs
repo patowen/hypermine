@@ -57,8 +57,11 @@ pub fn trace_ray(
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
+        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
+
         let bounding_box = VoxelAABB::from_ray_segment_and_radius(
             dimension,
+            dual_to_grid_factor,
             &local_ray,
             endpoint.tanh_distance,
             chunk_ray_tracer.max_radius(),
@@ -69,7 +72,7 @@ pub fn trace_ray(
             chunk_ray_tracer.trace_ray(
                 &ChunkRayTracingContext {
                     dimension,
-                    dimension_f32: dimension as f32,
+                    dual_to_grid_factor,
                     chunk,
                     transform: math::mtranspose(&node_transform)
                         * chunk.vertex.dual_to_node().cast(),
@@ -152,7 +155,7 @@ pub trait ChunkRayTracer {
 /// Contains all the immutable data needed for `ChunkRayTracer` to perform its logic
 pub struct ChunkRayTracingContext<'a> {
     pub dimension: usize,
-    pub dimension_f32: f32,
+    pub dual_to_grid_factor: f32,
     pub chunk: ChunkId,
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,
@@ -269,26 +272,23 @@ impl VoxelAABB {
     /// bounding box lies entirely outside the chunk, including its margins.
     pub fn from_ray_segment_and_radius(
         dimension: usize,
+        dual_to_grid_factor: f32,
         ray: &Ray,
         tanh_distance: f32,
         radius: f32,
     ) -> Option<VoxelAABB> {
-        let dimension_f32 = dimension as f32;
         // Convert the ray to grid coordinates
-        let grid_start = na::Point3::from_homogeneous(ray.position).unwrap()
-            * Vertex::dual_to_chunk_factor() as f32
-            * dimension_f32;
+        let grid_start = na::Point3::from_homogeneous(ray.position).unwrap() * dual_to_grid_factor;
         let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
-            * Vertex::dual_to_chunk_factor() as f32
-            * dimension_f32;
+            * dual_to_grid_factor;
         // Convert the radius to grid coordinates using a crude conservative estimate
-        let max_grid_radius = radius * Vertex::dual_to_chunk_factor() as f32 * dimension_f32;
+        let max_grid_radius = radius * dual_to_grid_factor;
         let mut bounds = [[0; 2]; 3];
         for axis in 0..3 {
             let grid_min = grid_start[axis].min(grid_end[axis]) - max_grid_radius;
             let grid_max = grid_start[axis].max(grid_end[axis]) + max_grid_radius;
             let voxel_min = (grid_min + 1.0).floor().max(0.0);
-            let voxel_max = (grid_max + 1.0).floor().min(dimension_f32 + 1.0);
+            let voxel_max = (grid_max + 1.0).floor().min(dimension as f32 + 1.0);
 
             // This will happen when voxel_min is greater than dimension+1 or voxel_max is less than 0, which
             // occurs when the cube is out of range.

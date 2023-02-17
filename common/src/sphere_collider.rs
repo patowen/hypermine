@@ -1,5 +1,4 @@
 use crate::{
-    dodeca::Vertex,
     math,
     ray_tracing::{ChunkRayTracer, ChunkRayTracingContext, Ray, RayEndpoint},
     world::Material,
@@ -147,11 +146,12 @@ impl SphereCollider {
             }
 
             // Determine the cube-centric coordinates of the vertex
-            let vertex_position = math::lorentz_normalize(
-                &na::Vector3::new(x as f32, y as f32, z as f32)
-                    .scale(Vertex::chunk_to_dual_factor() as f32 / ctx.dimension_f32)
-                    .insert_row(3, 1.0),
-            );
+            let vertex_position = math::lorentz_normalize(&na::Vector4::new(
+                grid_to_dual(ctx, x),
+                grid_to_dual(ctx, y),
+                grid_to_dual(ctx, z),
+                1.0,
+            ));
 
             let tanh_distance =
                 solve_sphere_point_intersection(ctx.ray, &vertex_position, self.radius.cosh());
@@ -274,13 +274,12 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
 #[inline]
 fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize> {
-    let voxel_coord =
-        (dual_coord * Vertex::dual_to_chunk_factor() as f32 * ctx.dimension_f32).floor();
+    let floor_grid_coord = (dual_coord * ctx.dual_to_grid_factor).floor();
 
-    if !(voxel_coord >= 0.0 && voxel_coord < ctx.dimension_f32) {
+    if !(floor_grid_coord >= 0.0 && floor_grid_coord < ctx.dimension as f32) {
         None
     } else {
-        Some(voxel_coord as usize + 1)
+        Some(floor_grid_coord as usize + 1)
     }
 }
 
@@ -288,5 +287,5 @@ fn dual_to_voxel(ctx: &ChunkRayTracingContext, dual_coord: f32) -> Option<usize>
 /// can be used to find the positions of voxel gridlines.
 #[inline]
 fn grid_to_dual(ctx: &ChunkRayTracingContext, grid_coord: usize) -> f32 {
-    grid_coord as f32 / ctx.dimension_f32 * Vertex::chunk_to_dual_factor() as f32
+    grid_coord as f32 / ctx.dual_to_grid_factor
 }
