@@ -116,7 +116,7 @@ pub fn trace_ray(
                     return Err(RayTracingError::OutOfBounds);
                 };
                 // Assuming everything goes well, add the new chunk to the queue.
-                let next_chunk = (neighbor, chunk.vertex).into();
+                let next_chunk = ChunkId::new(neighbor, chunk.vertex);
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue.push_back((next_chunk, next_node_transform));
                 }
@@ -127,7 +127,7 @@ pub fn trace_ray(
                 || klein_ray_end[axis] >= klein_upper_boundary
             {
                 let vertex = chunk.vertex.adjacent_vertices()[axis];
-                let next_chunk = (chunk.node, vertex).into();
+                let next_chunk = ChunkId::new(chunk.node, vertex);
                 if visited_chunks.insert(next_chunk) {
                     chunk_queue.push_back((next_chunk, node_transform));
                 }

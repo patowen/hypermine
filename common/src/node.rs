@@ -15,20 +15,18 @@ pub struct ChunkId {
     pub vertex: Vertex,
 }
 
-impl From<(NodeId, Vertex)> for ChunkId {
-    fn from((node, vertex): (NodeId, Vertex)) -> Self {
+impl ChunkId {
+    pub fn new(node: NodeId, vertex: Vertex) -> Self {
         ChunkId { node, vertex }
     }
 }
 
 impl DualGraph {
-    pub fn get_chunk_mut(&mut self, chunk: impl Into<ChunkId>) -> Option<&mut Chunk> {
-        let chunk = chunk.into();
+    pub fn get_chunk_mut(&mut self, chunk: ChunkId) -> Option<&mut Chunk> {
         Some(&mut self.get_mut(chunk.node).as_mut()?.chunks[chunk.vertex])
     }
 
-    pub fn get_chunk(&self, chunk: impl Into<ChunkId>) -> Option<&Chunk> {
-        let chunk = chunk.into();
+    pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
 }

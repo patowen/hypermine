@@ -3,7 +3,7 @@ use tracing::{error, info};
 use crate::{
     dodeca::Vertex,
     math,
-    node::DualGraph,
+    node::{ChunkId, DualGraph},
     proto::{CharacterInput, Position},
     ray_tracing, sanitize_motion_input,
     sphere_collider::SphereCollider,
@@ -115,7 +115,7 @@ impl CharacterControllerPass<'_> {
             &SphereCollider {
                 radius: self.cfg.character_radius,
             },
-            (self.position.node, Vertex::A).into(),
+            ChunkId::new(self.position.node, Vertex::A),
             self.position.local,
             &ray,
             displacement_norm.tanh(),

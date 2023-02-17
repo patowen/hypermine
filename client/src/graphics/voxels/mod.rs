@@ -21,7 +21,7 @@ use common::{
     graph::NodeId,
     lru_slab::SlotId,
     math,
-    node::{Chunk, VoxelData},
+    node::{Chunk, ChunkId, VoxelData},
     traversal::nearby_nodes,
     LruSlab,
 };
@@ -146,11 +146,12 @@ impl Voxels {
             }
 
             use Chunk::*;
-            for chunk in Vertex::iter() {
+            for vertex in Vertex::iter() {
+                let chunk = ChunkId::new(node, vertex);
                 // Fetch existing chunk, or extract surface of new chunk
                 match sim
                     .graph
-                    .get_chunk_mut((node, chunk))
+                    .get_chunk_mut(chunk)
                     .expect("all nodes must be populated before rendering")
                 {
                     Generating => continue,
@@ -159,11 +160,10 @@ impl Voxels {
                         if let Some(params) = common::worldgen::ChunkParams::new(
                             self.surfaces.dimension() as u8,
                             &sim.graph,
-                            (node, chunk).into(),
+                            chunk,
                         ) {
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
-                                sim.graph.get_mut(node).as_mut().unwrap().chunks[chunk] =
-                                    Generating;
+                                *sim.graph.get_chunk_mut(chunk).unwrap() = Generating;
                             }
                         }
                         continue;
@@ -178,7 +178,7 @@ impl Voxels {
                             frame.drawn.push(slot);
                             // Transfer transform
                             frame.surface.transforms_mut()[slot.0 as usize] =
-                                node_transform * chunk.chunk_to_node().map(|x| x as f32);
+                                node_transform * vertex.chunk_to_node().map(|x| x as f32);
                         }
                         (&mut ref mut surface @ None, &VoxelData::Dense(ref data)) => {
                             // Extract a surface so it can be drawn in future frames
@@ -200,7 +200,7 @@ impl Voxels {
                             frame.extracted.push(scratch_slot);
                             let slot = self.states.insert(SurfaceState {
                                 node,
-                                chunk,
+                                chunk: vertex,
                                 refcount: 0,
                             });
                             *surface = Some(slot);
@@ -221,7 +221,7 @@ impl Voxels {
                                 indirect_offset: self.surfaces.indirect_offset(slot.0),
                                 face_offset: self.surfaces.face_offset(slot.0),
                                 draw_id: slot.0,
-                                reverse_winding: chunk.parity() ^ node_is_odd,
+                                reverse_winding: vertex.parity() ^ node_is_odd,
                             });
                         }
                         (None, &VoxelData::Solid(_)) => continue,

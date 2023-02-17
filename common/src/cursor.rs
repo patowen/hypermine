@@ -51,13 +51,10 @@ impl Cursor {
 
     /// Node and dodecahedral vertex that contains the representation for this cube in the graph
     pub fn canonicalize<N>(self, graph: &Graph<N>) -> Option<ChunkId> {
-        graph.canonicalize(
-            (
-                self.node,
-                Vertex::from_sides(self.a, self.b, self.c).unwrap(),
-            )
-                .into(),
-        )
+        graph.canonicalize(ChunkId::new(
+            self.node,
+            Vertex::from_sides(self.a, self.b, self.c).unwrap(),
+        ))
     }
 }
 
@@ -181,7 +178,7 @@ mod tests {
                 .expect("positive");
             assert_eq!(
                 looped.canonicalize(&graph).unwrap(),
-                (NodeId::ROOT, Vertex::A).into(),
+                ChunkId::new(NodeId::ROOT, Vertex::A),
             );
         };
         vcycle(Dir::Left);
