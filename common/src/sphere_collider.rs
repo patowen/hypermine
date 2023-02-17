@@ -169,23 +169,21 @@ impl SphereCollider {
 }
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
-/// intersects the given point.
+/// intersects the given plane.
 ///
 /// Returns NaN if there's no such intersection
-fn solve_sphere_point_intersection(
+fn solve_sphere_plane_intersection(
     ray: &Ray,
-    point_position: &na::Vector4<f32>,
-    cosh_radius: f32,
+    plane_normal: &na::Vector4<f32>,
+    sinh_radius: f32,
 ) -> f32 {
-    // This could be made more numerically stable by using a formula that depends on sinh_radius,
-    // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.position, point_position);
-    let mip_dir_a = math::mip(&ray.direction, point_position);
+    let mip_pos_a = math::mip(&ray.position, plane_normal);
+    let mip_dir_a = math::mip(&ray.direction, plane_normal);
 
     solve_quadratic(
-        mip_pos_a.powi(2) - cosh_radius.powi(2),
+        mip_pos_a.powi(2) - sinh_radius.powi(2),
         mip_pos_a * mip_dir_a,
-        mip_dir_a.powi(2) + cosh_radius.powi(2),
+        mip_dir_a.powi(2) + sinh_radius.powi(2),
     )
 }
 
@@ -214,21 +212,23 @@ fn solve_sphere_line_intersection(
 }
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
-/// intersects the given plane.
+/// intersects the given point.
 ///
 /// Returns NaN if there's no such intersection
-fn solve_sphere_plane_intersection(
+fn solve_sphere_point_intersection(
     ray: &Ray,
-    plane_normal: &na::Vector4<f32>,
-    sinh_radius: f32,
+    point_position: &na::Vector4<f32>,
+    cosh_radius: f32,
 ) -> f32 {
-    let mip_pos_a = math::mip(&ray.position, plane_normal);
-    let mip_dir_a = math::mip(&ray.direction, plane_normal);
+    // This could be made more numerically stable by using a formula that depends on sinh_radius,
+    // but the precision requirements of collision should be pretty lax.
+    let mip_pos_a = math::mip(&ray.position, point_position);
+    let mip_dir_a = math::mip(&ray.direction, point_position);
 
     solve_quadratic(
-        mip_pos_a.powi(2) - sinh_radius.powi(2),
+        mip_pos_a.powi(2) - cosh_radius.powi(2),
         mip_pos_a * mip_dir_a,
-        mip_dir_a.powi(2) + sinh_radius.powi(2),
+        mip_dir_a.powi(2) + cosh_radius.powi(2),
     )
 }
 
