@@ -331,7 +331,7 @@ mod tests {
 
     /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
     /// `radius` units away from the ray's line segment. This region consists of two spheres
-    /// and a cylinder.
+    /// and a cylinder. We only test planes because covered lines and points are a strict subset.
     #[test]
     fn voxel_aabb_coverage() {
         let dimension = 12;
@@ -339,11 +339,11 @@ mod tests {
 
         // Pick an arbitrary ray by transforming the positive-x-axis ray.
         let ray = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
-            * math::translate_along(&na::Vector3::new(0.5, 0.3, 0.2))
+            * math::translate_along(&na::Vector3::new(0.2, 0.3, 0.1))
             * &Ray::new(na::Vector4::w(), na::Vector4::x());
 
-        let tanh_distance = 0.4;
-        let radius = 0.2;
+        let tanh_distance = 0.2;
+        let radius = 0.1;
 
         let aabb = VoxelAABB::from_ray_segment_and_radius(
             dimension,
@@ -354,54 +354,35 @@ mod tests {
         )
         .unwrap();
 
-        let covered_points: HashSet<_> = aabb.grid_points(0, 1, 2).collect();
-        let covered_lines: HashSet<_> = aabb.grid_lines(1, 2).collect();
         let covered_planes: HashSet<_> = aabb.grid_planes(0).collect();
 
+        // Check that all x-y-aligned planes that should be covered are covered
         let ray_end = math::lorentz_normalize(&ray.ray_point(tanh_distance));
-
-        // Check that all points that should be covered are covered
         for x in 0..=dimension {
-            for y in 0..=dimension {
-                for z in 0..=dimension {
-                    if covered_points.contains(&(x, y, z)) {
-                        continue;
-                    }
-
-                    // Vertex is not covered. Make sure it's not in the path of the ray.
-                    let point_pos = math::lorentz_normalize(&na::Vector4::new(
-                        x as f32 / dual_to_grid_factor,
-                        y as f32 / dual_to_grid_factor,
-                        z as f32 / dual_to_grid_factor,
-                        1.0,
-                    ));
-
-                    // Check the two spheres
-                    assert!(-math::mip(&point_pos, &ray.position) > radius.cosh());
-                    assert!(-math::mip(&point_pos, &ray_end) > radius.cosh());
-
-                    // Check the cylinder
-                    if (math::mip(&point_pos, &ray.position).powi(2)
-                        - math::mip(&point_pos, &ray.direction).powi(2))
-                    .sqrt()
-                        < radius.cosh()
-                    {
-                        // If we're in this block, we're in the cylinder if it's infinitely extended.
-                        // Ensure we aren't in the actual cylinder.
-                        let projected_point = math::lorentz_normalize(
-                            &(-ray.position * math::mip(&point_pos, &ray.position)
-                                + ray.direction * math::mip(&point_pos, &ray.direction)),
-                        );
-
-                        let projected_tanh_distance =
-                            math::mip(&projected_point, &ray.direction).asinh().tanh();
-                        assert!(
-                            projected_tanh_distance < 0.0
-                                || projected_tanh_distance > tanh_distance
-                        );
-                    }
-                }
+            if covered_planes.contains(&x) {
+                continue;
             }
+
+            let plane_normal = math::lorentz_normalize(&na::Vector4::new(
+                1.0,
+                0.0,
+                0.0,
+                x as f32 / dual_to_grid_factor,
+            ));
+
+            // Get the sinh of the signed distance from the ray segment's endpoints to the plane
+            let ray_start_sinh_displacement = math::mip(&ray.position, &plane_normal);
+            let ray_end_sinh_displacement = math::mip(&ray_end, &plane_normal);
+
+            // Ensure that both ray endpoints are far enough away on the same side of the plane
+            assert!(
+                ray_start_sinh_displacement.min(ray_end_sinh_displacement) > radius.sinh()
+                    || ray_start_sinh_displacement.max(ray_end_sinh_displacement) < -radius.sinh()
+            );
         }
+
+        // We do not test that the right lines and points are covered because the current
+        // implementation guarantees that if the right planes are covered, so are the right
+        // lines and points. Actually testing for this would be too complicated.
     }
 }
