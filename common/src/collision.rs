@@ -325,9 +325,89 @@ impl VoxelAABB {
 
 #[cfg(test)]
 mod tests {
-    use crate::dodeca::Vertex;
+    use crate::{
+        dodeca::{Side, Vertex},
+        graph::NodeId,
+        node::populate_fresh_nodes,
+        proto::Position,
+        traversal::{ensure_nearby, nearby_nodes},
+    };
 
     use super::*;
+
+    #[test]
+    fn shape_cast_example() {
+        let dimension: usize = 12;
+        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
+        let mut graph = DualGraph::new();
+        let graph_radius = 3.0;
+
+        // Set up a graph with void chunks
+        ensure_nearby(&mut graph, &Position::origin(), graph_radius);
+        populate_fresh_nodes(&mut graph);
+        for (node, _) in nearby_nodes(&graph, &Position::origin(), graph_radius) {
+            for vertex in dodeca::Vertex::iter() {
+                let chunk = ChunkId::new(node, vertex);
+                *graph.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
+                    voxels: VoxelData::Solid(Material::Void),
+                    surface: None,
+                };
+            }
+        }
+
+        // Populate an arbitrary nearby chunk
+        let chosen_chunk = ChunkId::new(graph.neighbor(NodeId::ROOT, Side::G).unwrap(), Vertex::I);
+        let Chunk::Populated { voxels, .. } = graph.get_chunk_mut(chosen_chunk).unwrap() else {
+            panic!("All chunks should be populated.");
+        };
+
+        // Populate (3, 4, 5) with dirt.
+        voxels.data_mut(dimension as u8)[3 + 4 * (dimension + 2) + 5 * (dimension + 2).pow(2)] =
+            Material::Dirt;
+
+        let dirt_position = Side::G.reflection().cast()
+            * (Vertex::I.chunk_to_node().cast()
+                * math::lorentz_normalize(&na::Vector4::new(
+                    2.5 / dual_to_grid_factor,
+                    3.5 / dual_to_grid_factor,
+                    4.5 / dual_to_grid_factor,
+                    1.0,
+                )));
+
+        let ray_position = math::origin();
+        let ray_direction = dirt_position - ray_position;
+
+        let ray = Ray::new(
+            ray_position,
+            math::lorentz_normalize(
+                &(ray_direction + ray_position * math::mip(&ray_position, &ray_direction)),
+            ),
+        );
+
+        let tanh_distance = (-math::mip(&ray_position, &dirt_position)).acosh().tanh();
+
+        let endpoint = shape_cast(
+            &graph,
+            dimension,
+            0.02,
+            ChunkId::new(NodeId::ROOT, Vertex::A),
+            na::Matrix4::identity(),
+            &ray,
+            tanh_distance,
+        )
+        .expect("conclusive collision result");
+
+        assert!(endpoint.hit.is_some(), "no collision detected");
+        assert_eq!(
+            endpoint.hit.as_ref().unwrap().chunk,
+            chosen_chunk,
+            "collision occurred in wrong chunk"
+        );
+        assert!(
+            math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
+            "normal is facing the wrong way"
+        );
+    }
 
     /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
     /// `radius` units away from the ray's line segment. This region consists of two spheres
