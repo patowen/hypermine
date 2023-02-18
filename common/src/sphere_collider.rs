@@ -1,170 +1,152 @@
 use crate::{
     math,
-    shape_casting::{ChunkShapeCaster, ChunkShapeCastingContext, Ray, RayEndpoint},
+    shape_casting::{ChunkShapeCastingContext, Ray, RayEndpoint},
     world::Material,
 };
 
-/// Handles collisions for spherical objects whose origin is the sphere's center.
-pub struct SphereCollider {
-    pub radius: f32,
+/// Handles collisions for a single chunk.
+pub fn chunk_shape_cast(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
+    for axis in 0..3 {
+        find_face_collision(ctx, axis, endpoint);
+    }
+
+    for axis in 0..3 {
+        find_edge_collision(ctx, axis, endpoint);
+    }
+
+    find_vertex_collision(ctx, endpoint);
 }
 
-impl ChunkShapeCaster for SphereCollider {
-    fn shape_cast(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
-        for axis in 0..3 {
-            self.find_face_collision(ctx, axis, endpoint);
+/// Detect collisions where a sphere contacts the front side of a voxel face
+fn find_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: &mut RayEndpoint) {
+    let u_axis = (t_axis + 1) % 3;
+    let v_axis = (t_axis + 2) % 3;
+
+    // Loop through all grid planes overlapping the bounding box
+    for t in ctx.bounding_box.grid_plane_iterator(t_axis) {
+        // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
+        // to the origin is (x, 0, 0, t), and we use that fact here.
+        let normal = math::lorentz_normalize(&tuv_to_xyz(
+            t_axis,
+            na::Vector4::new(1.0, 0.0, 0.0, grid_to_dual(ctx, t)),
+        ));
+
+        let tanh_distance =
+            solve_sphere_plane_intersection(ctx.ray, &normal, ctx.collider_radius.sinh());
+
+        // If tanh_distance is out of range or NaN, no collision occurred.
+        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+            continue;
         }
 
-        for axis in 0..3 {
-            self.find_edge_collision(ctx, axis, endpoint);
+        // Whether we are approaching the front or back of the face. An approach from the positive t direction
+        // is 1, and an approach from the negative t direction is -1.
+        let collision_side = -math::mip(&ctx.ray.direction, &normal).signum();
+
+        // Which side we approach the plane from affects which voxel we want to use for collision checking
+        let voxel_t = if collision_side > 0.0 { t } else { t + 1 };
+
+        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
+        let contact_point = ray_endpoint - normal * math::mip(&ray_endpoint, &normal);
+
+        // Compute the u and v-coordinates of the voxels at the contact point
+        let Some(voxel_u) = dual_to_voxel(ctx, contact_point[u_axis] / contact_point.w) else {
+            continue;
+        };
+        let Some(voxel_v) = dual_to_voxel(ctx, contact_point[v_axis] / contact_point.w) else {
+            continue;
+        };
+
+        // Ensure that the relevant voxel is solid
+        if ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])) == Material::Void {
+            continue;
         }
 
-        self.find_vertex_collision(ctx, endpoint);
-    }
-
-    fn max_radius(&self) -> f32 {
-        self.radius
+        // A collision was found. Update the endpoint.
+        endpoint.update(ctx, tanh_distance, normal * collision_side);
     }
 }
 
-impl SphereCollider {
-    /// Detect collisions where a sphere contacts the front side of a voxel face
-    fn find_face_collision(
-        &self,
-        ctx: &ChunkShapeCastingContext,
-        t_axis: usize,
-        endpoint: &mut RayEndpoint,
-    ) {
-        let u_axis = (t_axis + 1) % 3;
-        let v_axis = (t_axis + 2) % 3;
+/// Detect collisions where a sphere contacts a voxel edge
+fn find_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: &mut RayEndpoint) {
+    let u_axis = (t_axis + 1) % 3;
+    let v_axis = (t_axis + 2) % 3;
 
-        // Loop through all grid planes overlapping the bounding box
-        for t in ctx.bounding_box.grid_plane_iterator(t_axis) {
-            // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
-            // to the origin is (x, 0, 0, t), and we use that fact here.
-            let normal = math::lorentz_normalize(&tuv_to_xyz(
-                t_axis,
-                na::Vector4::new(1.0, 0.0, 0.0, grid_to_dual(ctx, t)),
-            ));
+    // Loop through all grid lines overlapping the bounding box
+    for (u, v) in ctx.bounding_box.grid_line_iterator(u_axis, v_axis) {
+        let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
+            t_axis,
+            na::Vector4::new(0.0, grid_to_dual(ctx, u), grid_to_dual(ctx, v), 1.0),
+        ));
+        let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
 
-            let tanh_distance =
-                solve_sphere_plane_intersection(ctx.ray, &normal, self.radius.sinh());
+        let tanh_distance = solve_sphere_line_intersection(
+            ctx.ray,
+            &edge_pos,
+            &edge_dir,
+            ctx.collider_radius.cosh(),
+        );
 
-            // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
-                continue;
-            }
-
-            // Whether we are approaching the front or back of the face. An approach from the positive t direction
-            // is 1, and an approach from the negative t direction is -1.
-            let collision_side = -math::mip(&ctx.ray.direction, &normal).signum();
-
-            // Which side we approach the plane from affects which voxel we want to use for collision checking
-            let voxel_t = if collision_side > 0.0 { t } else { t + 1 };
-
-            let ray_endpoint = ctx.ray.ray_point(tanh_distance);
-            let contact_point = ray_endpoint - normal * math::mip(&ray_endpoint, &normal);
-
-            // Compute the u and v-coordinates of the voxels at the contact point
-            let Some(voxel_u) = dual_to_voxel(ctx, contact_point[u_axis] / contact_point.w) else {
-                continue;
-            };
-            let Some(voxel_v) = dual_to_voxel(ctx, contact_point[v_axis] / contact_point.w) else {
-                continue;
-            };
-
-            // Ensure that the relevant voxel is solid
-            if ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])) == Material::Void {
-                continue;
-            }
-
-            // A collision was found. Update the endpoint.
-            endpoint.update(ctx, tanh_distance, normal * collision_side);
+        // If tanh_distance is out of range or NaN, no collision occurred.
+        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+            continue;
         }
+
+        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
+        let contact_point = -edge_pos * math::mip(&ray_endpoint, &edge_pos)
+            + edge_dir * math::mip(&ray_endpoint, &edge_dir);
+
+        // Compute the t-coordinate of the voxels at the contact point
+        let Some(voxel_t) = dual_to_voxel(ctx, contact_point[t_axis] / contact_point.w) else {
+            continue;
+        };
+
+        // Ensure that the edge has a solid voxel adjacent to it
+        if (0..2).all(|du| {
+            (0..2).all(|dv| {
+                ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, u + du, v + dv])) == Material::Void
+            })
+        }) {
+            continue;
+        }
+
+        // A collision was found. Update the endpoint.
+        endpoint.update(ctx, tanh_distance, ray_endpoint - contact_point);
     }
+}
 
-    /// Detect collisions where a sphere contacts a voxel edge
-    fn find_edge_collision(
-        &self,
-        ctx: &ChunkShapeCastingContext,
-        t_axis: usize,
-        endpoint: &mut RayEndpoint,
-    ) {
-        let u_axis = (t_axis + 1) % 3;
-        let v_axis = (t_axis + 2) % 3;
-
-        // Loop through all grid lines overlapping the bounding box
-        for (u, v) in ctx.bounding_box.grid_line_iterator(u_axis, v_axis) {
-            let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
-                t_axis,
-                na::Vector4::new(0.0, grid_to_dual(ctx, u), grid_to_dual(ctx, v), 1.0),
-            ));
-            let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
-
-            let tanh_distance =
-                solve_sphere_line_intersection(ctx.ray, &edge_pos, &edge_dir, self.radius.cosh());
-
-            // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
-                continue;
-            }
-
-            let ray_endpoint = ctx.ray.ray_point(tanh_distance);
-            let contact_point = -edge_pos * math::mip(&ray_endpoint, &edge_pos)
-                + edge_dir * math::mip(&ray_endpoint, &edge_dir);
-
-            // Compute the t-coordinate of the voxels at the contact point
-            let Some(voxel_t) = dual_to_voxel(ctx, contact_point[t_axis] / contact_point.w) else {
-                continue;
-            };
-
-            // Ensure that the edge has a solid voxel adjacent to it
-            if (0..2).all(|du| {
-                (0..2).all(|dv| {
-                    ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, u + du, v + dv])) == Material::Void
-                })
-            }) {
-                continue;
-            }
-
-            // A collision was found. Update the endpoint.
-            endpoint.update(ctx, tanh_distance, ray_endpoint - contact_point);
+/// Detect collisions where a sphere contacts a voxel vertex
+fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
+    // Loop through all grid points contained in the bounding box
+    for (x, y, z) in ctx.bounding_box.grid_point_iterator(0, 1, 2) {
+        // Skip vertices that have no solid voxels adjacent to them
+        if (0..2).all(|dx| {
+            (0..2).all(|dy| {
+                (0..2).all(|dz| ctx.get_voxel([x + dx, y + dy, z + dz]) == Material::Void)
+            })
+        }) {
+            continue;
         }
-    }
 
-    /// Detect collisions where a sphere contacts a voxel vertex
-    fn find_vertex_collision(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
-        // Loop through all grid points contained in the bounding box
-        for (x, y, z) in ctx.bounding_box.grid_point_iterator(0, 1, 2) {
-            // Skip vertices that have no solid voxels adjacent to them
-            if (0..2).all(|dx| {
-                (0..2).all(|dy| {
-                    (0..2).all(|dz| ctx.get_voxel([x + dx, y + dy, z + dz]) == Material::Void)
-                })
-            }) {
-                continue;
-            }
+        // Determine the cube-centric coordinates of the vertex
+        let vertex_position = math::lorentz_normalize(&na::Vector4::new(
+            grid_to_dual(ctx, x),
+            grid_to_dual(ctx, y),
+            grid_to_dual(ctx, z),
+            1.0,
+        ));
 
-            // Determine the cube-centric coordinates of the vertex
-            let vertex_position = math::lorentz_normalize(&na::Vector4::new(
-                grid_to_dual(ctx, x),
-                grid_to_dual(ctx, y),
-                grid_to_dual(ctx, z),
-                1.0,
-            ));
+        let tanh_distance =
+            solve_sphere_point_intersection(ctx.ray, &vertex_position, ctx.collider_radius.cosh());
 
-            let tanh_distance =
-                solve_sphere_point_intersection(ctx.ray, &vertex_position, self.radius.cosh());
-
-            // If tanh_distance is out of range or NaN, no collision occurred.
-            if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
-                continue;
-            }
-
-            // A collision was found. Update the endpoint.
-            let ray_endpoint = ctx.ray.ray_point(tanh_distance);
-            endpoint.update(ctx, tanh_distance, ray_endpoint - vertex_position);
+        // If tanh_distance is out of range or NaN, no collision occurred.
+        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+            continue;
         }
+
+        // A collision was found. Update the endpoint.
+        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
+        endpoint.update(ctx, tanh_distance, ray_endpoint - vertex_position);
     }
 }
 
@@ -304,7 +286,7 @@ mod tests {
     use approx::*;
 
     struct TestShapeCastContext {
-        radius: f32,
+        collider_radius: f32,
         dimension: usize,
         dual_to_grid_factor: f32,
         voxel_data: VoxelData,
@@ -312,12 +294,12 @@ mod tests {
     }
 
     impl TestShapeCastContext {
-        fn new(radius: f32) -> Self {
+        fn new(collider_radius: f32) -> Self {
             let transform = na::Matrix4::identity();
             let dimension: usize = 12;
 
             let mut test_ctx = TestShapeCastContext {
-                radius,
+                collider_radius,
                 dimension,
                 dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
                 voxel_data: VoxelData::Solid(Material::Void),
@@ -379,7 +361,7 @@ mod tests {
             test_ctx.dual_to_grid_factor,
             &ray,
             endpoint.tanh_distance,
-            test_ctx.radius,
+            test_ctx.collider_radius,
         )
         .unwrap();
 
@@ -389,6 +371,7 @@ mod tests {
             chunk: ChunkId::new(NodeId::ROOT, Vertex::A),
             transform: test_ctx.transform,
             voxel_data: &test_ctx.voxel_data,
+            collider_radius: test_ctx.collider_radius,
             ray: &ray,
             bounding_box,
         };
@@ -398,14 +381,14 @@ mod tests {
 
     #[test]
     fn shape_cast_examples() {
-        let radius = 0.02;
-        let test_ctx = TestShapeCastContext::new(radius);
+        let collider_radius = 0.02;
+        let test_ctx = TestShapeCastContext::new(collider_radius);
         shape_cast_wrapper(
             &test_ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
             |ctx, endpoint| {
-                SphereCollider { radius }.shape_cast(ctx, endpoint);
+                chunk_shape_cast(ctx, endpoint);
                 println!("{:?}, {:?}", ctx.ray, endpoint);
             },
         );

@@ -4,12 +4,11 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, DualGraph, VoxelData},
+    sphere_collider::chunk_shape_cast,
     world::Material,
 };
 
-/// Performs shape casting (swept collision query) against the voxels in the `DualGraph`. This function is suitable for
-/// collision checking with any different collider shape. Each collider would have a different implemenation of `ChunkShapeCaster`,
-/// which describes how the collision checking math works within a single chunk.
+/// Performs shape casting (swept collision query) against the voxels in the `DualGraph` for a spherical colider
 ///
 /// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
 /// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
@@ -19,7 +18,7 @@ use crate::{
 pub fn shape_cast(
     graph: &DualGraph,
     dimension: usize,
-    chunk_shape_caster: &impl ChunkShapeCaster,
+    collider_radius: f32,
     start_chunk: ChunkId,
     start_node_transform: na::Matrix4<f32>,
     ray: &Ray,
@@ -41,9 +40,9 @@ pub fn shape_cast(
 
     // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
     // the corresponding neighboring chunk will also be used for collision checking.
-    let klein_lower_boundary = chunk_shape_caster.max_radius().tanh();
+    let klein_lower_boundary = collider_radius.tanh();
     let klein_upper_boundary =
-        ((Vertex::chunk_to_dual_factor() as f32).atanh() - chunk_shape_caster.max_radius()).tanh();
+        ((Vertex::chunk_to_dual_factor() as f32).atanh() - collider_radius).tanh();
 
     // Breadth-first search loop
     while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
@@ -64,12 +63,12 @@ pub fn shape_cast(
             dual_to_grid_factor,
             &local_ray,
             endpoint.tanh_distance,
-            chunk_shape_caster.max_radius(),
+            collider_radius,
         );
 
         // Check collision within a single chunk
         if let Some(bounding_box) = bounding_box {
-            chunk_shape_caster.shape_cast(
+            chunk_shape_cast(
                 &ChunkShapeCastingContext {
                     dimension,
                     dual_to_grid_factor,
@@ -77,6 +76,7 @@ pub fn shape_cast(
                     transform: math::mtranspose(&node_transform)
                         * chunk.vertex.dual_to_node().cast(),
                     voxel_data,
+                    collider_radius,
                     ray: &local_ray,
                     bounding_box,
                 },
@@ -108,7 +108,7 @@ pub fn shape_cast(
                     .acosh();
                 let ray_length = endpoint.tanh_distance.atanh();
                 if ray_node_distance - ray_length
-                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + chunk_shape_caster.max_radius()
+                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + collider_radius
                 {
                     // Ray cannot intersect node
                     continue;
@@ -141,17 +141,6 @@ pub fn shape_cast(
     Ok(endpoint)
 }
 
-/// Wraps any logic needed for a particular collider to perform ray tracing within a given chunk
-pub trait ChunkShapeCaster {
-    /// Performs ray tracing with a single chunk. If an intersection is found, `endpoint` is updated
-    /// to reflect this intersection, overriding any old intersections that may have been found.
-    fn shape_cast(&self, ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint);
-
-    /// Returns the radius of the sphere of influence of the collider. `shape_cast` might not be called on
-    /// chunks outside this sphere of influence.
-    fn max_radius(&self) -> f32;
-}
-
 /// Contains all the immutable data needed for `ChunkShapeCaster` to perform its logic
 pub struct ChunkShapeCastingContext<'a> {
     pub dimension: usize,
@@ -159,6 +148,7 @@ pub struct ChunkShapeCastingContext<'a> {
     pub chunk: ChunkId,
     pub transform: na::Matrix4<f32>,
     pub voxel_data: &'a VoxelData,
+    pub collider_radius: f32,
     pub ray: &'a Ray,
     pub bounding_box: VoxelAABB,
 }

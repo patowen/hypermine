@@ -5,9 +5,7 @@ use crate::{
     math,
     node::{ChunkId, DualGraph},
     proto::{CharacterInput, Position},
-    sanitize_motion_input, shape_casting,
-    sphere_collider::SphereCollider,
-    SimConfig,
+    sanitize_motion_input, shape_casting, SimConfig,
 };
 
 pub fn run_character_step(
@@ -112,9 +110,7 @@ impl CharacterControllerPass<'_> {
         let ray_tracing_result = shape_casting::shape_cast(
             self.graph,
             self.cfg.chunk_size as usize,
-            &SphereCollider {
-                radius: self.cfg.character_radius,
-            },
+            self.cfg.character_radius,
             ChunkId::new(self.position.node, Vertex::A),
             self.position.local,
             &ray,
