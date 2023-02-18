@@ -387,6 +387,32 @@ mod tests {
         endpoint
     }
 
+    fn find_face_collision_wrapper(
+        ctx: &ChunkShapeCastingContext,
+        t_axis: usize,
+        tanh_distance: f32,
+    ) -> RayEndpoint {
+        let mut endpoint = RayEndpoint {
+            tanh_distance,
+            hit: None,
+        };
+        find_face_collision(ctx, t_axis, &mut endpoint);
+        endpoint
+    }
+
+    fn find_edge_collision_wrapper(
+        ctx: &ChunkShapeCastingContext,
+        t_axis: usize,
+        tanh_distance: f32,
+    ) -> RayEndpoint {
+        let mut endpoint = RayEndpoint {
+            tanh_distance,
+            hit: None,
+        };
+        find_edge_collision(ctx, t_axis, &mut endpoint);
+        endpoint
+    }
+
     fn find_vertex_collision_wrapper(
         ctx: &ChunkShapeCastingContext,
         tanh_distance: f32,
@@ -397,6 +423,33 @@ mod tests {
         };
         find_vertex_collision(ctx, &mut endpoint);
         endpoint
+    }
+
+    fn test_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, tanh_distance: f32) {
+        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+        assert_endpoints_hit_and_eq(
+            &endpoint,
+            &find_face_collision_wrapper(ctx, t_axis, tanh_distance),
+        );
+        sanity_check_normal(ctx, &endpoint);
+    }
+
+    fn test_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, tanh_distance: f32) {
+        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+        assert_endpoints_hit_and_eq(
+            &endpoint,
+            &find_edge_collision_wrapper(ctx, t_axis, tanh_distance),
+        );
+        sanity_check_normal(ctx, &endpoint);
+    }
+
+    fn test_vertex_collision(ctx: &ChunkShapeCastingContext, tanh_distance: f32) {
+        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+        assert_endpoints_hit_and_eq(
+            &endpoint,
+            &find_vertex_collision_wrapper(ctx, tanh_distance),
+        );
+        sanity_check_normal(ctx, &endpoint);
     }
 
     fn assert_endpoints_hit_and_eq(endpoint0: &RayEndpoint, endpoint1: &RayEndpoint) {
@@ -437,18 +490,51 @@ mod tests {
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
 
+        // Face collisions
+        cast_with_test_ray(
+            &test_ctx,
+            [0.0, 1.5, 1.5],
+            [1.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                test_face_collision(ctx, 0, tanh_distance);
+            },
+        );
+
+        cast_with_test_ray(
+            &test_ctx,
+            [1.5, 1.5, 3.0],
+            [1.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                test_face_collision(ctx, 2, tanh_distance);
+            },
+        );
+
+        // Edge collisions
+        cast_with_test_ray(
+            &test_ctx,
+            [1.5, 3.0, 0.0],
+            [1.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                test_edge_collision(ctx, 0, tanh_distance);
+            },
+        );
+
+        cast_with_test_ray(
+            &test_ctx,
+            [3.0, 1.5, 3.0],
+            [1.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                test_edge_collision(ctx, 1, tanh_distance);
+            },
+        );
+
         // Vertex collisions
         cast_with_test_ray(
             &test_ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
             |ctx, tanh_distance| {
-                let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
-                assert_endpoints_hit_and_eq(
-                    &endpoint,
-                    &find_vertex_collision_wrapper(ctx, tanh_distance),
-                );
-                sanity_check_normal(ctx, &endpoint);
+                test_vertex_collision(ctx, tanh_distance);
             },
         );
 
@@ -457,12 +543,7 @@ mod tests {
             [3.0, 3.0, 0.0],
             [1.5, 1.5, 1.5],
             |ctx, tanh_distance| {
-                let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
-                assert_endpoints_hit_and_eq(
-                    &endpoint,
-                    &find_vertex_collision_wrapper(ctx, tanh_distance),
-                );
-                sanity_check_normal(ctx, &endpoint);
+                test_vertex_collision(ctx, tanh_distance);
             },
         );
     }
