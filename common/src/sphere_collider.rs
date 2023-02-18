@@ -483,6 +483,7 @@ mod tests {
         assert!(math::mip(&corrected_normal, &ray.direction) < 0.0);
     }
 
+    /// Tests that a suitable collision is found when approaching a single voxel from various angles.
     #[test]
     fn chunk_shape_cast_examples() {
         let collider_radius = 0.02;
@@ -546,6 +547,38 @@ mod tests {
                 test_vertex_collision(ctx, tanh_distance);
             },
         );
+    }
+
+    /// Tests that colliding with a face from the back side is impossible
+    #[test]
+    fn face_collisions_one_sided() {
+        let collider_radius = 0.01;
+        let test_ctx = TestShapeCastContext::new(collider_radius);
+
+        cast_with_test_ray(
+            &test_ctx,
+            [1.5, 1.5, 1.5],
+            [4.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                assert!(chunk_shape_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            },
+        )
+    }
+
+    /// Tests that collisions aren't detected past the ray's endpoint
+    #[test]
+    fn no_collisions_past_ray_endpoint() {
+        let collider_radius = 0.01;
+        let test_ctx = TestShapeCastContext::new(collider_radius);
+
+        cast_with_test_ray(
+            &test_ctx,
+            [8.0, 1.5, 1.5],
+            [2.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                assert!(chunk_shape_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            },
+        )
     }
 
     #[test]
