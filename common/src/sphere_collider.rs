@@ -1,6 +1,6 @@
 use crate::{
+    collision::{ChunkShapeCastingContext, Ray, RayEndpoint},
     math,
-    shape_casting::{ChunkShapeCastingContext, Ray, RayEndpoint},
     world::Material,
 };
 
@@ -276,10 +276,10 @@ fn grid_to_dual(ctx: &ChunkShapeCastingContext, grid_coord: usize) -> f32 {
 #[cfg(test)]
 mod tests {
     use crate::{
+        collision::VoxelAABB,
         dodeca::Vertex,
         graph::NodeId,
         node::{ChunkId, VoxelData},
-        shape_casting::VoxelAABB,
     };
 
     use super::*;

@@ -1,11 +1,12 @@
 use tracing::{error, info};
 
 use crate::{
+    collision,
     dodeca::Vertex,
     math,
     node::{ChunkId, DualGraph},
     proto::{CharacterInput, Position},
-    sanitize_motion_input, shape_casting, SimConfig,
+    sanitize_motion_input, SimConfig,
 };
 
 pub fn run_character_step(
@@ -105,9 +106,9 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let ray = shape_casting::Ray::new(math::origin(), displacement_normalized);
+        let ray = collision::Ray::new(math::origin(), displacement_normalized);
 
-        let ray_tracing_result = shape_casting::shape_cast(
+        let ray_tracing_result = collision::shape_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,
