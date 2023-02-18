@@ -323,7 +323,7 @@ mod tests {
         }
     }
 
-    fn shape_cast_wrapper(
+    fn cast_with_test_ray(
         test_ctx: &TestShapeCastContext,
         ray_start_grid_coords: [f32; 3],
         ray_end_grid_coords: [f32; 3],
@@ -407,15 +407,29 @@ mod tests {
         );
     }
 
+    fn sanity_check_normal(ray: &Ray, endpoint: &RayEndpoint) {
+        // Ensure that the normal is pointing outward, opposite the ray direction.
+        let ray_at_contact_point = math::translate(
+            &ray.position,
+            &math::lorentz_normalize(&ray.ray_point(endpoint.tanh_distance)),
+        ) * ray;
+
+        let normal = endpoint.hit.as_ref().unwrap().normal;
+        let corrected_normal =
+            math::lorentz_normalize(&(normal + ray.position * math::mip(&normal, &ray.position)));
+
+        assert!(math::mip(&corrected_normal, &ray_at_contact_point.direction) < 0.0);
+    }
+
     #[test]
-    fn shape_cast_examples() {
+    fn chunk_shape_cast_examples() {
         let collider_radius = 0.02;
         let test_ctx = TestShapeCastContext::new(collider_radius);
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
 
         // Vertex collisions
-        shape_cast_wrapper(
+        cast_with_test_ray(
             &test_ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
@@ -425,10 +439,11 @@ mod tests {
                     &endpoint,
                     &find_vertex_collision_wrapper(ctx, tanh_distance),
                 );
+                sanity_check_normal(ctx.ray, &endpoint);
             },
         );
 
-        shape_cast_wrapper(
+        cast_with_test_ray(
             &test_ctx,
             [3.0, 3.0, 0.0],
             [1.5, 1.5, 1.5],
@@ -438,6 +453,7 @@ mod tests {
                     &endpoint,
                     &find_vertex_collision_wrapper(ctx, tanh_distance),
                 );
+                sanity_check_normal(ctx.ray, &endpoint);
             },
         );
     }
