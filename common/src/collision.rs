@@ -311,11 +311,7 @@ impl VoxelAABB {
     }
 
     /// Iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
-    pub fn grid_lines(
-        &self,
-        axis0: usize,
-        axis1: usize,
-    ) -> impl Iterator<Item = (usize, usize)> {
+    pub fn grid_lines(&self, axis0: usize, axis1: usize) -> impl Iterator<Item = (usize, usize)> {
         let bounds = self.bounds;
         (bounds[axis0][0]..bounds[axis0][1])
             .flat_map(move |i| (bounds[axis1][0]..bounds[axis1][1]).map(move |j| (i, j)))
@@ -324,5 +320,88 @@ impl VoxelAABB {
     /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
     pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = usize> {
         self.bounds[axis][0]..self.bounds[axis][1]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dodeca::Vertex;
+
+    use super::*;
+
+    /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
+    /// `radius` units away from the ray's line segment. This region consists of two spheres
+    /// and a cylinder.
+    #[test]
+    fn voxel_aabb_coverage() {
+        let dimension = 12;
+        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
+
+        // Pick an arbitrary ray by transforming the positive-x-axis ray.
+        let ray = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
+            * math::translate_along(&na::Vector3::new(0.5, 0.3, 0.2))
+            * &Ray::new(na::Vector4::w(), na::Vector4::x());
+
+        let tanh_distance = 0.4;
+        let radius = 0.2;
+
+        let aabb = VoxelAABB::from_ray_segment_and_radius(
+            dimension,
+            dual_to_grid_factor,
+            &ray,
+            tanh_distance,
+            radius,
+        )
+        .unwrap();
+
+        let covered_points: HashSet<_> = aabb.grid_points(0, 1, 2).collect();
+        let covered_lines: HashSet<_> = aabb.grid_lines(1, 2).collect();
+        let covered_planes: HashSet<_> = aabb.grid_planes(0).collect();
+
+        let ray_end = math::lorentz_normalize(&ray.ray_point(tanh_distance));
+
+        // Check that all points that should be covered are covered
+        for x in 0..=dimension {
+            for y in 0..=dimension {
+                for z in 0..=dimension {
+                    if covered_points.contains(&(x, y, z)) {
+                        continue;
+                    }
+
+                    // Vertex is not covered. Make sure it's not in the path of the ray.
+                    let point_pos = math::lorentz_normalize(&na::Vector4::new(
+                        x as f32 / dual_to_grid_factor,
+                        y as f32 / dual_to_grid_factor,
+                        z as f32 / dual_to_grid_factor,
+                        1.0,
+                    ));
+
+                    // Check the two spheres
+                    assert!(-math::mip(&point_pos, &ray.position) > radius.cosh());
+                    assert!(-math::mip(&point_pos, &ray_end) > radius.cosh());
+
+                    // Check the cylinder
+                    if (math::mip(&point_pos, &ray.position).powi(2)
+                        - math::mip(&point_pos, &ray.direction).powi(2))
+                    .sqrt()
+                        < radius.cosh()
+                    {
+                        // If we're in this block, we're in the cylinder if it's infinitely extended.
+                        // Ensure we aren't in the actual cylinder.
+                        let projected_point = math::lorentz_normalize(
+                            &(-ray.position * math::mip(&point_pos, &ray.position)
+                                + ray.direction * math::mip(&point_pos, &ray.direction)),
+                        );
+
+                        let projected_tanh_distance =
+                            math::mip(&projected_point, &ray.direction).asinh().tanh();
+                        assert!(
+                            projected_tanh_distance < 0.0
+                                || projected_tanh_distance > tanh_distance
+                        );
+                    }
+                }
+            }
+        }
     }
 }
