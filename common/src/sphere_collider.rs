@@ -303,42 +303,112 @@ mod tests {
     use super::*;
     use approx::*;
 
-    #[test]
-    fn shape_cast_examples() {
-        let radius = 0.2;
-        let ray_length = 1.0_f32;
-        let ray = Ray::new(na::Vector4::w(), na::Vector4::x());
+    struct TestShapeCastContext {
+        radius: f32,
+        dimension: usize,
+        dual_to_grid_factor: f32,
+        voxel_data: VoxelData,
+        transform: na::Matrix4<f32>,
+    }
+
+    impl TestShapeCastContext {
+        fn new(radius: f32) -> Self {
+            let transform = na::Matrix4::identity();
+            let dimension: usize = 12;
+
+            let mut test_ctx = TestShapeCastContext {
+                radius,
+                dimension,
+                dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
+                voxel_data: VoxelData::Solid(Material::Void),
+                transform,
+            };
+
+            // Populate voxels
+            test_ctx.set_voxel([2, 2, 2], Material::Dirt);
+
+            test_ctx
+        }
+
+        fn set_voxel(&mut self, coords: [usize; 3], material: Material) {
+            let dimension_with_margin = self.dimension + 2;
+            debug_assert!(coords[0] < dimension_with_margin);
+            debug_assert!(coords[1] < dimension_with_margin);
+            debug_assert!(coords[2] < dimension_with_margin);
+            self.voxel_data.data_mut(self.dimension as u8)[coords[0]
+                + coords[1] * dimension_with_margin
+                + coords[2] * dimension_with_margin.pow(2)] = material;
+        }
+    }
+
+    fn shape_cast_wrapper(
+        test_ctx: &TestShapeCastContext,
+        ray_start_grid_coords: [f32; 3],
+        ray_end_grid_coords: [f32; 3],
+        wrapped_fn: impl FnOnce(&ChunkShapeCastingContext, &mut RayEndpoint),
+    ) {
+        let ray_start = math::lorentz_normalize(&na::Vector4::new(
+            ray_start_grid_coords[0] / test_ctx.dual_to_grid_factor,
+            ray_start_grid_coords[1] / test_ctx.dual_to_grid_factor,
+            ray_start_grid_coords[2] / test_ctx.dual_to_grid_factor,
+            1.0,
+        ));
+
+        let ray_end = math::lorentz_normalize(&na::Vector4::new(
+            ray_end_grid_coords[0] / test_ctx.dual_to_grid_factor,
+            ray_end_grid_coords[1] / test_ctx.dual_to_grid_factor,
+            ray_end_grid_coords[2] / test_ctx.dual_to_grid_factor,
+            1.0,
+        ));
+
+        let ray = Ray::new(
+            ray_start,
+            math::lorentz_normalize(
+                &((ray_end - ray_start)
+                    + ray_start * math::mip(&ray_start, &(ray_end - ray_start))),
+            ),
+        );
+
         let mut endpoint = RayEndpoint {
-            tanh_distance: ray_length.tanh(),
+            tanh_distance: (-math::mip(&ray_start, &ray_end)).acosh(),
             hit: None,
         };
-        let transform = na::Matrix4::identity();
-        const DIMENSION: usize = 12;
-
-        let voxel_data = VoxelData::Dense(Box::new([Material::Void; (DIMENSION + 2).pow(3)]));
-
-        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * DIMENSION as f32;
 
         let bounding_box = VoxelAABB::from_ray_segment_and_radius(
-            DIMENSION,
-            dual_to_grid_factor,
+            test_ctx.dimension,
+            test_ctx.dual_to_grid_factor,
             &ray,
             endpoint.tanh_distance,
-            radius,
+            test_ctx.radius,
         )
         .unwrap();
 
         let ctx = ChunkShapeCastingContext {
-            dimension: DIMENSION,
-            dual_to_grid_factor,
+            dimension: test_ctx.dimension,
+            dual_to_grid_factor: test_ctx.dual_to_grid_factor,
             chunk: ChunkId::new(NodeId::ROOT, Vertex::A),
-            transform,
-            voxel_data: &voxel_data,
+            transform: test_ctx.transform,
+            voxel_data: &test_ctx.voxel_data,
             ray: &ray,
             bounding_box,
         };
 
-        SphereCollider { radius }.shape_cast(&ctx, &mut endpoint);
+        wrapped_fn(&ctx, &mut endpoint)
+    }
+
+    #[test]
+    fn shape_cast_examples() {
+        let radius = 0.02;
+        let test_ctx = TestShapeCastContext::new(radius);
+        shape_cast_wrapper(
+            &test_ctx,
+            [0.0, 0.0, 0.0],
+            [1.5, 1.5, 1.5],
+            |ctx, endpoint| {
+                SphereCollider { radius }.shape_cast(ctx, endpoint);
+                println!("{:?}, {:?}", ctx.ray, endpoint);
+            },
+        );
     }
 
     #[test]

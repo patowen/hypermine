@@ -181,6 +181,7 @@ impl ChunkShapeCastingContext<'_> {
 }
 
 /// Where a cast ray ended, and all information about the hit at the end if such a hit occurred.
+#[derive(Debug)]
 pub struct RayEndpoint {
     /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
     /// ray segment gets shorter each time.
@@ -197,6 +198,7 @@ pub enum RayTracingError {
 }
 
 /// Information about the intersection at the end of a ray segment.
+#[derive(Debug)]
 pub struct RayHit {
     /// Which chunk in the graph the hit occurred
     pub chunk: ChunkId,
@@ -226,6 +228,7 @@ impl RayEndpoint {
 
 /// A ray in hyperbolic space. The fields must be lorentz normalized, with `mip(position, position) == -1`,
 /// `mip(direction, direction) == 1`, and `mip(position, direction) == 0`.
+#[derive(Debug)]
 pub struct Ray {
     pub position: na::Vector4<f32>,
     pub direction: na::Vector4<f32>,
