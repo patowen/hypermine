@@ -296,8 +296,8 @@ impl VoxelAABB {
         Some(VoxelAABB { bounds })
     }
 
-    /// Creates an iterator over grid points contained in the region, represented as ordered triples
-    pub fn grid_point_iterator(
+    /// Iterator over grid points contained in the region, represented as ordered triples
+    pub fn grid_points(
         &self,
         axis0: usize,
         axis1: usize,
@@ -310,8 +310,8 @@ impl VoxelAABB {
         })
     }
 
-    /// Creates an iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
-    pub fn grid_line_iterator(
+    /// Iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
+    pub fn grid_lines(
         &self,
         axis0: usize,
         axis1: usize,
@@ -321,8 +321,8 @@ impl VoxelAABB {
             .flat_map(move |i| (bounds[axis1][0]..bounds[axis1][1]).map(move |j| (i, j)))
     }
 
-    /// Creates an iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
-    pub fn grid_plane_iterator(&self, axis: usize) -> impl Iterator<Item = usize> {
+    /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
+    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = usize> {
         self.bounds[axis][0]..self.bounds[axis][1]
     }
 }

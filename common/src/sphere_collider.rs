@@ -23,7 +23,7 @@ fn find_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
     let v_axis = (t_axis + 2) % 3;
 
     // Loop through all grid planes overlapping the bounding box
-    for t in ctx.bounding_box.grid_plane_iterator(t_axis) {
+    for t in ctx.bounding_box.grid_planes(t_axis) {
         // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
         // to the origin is (x, 0, 0, t), and we use that fact here.
         let normal = math::lorentz_normalize(&tuv_to_xyz(
@@ -73,7 +73,7 @@ fn find_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
     let v_axis = (t_axis + 2) % 3;
 
     // Loop through all grid lines overlapping the bounding box
-    for (u, v) in ctx.bounding_box.grid_line_iterator(u_axis, v_axis) {
+    for (u, v) in ctx.bounding_box.grid_lines(u_axis, v_axis) {
         let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
             t_axis,
             na::Vector4::new(0.0, grid_to_dual(ctx, u), grid_to_dual(ctx, v), 1.0),
@@ -118,7 +118,7 @@ fn find_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
 /// Detect collisions where a sphere contacts a voxel vertex
 fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpoint) {
     // Loop through all grid points contained in the bounding box
-    for (x, y, z) in ctx.bounding_box.grid_point_iterator(0, 1, 2) {
+    for (x, y, z) in ctx.bounding_box.grid_points(0, 1, 2) {
         // Skip vertices that have no solid voxels adjacent to them
         if (0..2).all(|dx| {
             (0..2).all(|dy| {
