@@ -286,6 +286,7 @@ mod tests {
     use super::*;
     use approx::*;
 
+    /// Helper structure used along with a ray to generate a `ChunkShapeCastingContext`
     struct TestShapeCastContext {
         collider_radius: f32,
         dimension: usize,
@@ -326,6 +327,8 @@ mod tests {
         }
     }
 
+    /// Helper method to create a `ChunkShapeCastingContext` that can be used
+    /// in a closure to call shape casting methods.
     fn cast_with_test_ray(
         test_ctx: &TestShapeCastContext,
         ray_start_grid_coords: [f32; 3],
@@ -453,6 +456,9 @@ mod tests {
         sanity_check_normal(ctx, &endpoint);
     }
 
+    /// Check that the two endpoints contain a hit and are equal to each other. Useful for
+    /// ensuring that a particular intersection type is detected by the general `chunk_shape_cast`
+    /// method.
     fn assert_endpoints_hit_and_eq(endpoint0: &RayEndpoint, endpoint1: &RayEndpoint) {
         assert_eq!(endpoint0.tanh_distance, endpoint1.tanh_distance);
         assert!(endpoint0.hit.is_some());
