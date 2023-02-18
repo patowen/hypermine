@@ -306,7 +306,7 @@ mod tests {
                 transform,
             };
 
-            // Populate voxels
+            // Populate voxels. Consists of a single cube with grid coordinates from (1, 1, 1) to (2, 2, 2)
             test_ctx.set_voxel([2, 2, 2], Material::Dirt);
 
             test_ctx
@@ -327,7 +327,7 @@ mod tests {
         test_ctx: &TestShapeCastContext,
         ray_start_grid_coords: [f32; 3],
         ray_end_grid_coords: [f32; 3],
-        wrapped_fn: impl FnOnce(&ChunkShapeCastingContext, &mut RayEndpoint),
+        wrapped_fn: impl FnOnce(&ChunkShapeCastingContext, f32),
     ) {
         let ray_start = math::lorentz_normalize(&na::Vector4::new(
             ray_start_grid_coords[0] / test_ctx.dual_to_grid_factor,
@@ -351,16 +351,13 @@ mod tests {
             ),
         );
 
-        let mut endpoint = RayEndpoint {
-            tanh_distance: (-math::mip(&ray_start, &ray_end)).acosh(),
-            hit: None,
-        };
+        let tanh_distance = (-math::mip(&ray_start, &ray_end)).acosh();
 
         let bounding_box = VoxelAABB::from_ray_segment_and_radius(
             test_ctx.dimension,
             test_ctx.dual_to_grid_factor,
             &ray,
-            endpoint.tanh_distance,
+            tanh_distance,
             test_ctx.collider_radius,
         )
         .unwrap();
@@ -376,20 +373,71 @@ mod tests {
             bounding_box,
         };
 
-        wrapped_fn(&ctx, &mut endpoint)
+        wrapped_fn(&ctx, tanh_distance)
+    }
+
+    fn chunk_shape_cast_wrapper(ctx: &ChunkShapeCastingContext, tanh_distance: f32) -> RayEndpoint {
+        let mut endpoint = RayEndpoint {
+            tanh_distance,
+            hit: None,
+        };
+        chunk_shape_cast(ctx, &mut endpoint);
+        endpoint
+    }
+
+    fn find_vertex_collision_wrapper(
+        ctx: &ChunkShapeCastingContext,
+        tanh_distance: f32,
+    ) -> RayEndpoint {
+        let mut endpoint = RayEndpoint {
+            tanh_distance,
+            hit: None,
+        };
+        find_vertex_collision(ctx, &mut endpoint);
+        endpoint
+    }
+
+    fn assert_endpoints_hit_and_eq(endpoint0: &RayEndpoint, endpoint1: &RayEndpoint) {
+        assert_eq!(endpoint0.tanh_distance, endpoint1.tanh_distance);
+        assert!(endpoint0.hit.is_some());
+        assert!(endpoint1.hit.is_some());
+        assert_eq!(
+            endpoint0.hit.as_ref().unwrap().normal,
+            endpoint1.hit.as_ref().unwrap().normal
+        );
     }
 
     #[test]
     fn shape_cast_examples() {
         let collider_radius = 0.02;
         let test_ctx = TestShapeCastContext::new(collider_radius);
+
+        // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
+
+        // Vertex collisions
         shape_cast_wrapper(
             &test_ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, endpoint| {
-                chunk_shape_cast(ctx, endpoint);
-                println!("{:?}, {:?}", ctx.ray, endpoint);
+            |ctx, tanh_distance| {
+                let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+                assert_endpoints_hit_and_eq(
+                    &endpoint,
+                    &find_vertex_collision_wrapper(ctx, tanh_distance),
+                );
+            },
+        );
+
+        shape_cast_wrapper(
+            &test_ctx,
+            [3.0, 3.0, 0.0],
+            [1.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+                assert_endpoints_hit_and_eq(
+                    &endpoint,
+                    &find_vertex_collision_wrapper(ctx, tanh_distance),
+                );
             },
         );
     }
