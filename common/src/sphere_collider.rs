@@ -31,11 +31,13 @@ fn find_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
             na::Vector4::new(1.0, 0.0, 0.0, grid_to_dual(ctx, t)),
         ));
 
-        let tanh_distance =
-            solve_sphere_plane_intersection(ctx.ray, &normal, ctx.collider_radius.sinh());
+        let Some(tanh_distance) =
+            solve_sphere_plane_intersection(ctx.ray, &normal, ctx.collider_radius.sinh()) else {
+                continue;
+            };
 
         // If tanh_distance is out of range or NaN, no collision occurred.
-        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -80,15 +82,17 @@ fn find_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
         ));
         let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
 
-        let tanh_distance = solve_sphere_line_intersection(
+        let Some(tanh_distance) = solve_sphere_line_intersection(
             ctx.ray,
             &edge_pos,
             &edge_dir,
             ctx.collider_radius.cosh(),
-        );
+        ) else {
+            continue;
+        };
 
-        // If tanh_distance is out of range or NaN, no collision occurred.
-        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+        // If tanh_distance is out of range, no collision occurred.
+        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -136,11 +140,13 @@ fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpo
             1.0,
         ));
 
-        let tanh_distance =
-            solve_sphere_point_intersection(ctx.ray, &vertex_position, ctx.collider_radius.cosh());
+        let Some(tanh_distance) =
+            solve_sphere_point_intersection(ctx.ray, &vertex_position, ctx.collider_radius.cosh()) else {
+                continue;
+            };
 
         // If tanh_distance is out of range or NaN, no collision occurred.
-        if !(tanh_distance >= 0.0 && tanh_distance < endpoint.tanh_distance) {
+        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -152,13 +158,11 @@ fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpo
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
 /// intersects the given plane.
-///
-/// Returns NaN if there's no such intersection
 fn solve_sphere_plane_intersection(
     ray: &Ray,
     plane_normal: &na::Vector4<f32>,
     sinh_radius: f32,
-) -> f32 {
+) -> Option<f32> {
     let mip_pos_a = math::mip(&ray.position, plane_normal);
     let mip_dir_a = math::mip(&ray.direction, plane_normal);
 
@@ -171,14 +175,12 @@ fn solve_sphere_plane_intersection(
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
 /// intersects the given line.
-///
-/// Returns NaN if there's no such intersection
 fn solve_sphere_line_intersection(
     ray: &Ray,
     line_position: &na::Vector4<f32>,
     line_direction: &na::Vector4<f32>,
     cosh_radius: f32,
-) -> f32 {
+) -> Option<f32> {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
     let mip_pos_a = math::mip(&ray.position, line_position);
@@ -195,13 +197,11 @@ fn solve_sphere_line_intersection(
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
 /// intersects the given point.
-///
-/// Returns NaN if there's no such intersection
 fn solve_sphere_point_intersection(
     ray: &Ray,
     point_position: &na::Vector4<f32>,
     cosh_radius: f32,
-) -> f32 {
+) -> Option<f32> {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
     let mip_pos_a = math::mip(&ray.position, point_position);
@@ -214,30 +214,31 @@ fn solve_sphere_point_intersection(
     )
 }
 
-/// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`.
-/// Assumes that `quadratic_term` is positive.
-///
-/// Returns NaN if no such solution exists.
+/// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`
+/// if such a solution exists. Assumes that `quadratic_term` is positive.
 ///
 /// If a small perturbation to these terms would result in a solution of `x == 0.0`, this function has logic to
-/// to return 0.0 if three conditions hold in the context of collision checking:
+/// to return Some(0.0) if three conditions hold in the context of collision checking:
 /// 1. The collider must be intersecting the object. This manifests as `constant_term <= 0.0`.
 /// 2. The collider must not be too far inside the object. This manifests as `constant_term >= -EPSILON`.
 /// 3. The direction of motion must be towards the collider. This manifests as `double_linear_term < 0.0`.
-fn solve_quadratic(constant_term: f32, half_linear_term: f32, quadratic_term: f32) -> f32 {
+fn solve_quadratic(constant_term: f32, half_linear_term: f32, quadratic_term: f32) -> Option<f32> {
     const EPSILON: f32 = 1e-4;
 
     // Extra logic to ensure precision issues don't allow a collider to clip through a surface
     if (-EPSILON..=0.0).contains(&constant_term) && half_linear_term < 0.0 {
-        return 0.0;
+        return Some(0.0);
     }
 
     let discriminant = half_linear_term * half_linear_term - quadratic_term * constant_term;
+    if discriminant < 0.0 {
+        return None;
+    }
 
     // We use an alternative quadratic formula to ensure that we return a positive number if `constant_term > 0.0`.
     // Otherwise, the edge case of a small positive `constant_term` could be mishandled.
     // Note that discriminant can be negative, which allows this function to return NaN when there is no solution.
-    constant_term / (-half_linear_term + discriminant.sqrt())
+    Some(constant_term / (-half_linear_term + discriminant.sqrt()))
 }
 
 /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
@@ -587,11 +588,9 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::new(0.8, 0.0, 0.6, 0.0));
         let normal = -na::Vector4::z();
-        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_plane_intersection(
-            &ray,
-            &normal,
-            0.2_f32.sinh(),
-        )));
+        let hit_point = math::lorentz_normalize(
+            &ray.ray_point(solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()).unwrap()),
+        );
         assert_abs_diff_eq!(
             math::mip(&hit_point, &normal),
             0.2_f32.sinh(),
@@ -606,7 +605,7 @@ mod tests {
             * &Ray::new(math::origin(), na::Vector4::z());
         let normal = -na::Vector4::z();
         assert_abs_diff_eq!(
-            solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()),
+            solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()).unwrap(),
             0.3_f32.tanh(),
             epsilon = 1e-4
         );
@@ -618,7 +617,7 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::x());
         let normal = -na::Vector4::z();
-        assert!(solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()).is_nan());
+        assert!(solve_sphere_plane_intersection(&ray, &normal, 0.2_f32.sinh()).is_none());
     }
 
     #[test]
@@ -628,7 +627,7 @@ mod tests {
             * &Ray::new(math::origin(), na::Vector4::z());
         let normal = -na::Vector4::z();
         assert_eq!(
-            solve_sphere_plane_intersection(&ray, &normal, 0.2001_f32.sinh()),
+            solve_sphere_plane_intersection(&ray, &normal, 0.2001_f32.sinh()).unwrap(),
             0.0
         );
     }
@@ -643,12 +642,17 @@ mod tests {
             );
         let line_position = na::Vector4::w();
         let line_direction = na::Vector4::y();
-        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_line_intersection(
-            &ray,
-            &line_position,
-            &line_direction,
-            0.2_f32.cosh(),
-        )));
+        let hit_point = math::lorentz_normalize(
+            &ray.ray_point(
+                solve_sphere_line_intersection(
+                    &ray,
+                    &line_position,
+                    &line_direction,
+                    0.2_f32.cosh(),
+                )
+                .unwrap(),
+            ),
+        );
         // Measue the distance from hit_point to the line and ensure it's equal to the radius
         assert_abs_diff_eq!(
             (math::mip(&hit_point, &line_position).powi(2)
@@ -670,7 +674,8 @@ mod tests {
         let line_position = na::Vector4::w();
         let line_direction = na::Vector4::y();
         assert_abs_diff_eq!(
-            solve_sphere_line_intersection(&ray, &line_position, &line_direction, 0.2_f32.cosh()),
+            solve_sphere_line_intersection(&ray, &line_position, &line_direction, 0.2_f32.cosh())
+                .unwrap(),
             0.3_f32.tanh(),
             epsilon = 1e-4
         );
@@ -689,7 +694,7 @@ mod tests {
             &line_direction,
             0.2_f32.cosh()
         )
-        .is_nan());
+        .is_none());
     }
 
     #[test]
@@ -705,7 +710,8 @@ mod tests {
                 &line_position,
                 &line_direction,
                 0.2001_f32.cosh()
-            ),
+            )
+            .unwrap(),
             0.0
         );
     }
@@ -719,11 +725,9 @@ mod tests {
                 na::Vector4::new(1.0, 2.0, 6.0, 0.0).normalize(),
             );
         let point_position = math::origin();
-        let hit_point = math::lorentz_normalize(&ray.ray_point(solve_sphere_point_intersection(
-            &ray,
-            &point_position,
-            0.2_f32.cosh(),
-        )));
+        let hit_point = math::lorentz_normalize(&ray.ray_point(
+            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).unwrap(),
+        ));
         assert_abs_diff_eq!(
             -math::mip(&hit_point, &point_position),
             0.2_f32.cosh(),
@@ -738,7 +742,7 @@ mod tests {
             * &Ray::new(math::origin(), na::Vector4::z());
         let point_position = math::origin();
         assert_abs_diff_eq!(
-            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()),
+            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).unwrap(),
             0.3_f32.tanh(),
             epsilon = 1e-4
         );
@@ -750,7 +754,7 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::x());
         let point_position = math::origin();
-        assert!(solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).is_nan());
+        assert!(solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).is_none());
     }
 
     #[test]
@@ -760,7 +764,7 @@ mod tests {
             * &Ray::new(math::origin(), na::Vector4::z());
         let point_position = math::origin();
         assert_eq!(
-            solve_sphere_point_intersection(&ray, &point_position, 0.2001_f32.cosh()),
+            solve_sphere_point_intersection(&ray, &point_position, 0.2001_f32.cosh()).unwrap(),
             0.0
         );
     }
@@ -770,7 +774,7 @@ mod tests {
         let a = 1.0;
         let b = 2.0;
         let c = -5.0;
-        let x = solve_quadratic(c, b / 2.0, a);
+        let x = solve_quadratic(c, b / 2.0, a).unwrap();
 
         // x should be a solution
         assert_abs_diff_eq!(a * x * x + b * x + c, 0.0, epsilon = 1e-4);
