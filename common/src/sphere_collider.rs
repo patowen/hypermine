@@ -295,7 +295,9 @@ mod tests {
 
     impl TestShapeCastContext {
         fn new(collider_radius: f32) -> Self {
-            let transform = na::Matrix4::identity();
+            // Use an arbitrary transformation
+            let transform = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
+                * math::translate_along(&na::Vector3::new(0.5, 0.3, 0.2));
             let dimension: usize = 12;
 
             let mut test_ctx = TestShapeCastContext {
@@ -407,18 +409,25 @@ mod tests {
         );
     }
 
-    fn sanity_check_normal(ray: &Ray, endpoint: &RayEndpoint) {
-        // Ensure that the normal is pointing outward, opposite the ray direction.
-        let ray_at_contact_point = math::translate(
-            &ray.position,
-            &math::lorentz_normalize(&ray.ray_point(endpoint.tanh_distance)),
-        ) * ray;
+    /// Ensures that the normal is pointing outward, opposite the ray direction.
+    fn sanity_check_normal(ctx: &ChunkShapeCastingContext, endpoint: &RayEndpoint) {
+        // The ray we care about is after its start point has moved to the contact point.
+        let ray = math::translate(
+            &ctx.ray.position,
+            &math::lorentz_normalize(&ctx.ray.ray_point(endpoint.tanh_distance)),
+        ) * ctx.ray;
+
+        // The ray should be in the normal's coordinate system.
+        let ray = ctx.transform * &ray;
 
         let normal = endpoint.hit.as_ref().unwrap().normal;
+
+        // Project normal to be perpendicular to the ray's position
         let corrected_normal =
             math::lorentz_normalize(&(normal + ray.position * math::mip(&normal, &ray.position)));
 
-        assert!(math::mip(&corrected_normal, &ray_at_contact_point.direction) < 0.0);
+        // Check that the normal and ray are pointing opposite directions
+        assert!(math::mip(&corrected_normal, &ray.direction) < 0.0);
     }
 
     #[test]
@@ -439,7 +448,7 @@ mod tests {
                     &endpoint,
                     &find_vertex_collision_wrapper(ctx, tanh_distance),
                 );
-                sanity_check_normal(ctx.ray, &endpoint);
+                sanity_check_normal(ctx, &endpoint);
             },
         );
 
@@ -453,7 +462,7 @@ mod tests {
                     &endpoint,
                     &find_vertex_collision_wrapper(ctx, tanh_distance),
                 );
-                sanity_check_normal(ctx.ray, &endpoint);
+                sanity_check_normal(ctx, &endpoint);
             },
         );
     }
