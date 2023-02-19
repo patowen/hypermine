@@ -412,6 +412,12 @@ mod tests {
         );
     }
 
+    /// Tests that a sphere cast that gets close to the corner of an unloaded chunk does not throw an error.
+    #[test]
+    fn sphere_cast_near_unloaded_chunk() {
+        // TODO
+    }
+
     /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
     /// `radius` units away from the ray's line segment. This region consists of two spheres
     /// and a cylinder. We only test planes because covered lines and points are a strict subset.
