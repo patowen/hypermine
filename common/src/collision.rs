@@ -23,10 +23,10 @@ pub fn shape_cast(
     start_node_transform: na::Matrix4<f32>,
     ray: &Ray,
     tanh_distance: f32,
-) -> Result<RayEndpoint, RayTracingError> {
+) -> Result<CastEndpoint, ShapeCastError> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `endpoint` variable gets updated over time before being returned.
-    let mut endpoint = RayEndpoint {
+    let mut endpoint = CastEndpoint {
         tanh_distance,
         hit: None,
     };
@@ -52,7 +52,7 @@ pub fn shape_cast(
                 ..
             } = node.chunks[chunk.vertex] else {
                 // Collision checking on unpopulated chunk
-                return Err(RayTracingError::OutOfBounds);
+                return Err(ShapeCastError::OutOfBounds);
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
@@ -69,7 +69,7 @@ pub fn shape_cast(
         // Check collision within a single chunk
         if let Some(bounding_box) = bounding_box {
             chunk_shape_cast(
-                &ChunkShapeCastingContext {
+                &ChunkShapeCastContext {
                     dimension,
                     dual_to_grid_factor,
                     chunk,
@@ -116,7 +116,7 @@ pub fn shape_cast(
                 // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
-                    return Err(RayTracingError::OutOfBounds);
+                    return Err(ShapeCastError::OutOfBounds);
                 };
                 // Assuming everything goes well, add the new chunk to the queue.
                 let next_chunk = ChunkId::new(neighbor, chunk.vertex);
@@ -142,7 +142,7 @@ pub fn shape_cast(
 }
 
 /// Contains all the immutable data needed for `ChunkShapeCaster` to perform its logic
-pub struct ChunkShapeCastingContext<'a> {
+pub struct ChunkShapeCastContext<'a> {
     pub dimension: usize,
     pub dual_to_grid_factor: f32,
     pub chunk: ChunkId,
@@ -153,7 +153,7 @@ pub struct ChunkShapeCastingContext<'a> {
     pub bounding_box: VoxelAABB,
 }
 
-impl ChunkShapeCastingContext<'_> {
+impl ChunkShapeCastContext<'_> {
     /// Convenience function to get data from a single voxel given its coordinates.
     /// Each coordinate runs from `0` to `dimension + 1` inclusive, as margins are included.
     /// To get data within the chunk, use coordinates in the range from `1` to `dimension` inclusive.
@@ -172,44 +172,44 @@ impl ChunkShapeCastingContext<'_> {
 
 /// Where a cast ray ended, and all information about the hit at the end if such a hit occurred.
 #[derive(Debug)]
-pub struct RayEndpoint {
+pub struct CastEndpoint {
     /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
     /// ray segment gets shorter each time.
     pub tanh_distance: f32,
 
     /// Information about the intersection at the end of the ray segment. If this is `None`, there
     /// are no intersections.
-    pub hit: Option<RayHit>,
+    pub hit: Option<CastHit>,
 }
 
 #[derive(Debug)]
-pub enum RayTracingError {
+pub enum ShapeCastError {
     OutOfBounds,
 }
 
 /// Information about the intersection at the end of a ray segment.
 #[derive(Debug)]
-pub struct RayHit {
+pub struct CastHit {
     /// Which chunk in the graph the hit occurred
     pub chunk: ChunkId,
 
     /// Represents the normal vector of the hit surface in the original coordinate system
-    /// of the ray tracing. To get the actual normal vector, project it so that it is orthogonal
-    /// to the ray's endpoint in Lorentz space.
+    /// of the shape casting. To get the actual normal vector, project it so that it is orthogonal
+    /// to the endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
 }
 
-impl RayEndpoint {
-    /// Convenience function to report a new hit found when ray tracing. The `normal` parameter
+impl CastEndpoint {
+    /// Convenience function to report a new hit found when shape casting. The `normal` parameter
     /// should be provided in the chunk's "dual" coordinate system.
     pub fn update(
         &mut self,
-        context: &ChunkShapeCastingContext<'_>,
+        context: &ChunkShapeCastContext<'_>,
         tanh_distance: f32,
         normal: na::Vector4<f32>,
     ) {
         self.tanh_distance = tanh_distance;
-        self.hit = Some(RayHit {
+        self.hit = Some(CastHit {
             chunk: context.chunk,
             normal: context.transform * normal,
         });

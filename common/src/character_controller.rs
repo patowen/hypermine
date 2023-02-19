@@ -108,7 +108,7 @@ impl CharacterControllerPass<'_> {
 
         let ray = collision::Ray::new(math::origin(), displacement_normalized);
 
-        let ray_endpoint = collision::shape_cast(
+        let cast_endpoint = collision::shape_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,
@@ -118,7 +118,7 @@ impl CharacterControllerPass<'_> {
             displacement_norm.tanh(),
         );
 
-        let ray_endpoint = match ray_endpoint {
+        let cast_endpoint = match cast_endpoint {
             Ok(r) => r,
             Err(e) => {
                 error!("Collision checking returned {:?}", e);
@@ -128,13 +128,13 @@ impl CharacterControllerPass<'_> {
 
         let allowed_displacement = math::translate(
             &ray.position,
-            &math::lorentz_normalize(&ray.ray_point(ray_endpoint.tanh_distance)),
+            &math::lorentz_normalize(&ray.ray_point(cast_endpoint.tanh_distance)),
         );
 
         CollisionCheckingResult {
             allowed_displacement,
-            collision: ray_endpoint.hit.map(|hit| Collision {
-                // RayEndpoint has its `normal` given relative to the character's original position,
+            collision: cast_endpoint.hit.map(|hit| Collision {
+                // `CastEndpoint` has its `normal` given relative to the character's original position,
                 // but we want the normal relative to the character after the character moves to meet the wall.
                 // This normal now represents a contact point at the origin, so we omit the w-coordinate
                 // to ensure that it's orthogonal to the origin.
