@@ -1,5 +1,7 @@
 /*the name of this module is pretty arbitrary at the moment*/
 
+use std::ops::{Index, IndexMut};
+
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
@@ -28,6 +30,20 @@ impl DualGraph {
 
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
+    }
+}
+
+impl Index<ChunkId> for DualGraph {
+    type Output = Chunk;
+
+    fn index(&self, chunk: ChunkId) -> &Chunk {
+        self.get_chunk(chunk).unwrap()
+    }
+}
+
+impl IndexMut<ChunkId> for DualGraph {
+    fn index_mut(&mut self, chunk: ChunkId) -> &mut Chunk {
+        self.get_chunk_mut(chunk).unwrap()
     }
 }
 

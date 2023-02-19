@@ -163,7 +163,7 @@ impl Voxels {
                             chunk,
                         ) {
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
-                                *sim.graph.get_chunk_mut(chunk).unwrap() = Generating;
+                                sim.graph[chunk] = Generating;
                             }
                         }
                         continue;

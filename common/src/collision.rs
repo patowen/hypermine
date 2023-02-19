@@ -347,8 +347,7 @@ mod tests {
         populate_fresh_nodes(&mut graph);
         for (node, _) in nearby_nodes(&graph, &Position::origin(), graph_radius) {
             for vertex in dodeca::Vertex::iter() {
-                let chunk = ChunkId::new(node, vertex);
-                *graph.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
+                graph[ChunkId::new(node, vertex)] = Chunk::Populated {
                     voxels: VoxelData::Solid(Material::Void),
                     surface: None,
                 };

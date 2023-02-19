@@ -184,7 +184,7 @@ impl Sim {
                         if let Some(params) =
                             ChunkParams::new(self.cfg.chunk_size, &self.graph, chunk)
                         {
-                            *self.graph.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
+                            self.graph[chunk] = Chunk::Populated {
                                 voxels: params.generate_voxels(),
                                 surface: None,
                             };
