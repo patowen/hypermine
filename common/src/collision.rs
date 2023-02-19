@@ -433,31 +433,37 @@ mod tests {
         )
         .unwrap();
 
-        let covered_planes: HashSet<_> = aabb.grid_planes(0).collect();
+        // Test planes in all 3 axes. For variable names and further comments, we use a tuv coordinate system,
+        // which is a permuted xyz coordinate system.
+        for t_axis in 0..3 {
+            let covered_planes: HashSet<_> = aabb.grid_planes(t_axis).collect();
 
-        // Check that all x-y-aligned planes that should be covered are covered
-        let ray_end = math::lorentz_normalize(&ray.ray_point(tanh_distance));
-        for x in 0..=dimension {
-            if covered_planes.contains(&x) {
-                continue;
+            // Check that all uv-aligned planes that should be covered are covered
+            let ray_end = math::lorentz_normalize(&ray.ray_point(tanh_distance));
+            for t in 0..=dimension {
+                if covered_planes.contains(&t) {
+                    continue;
+                }
+
+                let mut plane_normal = na::Vector4::zeros();
+                plane_normal[t_axis] = 1.0;
+                plane_normal[3] = t as f32 / dual_to_grid_factor;
+                let plane_normal = math::lorentz_normalize(&plane_normal);
+
+                // Get the sinh of the signed distance from the ray segment's endpoints to the plane
+                let ray_start_sinh_displacement = math::mip(&ray.position, &plane_normal);
+                let ray_end_sinh_displacement = math::mip(&ray_end, &plane_normal);
+
+                // Ensure that both ray endpoints are far enough away on the same side of the plane
+                assert!(
+                    ray_start_sinh_displacement.min(ray_end_sinh_displacement) > radius.sinh()
+                        || ray_start_sinh_displacement.max(ray_end_sinh_displacement)
+                            < -radius.sinh(),
+                    "Plane not covered: axis={}, t={}",
+                    t_axis,
+                    t,
+                );
             }
-
-            let plane_normal = math::lorentz_normalize(&na::Vector4::new(
-                1.0,
-                0.0,
-                0.0,
-                x as f32 / dual_to_grid_factor,
-            ));
-
-            // Get the sinh of the signed distance from the ray segment's endpoints to the plane
-            let ray_start_sinh_displacement = math::mip(&ray.position, &plane_normal);
-            let ray_end_sinh_displacement = math::mip(&ray_end, &plane_normal);
-
-            // Ensure that both ray endpoints are far enough away on the same side of the plane
-            assert!(
-                ray_start_sinh_displacement.min(ray_end_sinh_displacement) > radius.sinh()
-                    || ray_start_sinh_displacement.max(ray_end_sinh_displacement) < -radius.sinh()
-            );
         }
 
         // We do not test that the right lines and points are covered because the current
