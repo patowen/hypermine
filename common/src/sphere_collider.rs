@@ -501,13 +501,15 @@ mod tests {
         assert!(math::mip(&corrected_normal, &ray.direction) < 0.0);
     }
 
-    /// Tests that a suitable collision is found when approaching a single voxel from various angles.
+    /// Tests that a suitable collision is found when approaching a single voxel from various angles and that
+    /// no collision is found in paths that don't reach that voxel.
     #[test]
     fn chunk_sphere_cast_examples() {
         let collider_radius = 0.02;
         let test_ctx = TestSphereCastContext::new(collider_radius);
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
+        // Note: The voxel is centered at (1.5, 1.5, 1.5) in the grid coordinates used in this test.
 
         // Face collisions
         cast_with_test_ray(
@@ -565,9 +567,41 @@ mod tests {
                 test_vertex_collision(ctx, tanh_distance);
             },
         );
+
+        // No collision: Going sideways relative to a face
+        cast_with_test_ray(
+            &test_ctx,
+            [3.0, 1.5, 1.5],
+            [3.0, 3.0, 1.5],
+            |ctx, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            },
+        );
+
+        // No collision: Going away from a face
+        cast_with_test_ray(
+            &test_ctx,
+            [3.0, 1.5, 1.5],
+            [4.5, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            },
+        );
+
+        // No collision: Past cast endpoint
+        cast_with_test_ray(
+            &test_ctx,
+            [8.0, 1.5, 1.5],
+            [3.0, 1.5, 1.5],
+            |ctx, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            },
+        );
     }
 
-    /// Tests that colliding with a face from the back side is impossible
+    /// Tests that colliding with a face from the back side is impossible. Note that colliding
+    /// with the back side of an edge or vertex is still possible. Getting rid of these collisions
+    /// is a possible future enhancement.
     #[test]
     fn face_collisions_one_sided() {
         let collider_radius = 0.01;
@@ -577,22 +611,6 @@ mod tests {
             &test_ctx,
             [1.5, 1.5, 1.5],
             [4.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
-            },
-        )
-    }
-
-    /// Tests that collisions aren't detected past the ray's endpoint
-    #[test]
-    fn no_collisions_past_ray_endpoint() {
-        let collider_radius = 0.01;
-        let test_ctx = TestSphereCastContext::new(collider_radius);
-
-        cast_with_test_ray(
-            &test_ctx,
-            [8.0, 1.5, 1.5],
-            [2.5, 1.5, 1.5],
             |ctx, tanh_distance| {
                 assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
             },
