@@ -37,7 +37,7 @@ fn find_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
             };
 
         // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
+        if tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -92,7 +92,7 @@ fn find_edge_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
         };
 
         // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
+        if tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -146,7 +146,7 @@ fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpo
             };
 
         // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
+        if tanh_distance >= endpoint.tanh_distance {
             continue;
         }
 
@@ -215,30 +215,40 @@ fn solve_sphere_point_intersection(
 }
 
 /// Finds the lower solution `x` of `constant_term + 2 * half_linear_term * x + quadratic_term * x * x == 0`
-/// if such a solution exists. Assumes that `quadratic_term` is positive.
+/// if such a solution exists and is non-negative. Assumes that `quadratic_term` is positive. Double-roots are
+/// ignored.
 ///
-/// If a small perturbation to these terms would result in a solution of `x == 0.0`, this function has logic to
-/// to return Some(0.0) if three conditions hold in the context of collision checking:
-/// 1. The collider must be intersecting the object. This manifests as `constant_term <= 0.0`.
-/// 2. The collider must not be too far inside the object. This manifests as `constant_term >= -EPSILON`.
-/// 3. The direction of motion must be towards the collider. This manifests as `double_linear_term < 0.0`.
+/// If the lower solution is negative, but a small perturbation to the constant term would make it 0, this function
+/// returns 0.
 fn solve_quadratic(constant_term: f32, half_linear_term: f32, quadratic_term: f32) -> Option<f32> {
     const EPSILON: f32 = 1e-4;
 
-    // Extra logic to ensure precision issues don't allow a collider to clip through a surface
-    if (-EPSILON..=0.0).contains(&constant_term) && half_linear_term < 0.0 {
-        return Some(0.0);
+    // If the linear term is positive, the lower solution is negative, and we're not interested. If the
+    // linear term is zero, the solution can only be non-negative if the constant term is also zero,
+    // which results in a double-root, which we also ignore.
+    if half_linear_term >= 0.0 {
+        return None;
+    }
+
+    // If the constant term is negative, the lower solution must also be negative. To avoid precision issues
+    // allowing a collider to clip through a surface, we treat small negative constant terms as zero, which
+    // results in a lower solution of zero.
+    if constant_term <= 0.0 {
+        return if constant_term > -EPSILON {
+            Some(0.0)
+        } else {
+            None
+        };
     }
 
     let discriminant = half_linear_term * half_linear_term - quadratic_term * constant_term;
-    if discriminant < 0.0 {
+    if discriminant <= 0.0 {
         return None;
     }
 
     // We use an alternative quadratic formula to ensure that we return a positive number if `constant_term > 0.0`.
     // Otherwise, the edge case of a small positive `constant_term` could be mishandled.
-
-    // TODO: Explain/ensure safety of a zero denominator (especially if the numerator is also zero)
+    // The denominator cannot be zero because both of its terms are positive.
     Some(constant_term / (-half_linear_term + discriminant.sqrt()))
 }
 
@@ -779,8 +789,8 @@ mod tests {
     #[test]
     fn solve_quadratic_example() {
         let a = 1.0;
-        let b = 2.0;
-        let c = -5.0;
+        let b = -2.0;
+        let c = 0.2;
         let x = solve_quadratic(c, b / 2.0, a).unwrap();
 
         // x should be a solution
