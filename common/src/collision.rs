@@ -4,18 +4,18 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, DualGraph, VoxelData},
-    sphere_collider::chunk_shape_cast,
+    sphere_collider::chunk_sphere_cast,
     world::Material,
 };
 
-/// Performs shape casting (swept collision query) against the voxels in the `DualGraph` for a spherical colider
+/// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
 ///
 /// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
 /// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
 /// system of `start_chunk`'s node.
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for hits.
-pub fn shape_cast(
+pub fn sphere_cast(
     graph: &DualGraph,
     dimension: usize,
     collider_radius: f32,
@@ -23,7 +23,7 @@ pub fn shape_cast(
     start_node_transform: na::Matrix4<f32>,
     ray: &Ray,
     tanh_distance: f32,
-) -> Result<CastEndpoint, ShapeCastError> {
+) -> Result<CastEndpoint, SphereCastError> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `endpoint` variable gets updated over time before being returned.
     let mut endpoint = CastEndpoint {
@@ -52,7 +52,7 @@ pub fn shape_cast(
                 ..
             } = node.chunks[chunk.vertex] else {
                 // Collision checking on unpopulated chunk
-                return Err(ShapeCastError::OutOfBounds);
+                return Err(SphereCastError::OutOfBounds);
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
@@ -68,8 +68,8 @@ pub fn shape_cast(
 
         // Check collision within a single chunk
         if let Some(bounding_box) = bounding_box {
-            chunk_shape_cast(
-                &ChunkShapeCastContext {
+            chunk_sphere_cast(
+                &ChunkSphereCastContext {
                     dimension,
                     dual_to_grid_factor,
                     chunk,
@@ -116,7 +116,7 @@ pub fn shape_cast(
                 // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
                 let Some(neighbor) = graph.neighbor(chunk.node, side) else {
                     // Collision checking on nonexistent node
-                    return Err(ShapeCastError::OutOfBounds);
+                    return Err(SphereCastError::OutOfBounds);
                 };
                 // Assuming everything goes well, add the new chunk to the queue.
                 let next_chunk = ChunkId::new(neighbor, chunk.vertex);
@@ -141,8 +141,8 @@ pub fn shape_cast(
     Ok(endpoint)
 }
 
-/// Contains all the immutable data needed for `ChunkShapeCaster` to perform its logic
-pub struct ChunkShapeCastContext<'a> {
+/// Contains all the immutable data needed for `chunk_sphere_cast` to perform its logic
+pub struct ChunkSphereCastContext<'a> {
     pub dimension: usize,
     pub dual_to_grid_factor: f32,
     pub chunk: ChunkId,
@@ -153,7 +153,7 @@ pub struct ChunkShapeCastContext<'a> {
     pub bounding_box: VoxelAABB,
 }
 
-impl ChunkShapeCastContext<'_> {
+impl ChunkSphereCastContext<'_> {
     /// Convenience function to get data from a single voxel given its coordinates.
     /// Each coordinate runs from `0` to `dimension + 1` inclusive, as margins are included.
     /// To get data within the chunk, use coordinates in the range from `1` to `dimension` inclusive.
@@ -183,7 +183,7 @@ pub struct CastEndpoint {
 }
 
 #[derive(Debug)]
-pub enum ShapeCastError {
+pub enum SphereCastError {
     OutOfBounds,
 }
 
@@ -194,17 +194,17 @@ pub struct CastHit {
     pub chunk: ChunkId,
 
     /// Represents the normal vector of the hit surface in the original coordinate system
-    /// of the shape casting. To get the actual normal vector, project it so that it is orthogonal
+    /// of the sphere casting. To get the actual normal vector, project it so that it is orthogonal
     /// to the endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
 }
 
 impl CastEndpoint {
-    /// Convenience function to report a new hit found when shape casting. The `normal` parameter
+    /// Convenience function to report a new hit found when sphere casting. The `normal` parameter
     /// should be provided in the chunk's "dual" coordinate system.
     pub fn update(
         &mut self,
-        context: &ChunkShapeCastContext<'_>,
+        context: &ChunkSphereCastContext<'_>,
         tanh_distance: f32,
         normal: na::Vector4<f32>,
     ) {
@@ -336,7 +336,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn shape_cast_example() {
+    fn sphere_cast_example() {
         let dimension: usize = 12;
         let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
         let mut graph = DualGraph::new();
@@ -385,7 +385,7 @@ mod tests {
 
         let tanh_distance = (-math::mip(&ray_position, &dirt_position)).acosh().tanh();
 
-        let endpoint = shape_cast(
+        let endpoint = sphere_cast(
             &graph,
             dimension,
             0.02,

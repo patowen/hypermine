@@ -1,11 +1,11 @@
 use crate::{
-    collision::{CastEndpoint, ChunkShapeCastContext, Ray},
+    collision::{CastEndpoint, ChunkSphereCastContext, Ray},
     math,
     world::Material,
 };
 
 /// Handles collisions for a single chunk.
-pub fn chunk_shape_cast(ctx: &ChunkShapeCastContext, endpoint: &mut CastEndpoint) {
+pub fn chunk_sphere_cast(ctx: &ChunkSphereCastContext, endpoint: &mut CastEndpoint) {
     for axis in 0..3 {
         find_face_collision(ctx, axis, endpoint);
     }
@@ -18,7 +18,7 @@ pub fn chunk_shape_cast(ctx: &ChunkShapeCastContext, endpoint: &mut CastEndpoint
 }
 
 /// Detect collisions where a sphere contacts the front side of a voxel face
-fn find_face_collision(ctx: &ChunkShapeCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
+fn find_face_collision(ctx: &ChunkSphereCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
     let u_axis = (t_axis + 1) % 3;
     let v_axis = (t_axis + 2) % 3;
 
@@ -70,7 +70,7 @@ fn find_face_collision(ctx: &ChunkShapeCastContext, t_axis: usize, endpoint: &mu
 }
 
 /// Detect collisions where a sphere contacts a voxel edge
-fn find_edge_collision(ctx: &ChunkShapeCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
+fn find_edge_collision(ctx: &ChunkSphereCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
     let u_axis = (t_axis + 1) % 3;
     let v_axis = (t_axis + 2) % 3;
 
@@ -120,7 +120,7 @@ fn find_edge_collision(ctx: &ChunkShapeCastContext, t_axis: usize, endpoint: &mu
 }
 
 /// Detect collisions where a sphere contacts a voxel vertex
-fn find_vertex_collision(ctx: &ChunkShapeCastContext, endpoint: &mut CastEndpoint) {
+fn find_vertex_collision(ctx: &ChunkSphereCastContext, endpoint: &mut CastEndpoint) {
     // Loop through all grid points contained in the bounding box
     for (x, y, z) in ctx.bounding_box.grid_points(0, 1, 2) {
         // Skip vertices that have no solid voxels adjacent to them
@@ -268,7 +268,7 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
 /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
 #[inline]
-fn dual_to_voxel(ctx: &ChunkShapeCastContext, dual_coord: f32) -> Option<usize> {
+fn dual_to_voxel(ctx: &ChunkSphereCastContext, dual_coord: f32) -> Option<usize> {
     let floor_grid_coord = (dual_coord * ctx.dual_to_grid_factor).floor();
 
     if !(floor_grid_coord >= 0.0 && floor_grid_coord < ctx.dimension as f32) {
@@ -281,7 +281,7 @@ fn dual_to_voxel(ctx: &ChunkShapeCastContext, dual_coord: f32) -> Option<usize> 
 /// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
 /// can be used to find the positions of voxel gridlines.
 #[inline]
-fn grid_to_dual(ctx: &ChunkShapeCastContext, grid_coord: usize) -> f32 {
+fn grid_to_dual(ctx: &ChunkSphereCastContext, grid_coord: usize) -> f32 {
     grid_coord as f32 / ctx.dual_to_grid_factor
 }
 
@@ -297,8 +297,8 @@ mod tests {
     use super::*;
     use approx::*;
 
-    /// Helper structure used along with a ray to generate a `ChunkShapeCastContext`
-    struct TestShapeCastContext {
+    /// Helper structure used along with a ray to generate a `ChunkSphereCastContext`
+    struct TestSphereCastContext {
         collider_radius: f32,
         dimension: usize,
         dual_to_grid_factor: f32,
@@ -306,14 +306,14 @@ mod tests {
         transform: na::Matrix4<f32>,
     }
 
-    impl TestShapeCastContext {
+    impl TestSphereCastContext {
         fn new(collider_radius: f32) -> Self {
             // Use an arbitrary transformation
             let transform = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
                 * math::translate_along(&na::Vector3::new(0.5, 0.3, 0.2));
             let dimension: usize = 12;
 
-            let mut test_ctx = TestShapeCastContext {
+            let mut test_ctx = TestSphereCastContext {
                 collider_radius,
                 dimension,
                 dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
@@ -338,13 +338,13 @@ mod tests {
         }
     }
 
-    /// Helper method to create a `ChunkShapeCastContext` that can be used
-    /// in a closure to call shape casting methods.
+    /// Helper method to create a `ChunkSphereCastContext` that can be used
+    /// in a closure to call sphere casting methods.
     fn cast_with_test_ray(
-        test_ctx: &TestShapeCastContext,
+        test_ctx: &TestSphereCastContext,
         ray_start_grid_coords: [f32; 3],
         ray_end_grid_coords: [f32; 3],
-        wrapped_fn: impl FnOnce(&ChunkShapeCastContext, f32),
+        wrapped_fn: impl FnOnce(&ChunkSphereCastContext, f32),
     ) {
         let ray_start = math::lorentz_normalize(&na::Vector4::new(
             ray_start_grid_coords[0] / test_ctx.dual_to_grid_factor,
@@ -379,7 +379,7 @@ mod tests {
         )
         .unwrap();
 
-        let ctx = ChunkShapeCastContext {
+        let ctx = ChunkSphereCastContext {
             dimension: test_ctx.dimension,
             dual_to_grid_factor: test_ctx.dual_to_grid_factor,
             chunk: ChunkId::new(NodeId::ROOT, Vertex::A),
@@ -393,17 +393,17 @@ mod tests {
         wrapped_fn(&ctx, tanh_distance)
     }
 
-    fn chunk_shape_cast_wrapper(ctx: &ChunkShapeCastContext, tanh_distance: f32) -> CastEndpoint {
+    fn chunk_sphere_cast_wrapper(ctx: &ChunkSphereCastContext, tanh_distance: f32) -> CastEndpoint {
         let mut endpoint = CastEndpoint {
             tanh_distance,
             hit: None,
         };
-        chunk_shape_cast(ctx, &mut endpoint);
+        chunk_sphere_cast(ctx, &mut endpoint);
         endpoint
     }
 
     fn find_face_collision_wrapper(
-        ctx: &ChunkShapeCastContext,
+        ctx: &ChunkSphereCastContext,
         t_axis: usize,
         tanh_distance: f32,
     ) -> CastEndpoint {
@@ -416,7 +416,7 @@ mod tests {
     }
 
     fn find_edge_collision_wrapper(
-        ctx: &ChunkShapeCastContext,
+        ctx: &ChunkSphereCastContext,
         t_axis: usize,
         tanh_distance: f32,
     ) -> CastEndpoint {
@@ -429,7 +429,7 @@ mod tests {
     }
 
     fn find_vertex_collision_wrapper(
-        ctx: &ChunkShapeCastContext,
+        ctx: &ChunkSphereCastContext,
         tanh_distance: f32,
     ) -> CastEndpoint {
         let mut endpoint = CastEndpoint {
@@ -440,8 +440,8 @@ mod tests {
         endpoint
     }
 
-    fn test_face_collision(ctx: &ChunkShapeCastContext, t_axis: usize, tanh_distance: f32) {
-        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+    fn test_face_collision(ctx: &ChunkSphereCastContext, t_axis: usize, tanh_distance: f32) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
             &find_face_collision_wrapper(ctx, t_axis, tanh_distance),
@@ -449,8 +449,8 @@ mod tests {
         sanity_check_normal(ctx, &endpoint);
     }
 
-    fn test_edge_collision(ctx: &ChunkShapeCastContext, t_axis: usize, tanh_distance: f32) {
-        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+    fn test_edge_collision(ctx: &ChunkSphereCastContext, t_axis: usize, tanh_distance: f32) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
             &find_edge_collision_wrapper(ctx, t_axis, tanh_distance),
@@ -458,8 +458,8 @@ mod tests {
         sanity_check_normal(ctx, &endpoint);
     }
 
-    fn test_vertex_collision(ctx: &ChunkShapeCastContext, tanh_distance: f32) {
-        let endpoint = chunk_shape_cast_wrapper(ctx, tanh_distance);
+    fn test_vertex_collision(ctx: &ChunkSphereCastContext, tanh_distance: f32) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
             &find_vertex_collision_wrapper(ctx, tanh_distance),
@@ -468,7 +468,7 @@ mod tests {
     }
 
     /// Check that the two endpoints contain a hit and are equal to each other. Useful for
-    /// ensuring that a particular intersection type is detected by the general `chunk_shape_cast`
+    /// ensuring that a particular intersection type is detected by the general `chunk_sphere_cast`
     /// method.
     fn assert_endpoints_hit_and_eq(endpoint0: &CastEndpoint, endpoint1: &CastEndpoint) {
         assert_eq!(endpoint0.tanh_distance, endpoint1.tanh_distance);
@@ -481,7 +481,7 @@ mod tests {
     }
 
     /// Ensures that the normal is pointing outward, opposite the ray direction.
-    fn sanity_check_normal(ctx: &ChunkShapeCastContext, endpoint: &CastEndpoint) {
+    fn sanity_check_normal(ctx: &ChunkSphereCastContext, endpoint: &CastEndpoint) {
         // The ray we care about is after its start point has moved to the contact point.
         let ray = math::translate(
             &ctx.ray.position,
@@ -503,9 +503,9 @@ mod tests {
 
     /// Tests that a suitable collision is found when approaching a single voxel from various angles.
     #[test]
-    fn chunk_shape_cast_examples() {
+    fn chunk_sphere_cast_examples() {
         let collider_radius = 0.02;
-        let test_ctx = TestShapeCastContext::new(collider_radius);
+        let test_ctx = TestSphereCastContext::new(collider_radius);
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
 
@@ -571,14 +571,14 @@ mod tests {
     #[test]
     fn face_collisions_one_sided() {
         let collider_radius = 0.01;
-        let test_ctx = TestShapeCastContext::new(collider_radius);
+        let test_ctx = TestSphereCastContext::new(collider_radius);
 
         cast_with_test_ray(
             &test_ctx,
             [1.5, 1.5, 1.5],
             [4.5, 1.5, 1.5],
             |ctx, tanh_distance| {
-                assert!(chunk_shape_cast_wrapper(ctx, tanh_distance).hit.is_none());
+                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
             },
         )
     }
@@ -587,14 +587,14 @@ mod tests {
     #[test]
     fn no_collisions_past_ray_endpoint() {
         let collider_radius = 0.01;
-        let test_ctx = TestShapeCastContext::new(collider_radius);
+        let test_ctx = TestSphereCastContext::new(collider_radius);
 
         cast_with_test_ray(
             &test_ctx,
             [8.0, 1.5, 1.5],
             [2.5, 1.5, 1.5],
             |ctx, tanh_distance| {
-                assert!(chunk_shape_cast_wrapper(ctx, tanh_distance).hit.is_none());
+                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
             },
         )
     }

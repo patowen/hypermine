@@ -108,7 +108,7 @@ impl CharacterControllerPass<'_> {
 
         let ray = collision::Ray::new(math::origin(), displacement_normalized);
 
-        let cast_endpoint = collision::shape_cast(
+        let cast_endpoint = collision::sphere_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,
