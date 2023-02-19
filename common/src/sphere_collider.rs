@@ -36,7 +36,7 @@ fn find_face_collision(ctx: &ChunkShapeCastingContext, t_axis: usize, endpoint: 
                 continue;
             };
 
-        // If tanh_distance is out of range or NaN, no collision occurred.
+        // If tanh_distance is out of range, no collision occurred.
         if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
             continue;
         }
@@ -145,7 +145,7 @@ fn find_vertex_collision(ctx: &ChunkShapeCastingContext, endpoint: &mut RayEndpo
                 continue;
             };
 
-        // If tanh_distance is out of range or NaN, no collision occurred.
+        // If tanh_distance is out of range, no collision occurred.
         if tanh_distance < 0.0 || tanh_distance >= endpoint.tanh_distance {
             continue;
         }
@@ -237,7 +237,8 @@ fn solve_quadratic(constant_term: f32, half_linear_term: f32, quadratic_term: f3
 
     // We use an alternative quadratic formula to ensure that we return a positive number if `constant_term > 0.0`.
     // Otherwise, the edge case of a small positive `constant_term` could be mishandled.
-    // Note that discriminant can be negative, which allows this function to return NaN when there is no solution.
+
+    // TODO: Explain/ensure safety of a zero denominator (especially if the numerator is also zero)
     Some(constant_term / (-half_linear_term + discriminant.sqrt()))
 }
 
