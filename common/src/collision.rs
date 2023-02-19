@@ -1,4 +1,6 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
+
+use fxhash::FxHashSet;
 
 use crate::{
     dodeca::{self, Vertex},
@@ -34,7 +36,7 @@ pub fn sphere_cast(
     // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
     // The `chunk_queue` contains ordered pairs containing the `ChunkId` and the transformation needed to switch
     // from the original node coordinates to the current chunk's node coordinates.
-    let mut visited_chunks: HashSet<ChunkId> = HashSet::new();
+    let mut visited_chunks = FxHashSet::<ChunkId>::default();
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
     chunk_queue.push_back((start_chunk, start_node_transform));
 
@@ -325,6 +327,8 @@ impl VoxelAABB {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use crate::{
         dodeca::{Side, Vertex},
         graph::NodeId,
