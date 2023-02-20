@@ -361,6 +361,9 @@ mod tests {
 
         /// Amount to increase (or decrease) the ray's length compared to ending it at grid_ray_end
         ray_length_modifier: f32,
+
+        /// Whether a collision should occur for the test to pass
+        collision_expected: bool,
     }
 
     impl SphereCastExampleTestCase<'_> {
@@ -446,21 +449,26 @@ mod tests {
             )
             .expect("conclusive collision result");
 
-            assert!(endpoint.hit.is_some(), "no collision detected");
-            assert_eq!(
-                endpoint.hit.as_ref().unwrap().chunk,
-                chosen_chunk,
-                "collision occurred in wrong chunk"
-            );
-            assert!(
-                math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
-                "normal is facing the wrong way"
-            );
+            if self.collision_expected {
+                assert!(endpoint.hit.is_some(), "no collision detected");
+                assert_eq!(
+                    endpoint.hit.as_ref().unwrap().chunk,
+                    chosen_chunk,
+                    "collision occurred in wrong chunk"
+                );
+                assert!(
+                    math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
+                    "normal is facing the wrong way"
+                );
+            } else {
+                assert!(endpoint.hit.is_none(), "unexpected collision detected");
+            }
         }
     }
 
+    /// Checks that `sphere_cast` behaves as expected under normal circumstances.
     #[test]
-    fn sphere_cast_example() {
+    fn sphere_cast_examples() {
         // Basic test case
         SphereCastExampleTestCase {
             chosen_node_path: &[Side::G],
@@ -470,6 +478,7 @@ mod tests {
             chosen_chunk_relative_grid_ray_end: [2.5, 3.5, 5.5],
             collider_radius: 0.02,
             ray_length_modifier: 0.0,
+            collision_expected: true,
         }
         .execute();
 
@@ -482,6 +491,20 @@ mod tests {
             chosen_chunk_relative_grid_ray_end: [0.0, 12.0, 12.0],
             collider_radius: 0.02,
             ray_length_modifier: -0.019,
+            collision_expected: true,
+        }
+        .execute();
+
+        // Barely not touching a neighboring node
+        SphereCastExampleTestCase {
+            chosen_node_path: &[Vertex::B.canonical_sides()[0]],
+            chosen_vertex: Vertex::B,
+            chosen_voxel: [1, 12, 12],
+            start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            chosen_chunk_relative_grid_ray_end: [0.0, 12.0, 12.0],
+            collider_radius: 0.02,
+            ray_length_modifier: -0.021,
+            collision_expected: false,
         }
         .execute();
 
@@ -508,6 +531,7 @@ mod tests {
                 chosen_chunk_relative_grid_ray_end: grid_ray_end,
                 collider_radius: 0.02,
                 ray_length_modifier: -0.019,
+                collision_expected: true,
             }
             .execute();
         }
@@ -525,6 +549,7 @@ mod tests {
             chosen_chunk_relative_grid_ray_end: [0.0, 0.0, 0.0],
             collider_radius: 0.02,
             ray_length_modifier: -0.019,
+            collision_expected: true,
         }
         .execute();
     }
