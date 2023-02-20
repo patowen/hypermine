@@ -50,11 +50,10 @@ pub fn sphere_cast(
 
     // Breadth-first search loop
     while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
-        let node = graph.get(chunk.node).as_ref().unwrap();
         let Chunk::Populated {
                 voxels: ref voxel_data,
                 ..
-            } = node.chunks[chunk.vertex] else {
+            } = graph[chunk] else {
                 // Collision checking on unpopulated chunk
                 return Err(SphereCastError::OutOfBounds);
             };
