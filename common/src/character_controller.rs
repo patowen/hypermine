@@ -1,10 +1,8 @@
 use tracing::{error, info};
 
 use crate::{
-    collision,
-    dodeca::Vertex,
-    math,
-    node::{ChunkId, DualGraph},
+    collision, math,
+    node::DualGraph,
     proto::{CharacterInput, Position},
     sanitize_motion_input, SimConfig,
 };
@@ -112,8 +110,7 @@ impl CharacterControllerPass<'_> {
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,
-            ChunkId::new(self.position.node, Vertex::A),
-            self.position.local,
+            self.position,
             &ray,
             displacement_norm.tanh(),
         );

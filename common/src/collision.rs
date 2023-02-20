@@ -6,15 +6,14 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, DualGraph, VoxelData},
+    proto::Position,
     sphere_collider::chunk_sphere_cast,
     world::Material,
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
 ///
-/// The `start_node_transform` parameter determines which coordinate system the `ray` parameter and any resulting hit
-/// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
-/// system of `start_chunk`'s node.
+/// The `ray` parameter is given and any resulting hit normals are given in the local coordinate system of `position.
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
 ///
@@ -25,8 +24,7 @@ pub fn sphere_cast(
     graph: &DualGraph,
     dimension: usize,
     collider_radius: f32,
-    start_chunk: ChunkId,
-    start_node_transform: na::Matrix4<f32>,
+    position: &Position,
     ray: &Ray,
     tanh_distance: f32,
 ) -> Result<CastEndpoint, SphereCastError> {
@@ -42,7 +40,7 @@ pub fn sphere_cast(
     // from the original node coordinates to the current chunk's node coordinates.
     let mut visited_chunks = FxHashSet::<ChunkId>::default();
     let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
-    chunk_queue.push_back((start_chunk, start_node_transform));
+    chunk_queue.push_back((ChunkId::new(position.node, Vertex::A), position.local));
 
     // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
     // the corresponding neighboring chunk will also be used for collision checking.
@@ -442,8 +440,7 @@ mod tests {
                 &graph,
                 dimension,
                 self.collider_radius,
-                ChunkId::new(NodeId::ROOT, Vertex::A),
-                na::Matrix4::identity(),
+                &Position::origin(),
                 &ray,
                 tanh_distance,
             )
@@ -611,8 +608,7 @@ mod tests {
             &graph,
             dimension,
             sphere_radius,
-            ChunkId::new(NodeId::ROOT, Vertex::A),
-            na::Matrix4::identity(),
+            &Position::origin(),
             &ray,
             distance.tanh(),
         );
