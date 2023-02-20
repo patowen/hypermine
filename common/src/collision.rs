@@ -350,8 +350,8 @@ mod tests {
         /// Which voxel should be populated
         chosen_voxel: [usize; 3],
 
-        /// ray's start position relative to center node
-        ray_start: na::Vector4<f32>,
+        /// Grid coordinates of ray's start position relative to the root's "A" chunk
+        grid_ray_start: [f32; 3],
 
         /// Grid coordinates of ray's end position relative to chunk given by the chosen node and vertex
         grid_ray_end: [f32; 3],
@@ -405,7 +405,7 @@ mod tests {
                 self.chosen_node_path.iter().fold(
                     na::Matrix4::identity(),
                     |transform: na::Matrix4<f32>, side| transform * side.reflection().cast::<f32>(),
-                ) * self.chosen_vertex.chunk_to_node().cast();
+                ) * self.chosen_vertex.dual_to_node().cast();
 
             let ray_target = chosen_chunk_transform
                 * math::lorentz_normalize(&na::Vector4::new(
@@ -415,7 +415,13 @@ mod tests {
                     1.0,
                 ));
 
-            let ray_position = math::lorentz_normalize(&self.ray_start);
+            let ray_position = Vertex::A.dual_to_node().cast()
+                * math::lorentz_normalize(&na::Vector4::new(
+                    self.grid_ray_start[0] / dual_to_grid_factor,
+                    self.grid_ray_start[1] / dual_to_grid_factor,
+                    self.grid_ray_start[2] / dual_to_grid_factor,
+                    1.0,
+                ));
             let ray_direction = ray_target - ray_position;
 
             let ray = Ray::new(
@@ -459,9 +465,9 @@ mod tests {
         SphereCastExampleTestCase {
             chosen_node_path: &[Side::G],
             chosen_vertex: Vertex::I,
-            chosen_voxel: [3, 4, 5],
-            ray_start: na::Vector4::zeros(),
-            grid_ray_end: [2.5, 3.5, 4.5],
+            chosen_voxel: [3, 4, 6],
+            grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            grid_ray_end: [2.5, 3.5, 5.5],
             collider_radius: 0.02,
             ray_length_modifier: 0.0,
         }
@@ -472,10 +478,53 @@ mod tests {
             chosen_node_path: &[Vertex::B.canonical_sides()[0]],
             chosen_vertex: Vertex::B,
             chosen_voxel: [1, 12, 12],
-            ray_start: na::Vector4::zeros(),
-            grid_ray_end: [0.5, 11.5, 11.5],
+            grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            grid_ray_end: [0.0, 12.0, 12.0],
             collider_radius: 0.02,
-            ray_length_modifier: 0.0,
+            ray_length_modifier: -0.019,
+        }
+        .execute();
+
+        // Barely touching a neighboring vertex
+        {
+            // This test case requires a bit of extra logic because getting the voxel coordinates
+            // adjacent to a voxel in a neighboring chunk requires inspecting the canonical side
+            // order of both vertices.
+            let chosen_vertex = Vertex::A.adjacent_vertices()[0];
+            let corresponding_axis = chosen_vertex
+                .canonical_sides()
+                .iter()
+                .position(|side| !Vertex::A.canonical_sides().contains(side))
+                .unwrap();
+            let mut chosen_voxel = [1, 1, 1];
+            chosen_voxel[corresponding_axis] = 12;
+            let mut grid_ray_end = [0.0, 0.0, 0.0];
+            grid_ray_end[corresponding_axis] = 12.0;
+            SphereCastExampleTestCase {
+                chosen_node_path: &[],
+                chosen_vertex,
+                chosen_voxel,
+                grid_ray_start: [0.0, 0.0, 0.0], // Node's A-vertex corner
+                grid_ray_end,
+                collider_radius: 0.02,
+                ray_length_modifier: -0.019,
+            }
+            .execute();
+        }
+
+        // Barely touching a node opposite the original node at a corner
+        SphereCastExampleTestCase {
+            chosen_node_path: &[
+                Vertex::D.canonical_sides()[0],
+                Vertex::D.canonical_sides()[1],
+                Vertex::D.canonical_sides()[2],
+            ],
+            chosen_vertex: Vertex::D,
+            chosen_voxel: [1, 1, 1],
+            grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            grid_ray_end: [0.0, 0.0, 0.0],
+            collider_radius: 0.02,
+            ray_length_modifier: -0.019,
         }
         .execute();
     }
