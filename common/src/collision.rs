@@ -16,7 +16,11 @@ use crate::{
 /// normals are given in. Specifically, the `start_node_transform` matrix converts this coordinate system to the coordinate
 /// system of `start_chunk`'s node.
 ///
-/// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for hits.
+/// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
+///
+/// This function may return a `SphereCastError` if not enough chunks are generated, even if the ray never reaches an
+/// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the closest
+/// ungenerated chunk's center is less than `cast_distance + collider_radius + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn sphere_cast(
     graph: &DualGraph,
     dimension: usize,
@@ -104,10 +108,7 @@ pub fn sphere_cast(
                 // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                 // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
                 // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners.
-                let ray_node_distance = (next_node_transform * ray.position)
-                    .xyz()
-                    .magnitude()
-                    .acosh();
+                let ray_node_distance = (next_node_transform * ray.position).w.acosh();
                 let ray_length = endpoint.tanh_distance.atanh();
                 if ray_node_distance - ray_length
                     > dodeca::BOUNDING_SPHERE_RADIUS as f32 + collider_radius
@@ -412,10 +413,70 @@ mod tests {
         );
     }
 
-    /// Tests that a sphere cast that gets close to the corner of an unloaded chunk does not throw an error.
+    /// Tests that a sphere cast that gets close to the corner of an unloaded chunk does not throw an error as
+    /// long as the contract for sphere_cast is upheld.
     #[test]
     fn sphere_cast_near_unloaded_chunk() {
-        // TODO
+        let dimension: usize = 12;
+        let mut graph = DualGraph::new();
+
+        let sides = Vertex::A.canonical_sides();
+
+        // Add six nodes surrounding the origin's Vertex::A to total 7 out of 8 nodes.
+        // Only the far corner is missing.
+        let first_neighbors = [
+            graph.ensure_neighbor(NodeId::ROOT, sides[0]),
+            graph.ensure_neighbor(NodeId::ROOT, sides[1]),
+            graph.ensure_neighbor(NodeId::ROOT, sides[2]),
+        ];
+        let second_neighbors = [
+            graph.ensure_neighbor(first_neighbors[0], sides[1]),
+            graph.ensure_neighbor(first_neighbors[1], sides[2]),
+            graph.ensure_neighbor(first_neighbors[2], sides[0]),
+        ];
+
+        // Populate all graph nodes
+        populate_fresh_nodes(&mut graph);
+        for node in [
+            &[NodeId::ROOT],
+            first_neighbors.as_slice(),
+            second_neighbors.as_slice(),
+        ]
+        .concat()
+        {
+            for vertex in dodeca::Vertex::iter() {
+                graph[ChunkId::new(node, vertex)] = Chunk::Populated {
+                    voxels: VoxelData::Solid(Material::Void),
+                    surface: None,
+                };
+            }
+        }
+
+        // The node coordinates of the corner of the missing node
+        let vertex_pos = Vertex::A.dual_to_node().cast::<f32>() * math::origin();
+
+        // Use a ray starting from the origin. The direction vector is vertex_pos with the w coordinate
+        // set to 0 and normalized
+        let ray = Ray::new(
+            math::origin(),
+            (vertex_pos - na::Vector4::w() * vertex_pos.w).normalize(),
+        );
+        let sphere_radius = 0.1;
+
+        // Use a distance slightly less than the maximum possible before an error would occur.
+        let distance = vertex_pos.w.acosh() - sphere_radius - 1e-4;
+
+        let endpoint = sphere_cast(
+            &graph,
+            dimension,
+            sphere_radius,
+            ChunkId::new(NodeId::ROOT, Vertex::A),
+            na::Matrix4::identity(),
+            &ray,
+            distance.tanh(),
+        );
+
+        assert!(endpoint.is_ok());
     }
 
     /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
