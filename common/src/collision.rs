@@ -351,10 +351,10 @@ mod tests {
         chosen_voxel: [usize; 3],
 
         /// Grid coordinates of ray's start position relative to the root's "A" chunk
-        grid_ray_start: [f32; 3],
+        start_chunk_relative_grid_ray_start: [f32; 3],
 
         /// Grid coordinates of ray's end position relative to chunk given by the chosen node and vertex
-        grid_ray_end: [f32; 3],
+        chosen_chunk_relative_grid_ray_end: [f32; 3],
 
         /// What to use as the collider radius for shape casting
         collider_radius: f32,
@@ -409,17 +409,17 @@ mod tests {
 
             let ray_target = chosen_chunk_transform
                 * math::lorentz_normalize(&na::Vector4::new(
-                    self.grid_ray_end[0] / dual_to_grid_factor,
-                    self.grid_ray_end[1] / dual_to_grid_factor,
-                    self.grid_ray_end[2] / dual_to_grid_factor,
+                    self.chosen_chunk_relative_grid_ray_end[0] / dual_to_grid_factor,
+                    self.chosen_chunk_relative_grid_ray_end[1] / dual_to_grid_factor,
+                    self.chosen_chunk_relative_grid_ray_end[2] / dual_to_grid_factor,
                     1.0,
                 ));
 
             let ray_position = Vertex::A.dual_to_node().cast()
                 * math::lorentz_normalize(&na::Vector4::new(
-                    self.grid_ray_start[0] / dual_to_grid_factor,
-                    self.grid_ray_start[1] / dual_to_grid_factor,
-                    self.grid_ray_start[2] / dual_to_grid_factor,
+                    self.start_chunk_relative_grid_ray_start[0] / dual_to_grid_factor,
+                    self.start_chunk_relative_grid_ray_start[1] / dual_to_grid_factor,
+                    self.start_chunk_relative_grid_ray_start[2] / dual_to_grid_factor,
                     1.0,
                 ));
             let ray_direction = ray_target - ray_position;
@@ -466,8 +466,8 @@ mod tests {
             chosen_node_path: &[Side::G],
             chosen_vertex: Vertex::I,
             chosen_voxel: [3, 4, 6],
-            grid_ray_start: [12.0, 12.0, 12.0], // Node center
-            grid_ray_end: [2.5, 3.5, 5.5],
+            start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            chosen_chunk_relative_grid_ray_end: [2.5, 3.5, 5.5],
             collider_radius: 0.02,
             ray_length_modifier: 0.0,
         }
@@ -478,8 +478,8 @@ mod tests {
             chosen_node_path: &[Vertex::B.canonical_sides()[0]],
             chosen_vertex: Vertex::B,
             chosen_voxel: [1, 12, 12],
-            grid_ray_start: [12.0, 12.0, 12.0], // Node center
-            grid_ray_end: [0.0, 12.0, 12.0],
+            start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            chosen_chunk_relative_grid_ray_end: [0.0, 12.0, 12.0],
             collider_radius: 0.02,
             ray_length_modifier: -0.019,
         }
@@ -504,8 +504,8 @@ mod tests {
                 chosen_node_path: &[],
                 chosen_vertex,
                 chosen_voxel,
-                grid_ray_start: [0.0, 0.0, 0.0], // Node's A-vertex corner
-                grid_ray_end,
+                start_chunk_relative_grid_ray_start: [0.0, 0.0, 0.0], // Node's A-vertex corner
+                chosen_chunk_relative_grid_ray_end: grid_ray_end,
                 collider_radius: 0.02,
                 ray_length_modifier: -0.019,
             }
@@ -521,8 +521,8 @@ mod tests {
             ],
             chosen_vertex: Vertex::D,
             chosen_voxel: [1, 1, 1],
-            grid_ray_start: [12.0, 12.0, 12.0], // Node center
-            grid_ray_end: [0.0, 0.0, 0.0],
+            start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
+            chosen_chunk_relative_grid_ray_end: [0.0, 0.0, 0.0],
             collider_radius: 0.02,
             ray_length_modifier: -0.019,
         }
