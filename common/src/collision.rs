@@ -340,77 +340,144 @@ mod tests {
 
     use super::*;
 
+    struct SphereCastExampleTestCase<'a> {
+        /// Path from the origin node to the populated voxel
+        chosen_node_path: &'a [Side],
+
+        /// Which chunk in the chosen node should have the populated voxel
+        chosen_vertex: Vertex,
+
+        /// Which voxel should be populated
+        chosen_voxel: [usize; 3],
+
+        /// ray's start position relative to center node
+        ray_start: na::Vector4<f32>,
+
+        /// Grid coordinates of ray's end position relative to chunk given by the chosen node and vertex
+        grid_ray_end: [f32; 3],
+
+        /// What to use as the collider radius for shape casting
+        collider_radius: f32,
+
+        /// Amount to increase (or decrease) the ray's length compared to ending it at grid_ray_end
+        ray_length_modifier: f32,
+    }
+
+    impl SphereCastExampleTestCase<'_> {
+        fn execute(self) {
+            let dimension: usize = 12;
+            let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
+            let mut graph = DualGraph::new();
+            let graph_radius = 3.0;
+
+            // Set up a graph with void chunks
+            ensure_nearby(&mut graph, &Position::origin(), graph_radius);
+            populate_fresh_nodes(&mut graph);
+            for (node, _) in nearby_nodes(&graph, &Position::origin(), graph_radius) {
+                for vertex in dodeca::Vertex::iter() {
+                    graph[ChunkId::new(node, vertex)] = Chunk::Populated {
+                        voxels: VoxelData::Solid(Material::Void),
+                        surface: None,
+                    };
+                }
+            }
+
+            // Find the ChunkId of the chosen chunk
+            let chosen_chunk = ChunkId::new(
+                self.chosen_node_path
+                    .iter()
+                    .fold(NodeId::ROOT, |node, &side| {
+                        graph.neighbor(node, side).unwrap()
+                    }),
+                self.chosen_vertex,
+            );
+            let Chunk::Populated { voxels, .. } = graph.get_chunk_mut(chosen_chunk).unwrap() else {
+                panic!("All chunks should be populated.");
+            };
+
+            // Populate the chosen voxel with dirt.
+            voxels.data_mut(dimension as u8)[self.chosen_voxel[0]
+                + self.chosen_voxel[1] * (dimension + 2)
+                + self.chosen_voxel[2] * (dimension + 2).pow(2)] = Material::Dirt;
+
+            // Find the transform of the chosen chunk
+            let chosen_chunk_transform: na::Matrix4<f32> =
+                self.chosen_node_path.iter().fold(
+                    na::Matrix4::identity(),
+                    |transform: na::Matrix4<f32>, side| transform * side.reflection().cast::<f32>(),
+                ) * self.chosen_vertex.chunk_to_node().cast();
+
+            let ray_target = chosen_chunk_transform
+                * math::lorentz_normalize(&na::Vector4::new(
+                    self.grid_ray_end[0] / dual_to_grid_factor,
+                    self.grid_ray_end[1] / dual_to_grid_factor,
+                    self.grid_ray_end[2] / dual_to_grid_factor,
+                    1.0,
+                ));
+
+            let ray_position = math::lorentz_normalize(&self.ray_start);
+            let ray_direction = ray_target - ray_position;
+
+            let ray = Ray::new(
+                ray_position,
+                math::lorentz_normalize(
+                    &(ray_direction + ray_position * math::mip(&ray_position, &ray_direction)),
+                ),
+            );
+
+            let tanh_distance = ((-math::mip(&ray_position, &ray_target)).acosh()
+                + self.ray_length_modifier)
+                .tanh();
+
+            let endpoint = sphere_cast(
+                &graph,
+                dimension,
+                self.collider_radius,
+                ChunkId::new(NodeId::ROOT, Vertex::A),
+                na::Matrix4::identity(),
+                &ray,
+                tanh_distance,
+            )
+            .expect("conclusive collision result");
+
+            assert!(endpoint.hit.is_some(), "no collision detected");
+            assert_eq!(
+                endpoint.hit.as_ref().unwrap().chunk,
+                chosen_chunk,
+                "collision occurred in wrong chunk"
+            );
+            assert!(
+                math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
+                "normal is facing the wrong way"
+            );
+        }
+    }
+
     #[test]
     fn sphere_cast_example() {
-        let dimension: usize = 12;
-        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
-        let mut graph = DualGraph::new();
-        let graph_radius = 3.0;
-
-        // Set up a graph with void chunks
-        ensure_nearby(&mut graph, &Position::origin(), graph_radius);
-        populate_fresh_nodes(&mut graph);
-        for (node, _) in nearby_nodes(&graph, &Position::origin(), graph_radius) {
-            for vertex in dodeca::Vertex::iter() {
-                graph[ChunkId::new(node, vertex)] = Chunk::Populated {
-                    voxels: VoxelData::Solid(Material::Void),
-                    surface: None,
-                };
-            }
+        // Basic test case
+        SphereCastExampleTestCase {
+            chosen_node_path: &[Side::G],
+            chosen_vertex: Vertex::I,
+            chosen_voxel: [3, 4, 5],
+            ray_start: na::Vector4::zeros(),
+            grid_ray_end: [2.5, 3.5, 4.5],
+            collider_radius: 0.02,
+            ray_length_modifier: 0.0,
         }
+        .execute();
 
-        // Populate an arbitrary nearby chunk
-        let chosen_chunk = ChunkId::new(graph.neighbor(NodeId::ROOT, Side::G).unwrap(), Vertex::I);
-        let Chunk::Populated { voxels, .. } = graph.get_chunk_mut(chosen_chunk).unwrap() else {
-            panic!("All chunks should be populated.");
-        };
-
-        // Populate (3, 4, 5) with dirt.
-        voxels.data_mut(dimension as u8)[3 + 4 * (dimension + 2) + 5 * (dimension + 2).pow(2)] =
-            Material::Dirt;
-
-        let dirt_position = Side::G.reflection().cast()
-            * (Vertex::I.chunk_to_node().cast()
-                * math::lorentz_normalize(&na::Vector4::new(
-                    2.5 / dual_to_grid_factor,
-                    3.5 / dual_to_grid_factor,
-                    4.5 / dual_to_grid_factor,
-                    1.0,
-                )));
-
-        let ray_position = math::origin();
-        let ray_direction = dirt_position - ray_position;
-
-        let ray = Ray::new(
-            ray_position,
-            math::lorentz_normalize(
-                &(ray_direction + ray_position * math::mip(&ray_position, &ray_direction)),
-            ),
-        );
-
-        let tanh_distance = (-math::mip(&ray_position, &dirt_position)).acosh().tanh();
-
-        let endpoint = sphere_cast(
-            &graph,
-            dimension,
-            0.02,
-            ChunkId::new(NodeId::ROOT, Vertex::A),
-            na::Matrix4::identity(),
-            &ray,
-            tanh_distance,
-        )
-        .expect("conclusive collision result");
-
-        assert!(endpoint.hit.is_some(), "no collision detected");
-        assert_eq!(
-            endpoint.hit.as_ref().unwrap().chunk,
-            chosen_chunk,
-            "collision occurred in wrong chunk"
-        );
-        assert!(
-            math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
-            "normal is facing the wrong way"
-        );
+        // Barely touching a neighboring node
+        SphereCastExampleTestCase {
+            chosen_node_path: &[Vertex::B.canonical_sides()[0]],
+            chosen_vertex: Vertex::B,
+            chosen_voxel: [1, 12, 12],
+            ray_start: na::Vector4::zeros(),
+            grid_ray_end: [0.5, 11.5, 11.5],
+            collider_radius: 0.02,
+            ray_length_modifier: 0.0,
+        }
+        .execute();
     }
 
     /// Tests that a sphere cast that gets close to the corner of an unloaded chunk does not throw an error as
