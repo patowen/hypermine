@@ -488,12 +488,24 @@ mod tests {
         let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
 
         // Pick an arbitrary ray by transforming the positive-x-axis ray.
-        let ray = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
+        let ray = na::Rotation3::from_axis_angle(&na::Vector3::z_axis(), 0.4).to_homogeneous()
             * math::translate_along(&na::Vector3::new(0.2, 0.3, 0.1))
             * &Ray::new(na::Vector4::w(), na::Vector4::x());
 
         let tanh_distance = 0.2;
         let radius = 0.1;
+
+        // We want to test that the whole capsule-shaped region around the ray segment is covered by
+        // the AABB. However, the math to test for this is complicated, so we instead check a bunch of
+        // spheres along this ray segment.
+        let num_ray_test_points = 20;
+        let ray_test_points: Vec<_> = (0..num_ray_test_points)
+            .map(|i| {
+                math::lorentz_normalize(
+                    &ray.ray_point(tanh_distance * (i as f32 / (num_ray_test_points - 1) as f32)),
+                )
+            })
+            .collect();
 
         let aabb = VoxelAABB::from_ray_segment_and_radius(
             dimension,
@@ -504,13 +516,14 @@ mod tests {
         )
         .unwrap();
 
-        // Test planes in all 3 axes. For variable names and further comments, we use a tuv coordinate system,
-        // which is a permuted xyz coordinate system.
+        // For variable names and further comments, we use a tuv coordinate system, which
+        // is a permuted xyz coordinate system.
+
+        // Test planes in all 3 axes.
         for t_axis in 0..3 {
             let covered_planes: HashSet<_> = aabb.grid_planes(t_axis).collect();
 
             // Check that all uv-aligned planes that should be covered are covered
-            let ray_end = math::lorentz_normalize(&ray.ray_point(tanh_distance));
             for t in 0..=dimension {
                 if covered_planes.contains(&t) {
                     continue;
@@ -521,24 +534,79 @@ mod tests {
                 plane_normal[3] = t as f32 / dual_to_grid_factor;
                 let plane_normal = math::lorentz_normalize(&plane_normal);
 
-                // Get the sinh of the signed distance from the ray segment's endpoints to the plane
-                let ray_start_sinh_displacement = math::mip(&ray.position, &plane_normal);
-                let ray_end_sinh_displacement = math::mip(&ray_end, &plane_normal);
-
-                // Ensure that both ray endpoints are far enough away on the same side of the plane
-                assert!(
-                    ray_start_sinh_displacement.min(ray_end_sinh_displacement) > radius.sinh()
-                        || ray_start_sinh_displacement.max(ray_end_sinh_displacement)
-                            < -radius.sinh(),
-                    "Plane not covered: axis={}, t={}",
-                    t_axis,
-                    t,
-                );
+                for test_point in &ray_test_points {
+                    assert!(
+                        math::mip(test_point, &plane_normal).abs() > radius.sinh(),
+                        "Plane not covered: t_axis={t_axis}, t={t}, test_point={test_point:?}",
+                    );
+                }
             }
         }
 
-        // We do not test that the right lines and points are covered because the current
-        // implementation guarantees that if the right planes are covered, so are the right
-        // lines and points. Actually testing for this would be too complicated.
+        // Test lines in all 3 axes
+        for t_axis in 0..3 {
+            let u_axis = (t_axis + 1) % 3;
+            let v_axis = (u_axis + 1) % 3;
+            let covered_lines: HashSet<_> = aabb.grid_lines(u_axis, v_axis).collect();
+
+            // For a given axis, all lines have the same direction, so set up the appropriate vector
+            // in advance.
+            let mut line_direction = na::Vector4::zeros();
+            line_direction[t_axis] = 1.0;
+            let line_direction = line_direction;
+
+            // Check that all t-aligned lines that should be covered are covered
+            for u in 0..=dimension {
+                for v in 0..=dimension {
+                    if covered_lines.contains(&(u, v)) {
+                        continue;
+                    }
+
+                    let mut line_position = na::Vector4::zeros();
+                    line_position[u_axis] = u as f32 / dual_to_grid_factor;
+                    line_position[v_axis] = v as f32 / dual_to_grid_factor;
+                    line_position[3] = 1.0;
+                    let line_position = math::lorentz_normalize(&line_position);
+
+                    for test_point in &ray_test_points {
+                        assert!(
+                            (math::mip(test_point, &line_position).powi(2)
+                                - math::mip(test_point, &line_direction).powi(2))
+                            .sqrt()
+                                > radius.cosh(),
+                            "Line not covered: t_axis={t_axis}, u={u}, v={v}, test_point={test_point:?}",
+                        );
+                    }
+                }
+            }
+        }
+
+        // Test points
+        let covered_points: HashSet<_> = aabb.grid_points(0, 1, 2).collect();
+
+        // Check that all points that should be covered are covered
+        for x in 0..=dimension {
+            for y in 0..=dimension {
+                for z in 0..=dimension {
+                    if covered_points.contains(&(x, y, z)) {
+                        continue;
+                    }
+
+                    let point_position = math::lorentz_normalize(&na::Vector4::new(
+                        x as f32 / dual_to_grid_factor,
+                        y as f32 / dual_to_grid_factor,
+                        z as f32 / dual_to_grid_factor,
+                        1.0,
+                    ));
+
+                    for test_point in &ray_test_points {
+                        assert!(
+                            -math::mip(test_point, &point_position) > radius.cosh(),
+                            "Point not covered: x={x}, y={y}, z={z}, test_point={test_point:?}",
+                        );
+                    }
+                }
+            }
+        }
     }
 }
