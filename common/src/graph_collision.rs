@@ -20,9 +20,9 @@ use crate::{
 /// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the closest
 /// ungenerated chunk's center is less than `cast_distance + collider_radius + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn sphere_cast(
+    collider_radius: f32,
     graph: &DualGraph,
     dimension: usize,
-    collider_radius: f32,
     position: &Position,
     ray: &Ray,
     tanh_distance: f32,
@@ -297,9 +297,9 @@ mod tests {
                 .tanh();
 
             let hit = sphere_cast(
+                self.collider_radius,
                 &graph,
                 dimension,
-                self.collider_radius,
                 &Position::origin(),
                 &ray,
                 tanh_distance,
@@ -465,9 +465,9 @@ mod tests {
         let distance = vertex_pos.w.acosh() - sphere_radius - 1e-4;
 
         let hit = sphere_cast(
+            sphere_radius,
             &graph,
             dimension,
-            sphere_radius,
             &Position::origin(),
             &ray,
             distance.tanh(),

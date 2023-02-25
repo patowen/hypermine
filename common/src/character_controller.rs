@@ -108,9 +108,9 @@ impl CharacterControllerPass<'_> {
         let tanh_distance = displacement_norm.tanh();
 
         let cast_hit = graph_collision::sphere_cast(
+            self.cfg.character_radius,
             self.graph,
             self.cfg.chunk_size as usize,
-            self.cfg.character_radius,
             self.position,
             &ray,
             tanh_distance,
