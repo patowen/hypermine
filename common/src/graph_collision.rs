@@ -26,15 +26,12 @@ pub fn sphere_cast(
     position: &Position,
     ray: &Ray,
     tanh_distance: f32,
-) -> Result<CastEndpoint, SphereCastError> {
+) -> Result<Option<GraphCastHit>, SphereCastError> {
     let layout = ChunkLayout::new(dimension);
 
     // A collision check is assumed to be a miss until a collision is found.
-    // This `endpoint` variable gets updated over time before being returned.
-    let mut endpoint = CastEndpoint {
-        tanh_distance,
-        hit: None,
-    };
+    // This `hit` variable gets updated over time before being returned.
+    let mut hit: Option<GraphCastHit> = None;
 
     // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
     // The `chunk_queue` contains ordered pairs containing the `ChunkId` and the transformation needed to switch
@@ -61,21 +58,22 @@ pub fn sphere_cast(
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
         // Check collision within a single chunk
-        endpoint = chunk_sphere_cast(
+        let current_tanh_distance = hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance);
+        hit = chunk_sphere_cast(
             collider_radius,
             voxel_data,
             &layout,
             &local_ray,
-            endpoint.tanh_distance,
+            current_tanh_distance,
         )
-        .map_or(endpoint, |hit| CastEndpoint {
-            tanh_distance: hit.tanh_distance,
-            hit: Some(CastHit {
+        .map_or(hit, |hit| {
+            Some(GraphCastHit {
+                tanh_distance: hit.tanh_distance,
                 chunk,
                 normal: math::mtranspose(&node_transform)
                     * chunk.vertex.dual_to_node().cast()
                     * hit.normal,
-            }),
+            })
         });
 
         // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
@@ -83,7 +81,7 @@ pub fn sphere_cast(
         // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
         let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
         let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.ray_point(endpoint.tanh_distance)).unwrap();
+            na::Point3::from_homogeneous(local_ray.ray_point(current_tanh_distance)).unwrap();
 
         // Add neighboring chunks as necessary, using one coordinate at a time.
         for axis in 0..3 {
@@ -97,7 +95,7 @@ pub fn sphere_cast(
                 // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
                 // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners.
                 let ray_node_distance = (next_node_transform * ray.position).w.acosh();
-                let ray_length = endpoint.tanh_distance.atanh();
+                let ray_length = current_tanh_distance.atanh();
                 if ray_node_distance - ray_length
                     > dodeca::BOUNDING_SPHERE_RADIUS as f32 + collider_radius
                 {
@@ -129,19 +127,7 @@ pub fn sphere_cast(
         }
     }
 
-    Ok(endpoint)
-}
-
-/// Where a cast ray ended, and all information about the hit at the end if such a hit occurred.
-#[derive(Debug)]
-pub struct CastEndpoint {
-    /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
-    /// ray segment gets shorter each time.
-    pub tanh_distance: f32,
-
-    /// Information about the intersection at the end of the ray segment. If this is `None`, there
-    /// are no intersections.
-    pub hit: Option<CastHit>,
+    Ok(hit)
 }
 
 #[derive(Debug)]
@@ -151,8 +137,13 @@ pub enum SphereCastError {
 
 /// Information about the intersection at the end of a ray segment.
 #[derive(Debug)]
-pub struct CastHit {
-    /// Which chunk in the graph the hit occurred
+pub struct GraphCastHit {
+    /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
+    /// ray segment gets shorter each time.
+    /// TODO: Double-check documentation
+    pub tanh_distance: f32,
+
+    /// Which chunk in the graph the hit occurred in
     pub chunk: ChunkId,
 
     /// Represents the normal vector of the hit surface in the original coordinate system
@@ -307,7 +298,7 @@ mod tests {
                 + self.ray_length_modifier)
                 .tanh();
 
-            let endpoint = sphere_cast(
+            let hit = sphere_cast(
                 &graph,
                 dimension,
                 self.collider_radius,
@@ -318,18 +309,18 @@ mod tests {
             .expect("conclusive collision result");
 
             if self.collision_expected {
-                assert!(endpoint.hit.is_some(), "no collision detected");
+                assert!(hit.is_some(), "no collision detected");
                 assert_eq!(
-                    endpoint.hit.as_ref().unwrap().chunk,
+                    hit.as_ref().unwrap().chunk,
                     chosen_chunk,
                     "collision occurred in wrong chunk"
                 );
                 assert!(
-                    math::mip(&endpoint.hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
+                    math::mip(&hit.as_ref().unwrap().normal, &ray.direction) < 0.0,
                     "normal is facing the wrong way"
                 );
             } else {
-                assert!(endpoint.hit.is_none(), "unexpected collision detected");
+                assert!(hit.is_none(), "unexpected collision detected");
             }
         }
     }
@@ -475,7 +466,7 @@ mod tests {
         // Use a distance slightly less than the maximum possible before an error would occur.
         let distance = vertex_pos.w.acosh() - sphere_radius - 1e-4;
 
-        let endpoint = sphere_cast(
+        let hit = sphere_cast(
             &graph,
             dimension,
             sphere_radius,
@@ -484,6 +475,6 @@ mod tests {
             distance.tanh(),
         );
 
-        assert!(endpoint.is_ok());
+        assert!(hit.is_ok());
     }
 }

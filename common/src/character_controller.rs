@@ -105,17 +105,18 @@ impl CharacterControllerPass<'_> {
         let displacement_normalized = relative_displacement / displacement_norm;
 
         let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
+        let tanh_distance = displacement_norm.tanh();
 
-        let cast_endpoint = graph_collision::sphere_cast(
+        let cast_hit = graph_collision::sphere_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,
             self.position,
             &ray,
-            displacement_norm.tanh(),
+            tanh_distance,
         );
 
-        let cast_endpoint = match cast_endpoint {
+        let cast_hit = match cast_hit {
             Ok(r) => r,
             Err(e) => {
                 error!("Collision checking returned {:?}", e);
@@ -125,12 +126,18 @@ impl CharacterControllerPass<'_> {
 
         let allowed_displacement = math::translate(
             &ray.position,
-            &math::lorentz_normalize(&ray.ray_point(cast_endpoint.tanh_distance)),
+            &math::lorentz_normalize(
+                &ray.ray_point(
+                    cast_hit
+                        .as_ref()
+                        .map_or(tanh_distance, |hit| hit.tanh_distance),
+                ),
+            ),
         );
 
         CollisionCheckingResult {
             allowed_displacement,
-            collision: cast_endpoint.hit.map(|hit| Collision {
+            collision: cast_hit.map(|hit| Collision {
                 // `CastEndpoint` has its `normal` given relative to the character's original position,
                 // but we want the normal relative to the character after the character moves to meet the wall.
                 // This normal now represents a contact point at the origin, so we omit the w-coordinate
