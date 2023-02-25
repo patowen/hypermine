@@ -1,132 +1,237 @@
 use crate::{
-    collision::{CastEndpoint, ChunkSphereCastContext, Ray},
+    collision::{Ray, VoxelAABB},
     math,
+    node::{ChunkLayout, VoxelData},
     world::Material,
 };
 
+pub struct ChunkCastHit {
+    /// TODO: Document
+    pub tanh_distance: f32,
+
+    /// Represents the normal vector of the hit surface in the original coordinate system
+    /// of the sphere casting. To get the actual normal vector, project it so that it is orthogonal
+    /// to the endpoint in Lorentz space.
+    /// TODO: Fix this comment
+    pub normal: na::Vector4<f32>,
+}
+
 /// Handles collisions for a single chunk.
-pub fn chunk_sphere_cast(ctx: &ChunkSphereCastContext, endpoint: &mut CastEndpoint) {
-    for axis in 0..3 {
-        find_face_collision(ctx, axis, endpoint);
+pub fn chunk_sphere_cast(
+    collider_radius: f32,
+    voxel_data: &VoxelData,
+    layout: &ChunkLayout,
+    ray: &Ray,
+    tanh_distance: f32,
+) -> Option<ChunkCastHit> {
+    let mut hit: Option<ChunkCastHit> = None;
+
+    let Some(bounding_box) = VoxelAABB::from_ray_segment_and_radius(
+        layout,
+        ray,
+        tanh_distance,
+        collider_radius,
+    ) else {
+        return None;
+    };
+
+    for t_axis in 0..3 {
+        // TODO: Set hit
+        hit = find_face_collision(
+            collider_radius,
+            voxel_data,
+            layout,
+            &bounding_box,
+            t_axis,
+            ray,
+            hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance),
+        )
+        .or(hit);
     }
 
-    for axis in 0..3 {
-        find_edge_collision(ctx, axis, endpoint);
+    for t_axis in 0..3 {
+        hit = find_edge_collision(
+            collider_radius,
+            voxel_data,
+            layout,
+            &bounding_box,
+            t_axis,
+            ray,
+            hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance),
+        )
+        .or(hit);
     }
 
-    find_vertex_collision(ctx, endpoint);
+    hit = find_vertex_collision(
+        collider_radius,
+        voxel_data,
+        layout,
+        &bounding_box,
+        ray,
+        hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance),
+    )
+    .or(hit);
+
+    hit
 }
 
 /// Detect collisions where a sphere contacts the front side of a voxel face
-fn find_face_collision(ctx: &ChunkSphereCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
+fn find_face_collision(
+    collider_radius: f32,
+    voxel_data: &VoxelData,
+    layout: &ChunkLayout,
+    bounding_box: &VoxelAABB,
+    t_axis: usize,
+    ray: &Ray,
+    tanh_distance: f32,
+) -> Option<ChunkCastHit> {
+    let mut hit: Option<ChunkCastHit> = None;
+
     let u_axis = (t_axis + 1) % 3;
     let v_axis = (t_axis + 2) % 3;
 
     // Loop through all grid planes overlapping the bounding box
-    for t in ctx.bounding_box.grid_planes(t_axis) {
+    for t in bounding_box.grid_planes(t_axis) {
         // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
         // to the origin is (x, 0, 0, t), and we use that fact here.
         let normal = math::lorentz_normalize(&tuv_to_xyz(
             t_axis,
-            na::Vector4::new(1.0, 0.0, 0.0, grid_to_dual(ctx, t)),
+            na::Vector4::new(1.0, 0.0, 0.0, layout.grid_to_dual(t)),
         ));
 
-        let Some(tanh_distance) =
-            solve_sphere_plane_intersection(ctx.ray, &normal, ctx.collider_radius.sinh()) else {
+        let Some(new_tanh_distance) =
+            solve_sphere_plane_intersection(ray, &normal, collider_radius.sinh()) else {
                 continue;
             };
 
-        // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance >= endpoint.tanh_distance {
+        // If new_tanh_distance is out of range, no collision occurred.
+        if new_tanh_distance >= hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance) {
             continue;
         }
 
         // Whether we are approaching the front or back of the face. An approach from the positive t direction
         // is 1, and an approach from the negative t direction is -1.
-        let collision_side = -math::mip(&ctx.ray.direction, &normal).signum();
+        let collision_side = -math::mip(&ray.direction, &normal).signum();
 
         // Which side we approach the plane from affects which voxel we want to use for collision checking
         let voxel_t = if collision_side > 0.0 { t } else { t + 1 };
 
-        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
+        let ray_endpoint = ray.ray_point(new_tanh_distance);
         let contact_point = ray_endpoint - normal * math::mip(&ray_endpoint, &normal);
 
         // Compute the u and v-coordinates of the voxels at the contact point
-        let Some(voxel_u) = dual_to_voxel(ctx, contact_point[u_axis] / contact_point.w) else {
+        let Some(voxel_u) = layout.dual_to_voxel(contact_point[u_axis] / contact_point.w) else {
             continue;
         };
-        let Some(voxel_v) = dual_to_voxel(ctx, contact_point[v_axis] / contact_point.w) else {
+        let Some(voxel_v) = layout.dual_to_voxel(contact_point[v_axis] / contact_point.w) else {
             continue;
         };
 
         // Ensure that the relevant voxel is solid
-        if ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])) == Material::Void {
+        if !voxel_is_solid(
+            voxel_data,
+            layout,
+            tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
+        ) {
             continue;
         }
 
-        // A collision was found. Update the endpoint.
-        endpoint.update(ctx, tanh_distance, normal * collision_side);
+        // A collision was found. Update the hit.
+        hit = Some(ChunkCastHit {
+            tanh_distance: new_tanh_distance,
+            normal: normal * collision_side,
+        });
     }
+
+    hit
 }
 
 /// Detect collisions where a sphere contacts a voxel edge
-fn find_edge_collision(ctx: &ChunkSphereCastContext, t_axis: usize, endpoint: &mut CastEndpoint) {
+fn find_edge_collision(
+    collider_radius: f32,
+    voxel_data: &VoxelData,
+    layout: &ChunkLayout,
+    bounding_box: &VoxelAABB,
+    t_axis: usize,
+    ray: &Ray,
+    tanh_distance: f32,
+) -> Option<ChunkCastHit> {
+    let mut hit: Option<ChunkCastHit> = None;
+
     let u_axis = (t_axis + 1) % 3;
     let v_axis = (t_axis + 2) % 3;
 
     // Loop through all grid lines overlapping the bounding box
-    for (u, v) in ctx.bounding_box.grid_lines(u_axis, v_axis) {
+    for (u, v) in bounding_box.grid_lines(u_axis, v_axis) {
         let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
             t_axis,
-            na::Vector4::new(0.0, grid_to_dual(ctx, u), grid_to_dual(ctx, v), 1.0),
+            na::Vector4::new(0.0, layout.grid_to_dual(u), layout.grid_to_dual(v), 1.0),
         ));
         let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
 
-        let Some(tanh_distance) = solve_sphere_line_intersection(
-            ctx.ray,
+        let Some(new_tanh_distance) = solve_sphere_line_intersection(
+            ray,
             &edge_pos,
             &edge_dir,
-            ctx.collider_radius.cosh(),
+            collider_radius.cosh(),
         ) else {
             continue;
         };
 
-        // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance >= endpoint.tanh_distance {
+        // If new_tanh_distance is out of range, no collision occurred.
+        if new_tanh_distance >= hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance) {
             continue;
         }
 
-        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
+        let ray_endpoint = ray.ray_point(new_tanh_distance);
         let contact_point = -edge_pos * math::mip(&ray_endpoint, &edge_pos)
             + edge_dir * math::mip(&ray_endpoint, &edge_dir);
 
         // Compute the t-coordinate of the voxels at the contact point
-        let Some(voxel_t) = dual_to_voxel(ctx, contact_point[t_axis] / contact_point.w) else {
+        let Some(voxel_t) = layout.dual_to_voxel(contact_point[t_axis] / contact_point.w) else {
             continue;
         };
 
         // Ensure that the edge has a solid voxel adjacent to it
         if (0..2).all(|du| {
             (0..2).all(|dv| {
-                ctx.get_voxel(tuv_to_xyz(t_axis, [voxel_t, u + du, v + dv])) == Material::Void
+                !voxel_is_solid(
+                    voxel_data,
+                    layout,
+                    tuv_to_xyz(t_axis, [voxel_t, u + du, v + dv]),
+                )
             })
         }) {
             continue;
         }
 
-        // A collision was found. Update the endpoint.
-        endpoint.update(ctx, tanh_distance, ray_endpoint - contact_point);
+        // A collision was found. Update the hit.
+        hit = Some(ChunkCastHit {
+            tanh_distance: new_tanh_distance,
+            normal: ray_endpoint - contact_point,
+        });
     }
+
+    hit
 }
 
 /// Detect collisions where a sphere contacts a voxel vertex
-fn find_vertex_collision(ctx: &ChunkSphereCastContext, endpoint: &mut CastEndpoint) {
+fn find_vertex_collision(
+    collider_radius: f32,
+    voxel_data: &VoxelData,
+    layout: &ChunkLayout,
+    bounding_box: &VoxelAABB,
+    ray: &Ray,
+    tanh_distance: f32,
+) -> Option<ChunkCastHit> {
+    let mut hit: Option<ChunkCastHit> = None;
+
     // Loop through all grid points contained in the bounding box
-    for (x, y, z) in ctx.bounding_box.grid_points(0, 1, 2) {
+    for (x, y, z) in bounding_box.grid_points(0, 1, 2) {
         // Skip vertices that have no solid voxels adjacent to them
         if (0..2).all(|dx| {
             (0..2).all(|dy| {
-                (0..2).all(|dz| ctx.get_voxel([x + dx, y + dy, z + dz]) == Material::Void)
+                (0..2).all(|dz| !voxel_is_solid(voxel_data, layout, [x + dx, y + dy, z + dz]))
             })
         }) {
             continue;
@@ -134,26 +239,31 @@ fn find_vertex_collision(ctx: &ChunkSphereCastContext, endpoint: &mut CastEndpoi
 
         // Determine the cube-centric coordinates of the vertex
         let vertex_position = math::lorentz_normalize(&na::Vector4::new(
-            grid_to_dual(ctx, x),
-            grid_to_dual(ctx, y),
-            grid_to_dual(ctx, z),
+            layout.grid_to_dual(x),
+            layout.grid_to_dual(y),
+            layout.grid_to_dual(z),
             1.0,
         ));
 
-        let Some(tanh_distance) =
-            solve_sphere_point_intersection(ctx.ray, &vertex_position, ctx.collider_radius.cosh()) else {
+        let Some(new_tanh_distance) =
+            solve_sphere_point_intersection(ray, &vertex_position, collider_radius.cosh()) else {
                 continue;
             };
 
-        // If tanh_distance is out of range, no collision occurred.
-        if tanh_distance >= endpoint.tanh_distance {
+        // If new_tanh_distance is out of range, no collision occurred.
+        if new_tanh_distance >= hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance) {
             continue;
         }
 
         // A collision was found. Update the endpoint.
-        let ray_endpoint = ctx.ray.ray_point(tanh_distance);
-        endpoint.update(ctx, tanh_distance, ray_endpoint - vertex_position);
+        let ray_endpoint = ray.ray_point(new_tanh_distance);
+        hit = Some(ChunkCastHit {
+            tanh_distance: new_tanh_distance,
+            normal: ray_endpoint - vertex_position,
+        });
     }
+
+    hit
 }
 
 /// Finds the tanh of the distance a sphere will have to travel along a ray before it
@@ -265,34 +375,19 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
     result
 }
 
-/// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
-/// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
-#[inline]
-fn dual_to_voxel(ctx: &ChunkSphereCastContext, dual_coord: f32) -> Option<usize> {
-    let floor_grid_coord = (dual_coord * ctx.dual_to_grid_factor).floor();
-
-    if !(floor_grid_coord >= 0.0 && floor_grid_coord < ctx.dimension as f32) {
-        None
-    } else {
-        Some(floor_grid_coord as usize + 1)
-    }
-}
-
-/// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
-/// can be used to find the positions of voxel gridlines.
-#[inline]
-fn grid_to_dual(ctx: &ChunkSphereCastContext, grid_coord: usize) -> f32 {
-    grid_coord as f32 / ctx.dual_to_grid_factor
+fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [usize; 3]) -> bool {
+    let dimension_with_margin = layout.dimension() + 2;
+    debug_assert!(coords[0] < dimension_with_margin);
+    debug_assert!(coords[1] < dimension_with_margin);
+    debug_assert!(coords[2] < dimension_with_margin);
+    voxel_data.get(
+        coords[0] + coords[1] * dimension_with_margin + coords[2] * dimension_with_margin.pow(2),
+    ) != Material::Void
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        collision::VoxelAABB,
-        dodeca::Vertex,
-        graph::NodeId,
-        node::{ChunkId, VoxelData},
-    };
+    use crate::{collision::VoxelAABB, node::VoxelData};
 
     use super::*;
     use approx::*;
@@ -300,25 +395,18 @@ mod tests {
     /// Helper structure used along with a ray to generate a `ChunkSphereCastContext`
     struct TestSphereCastContext {
         collider_radius: f32,
-        dimension: usize,
-        dual_to_grid_factor: f32,
+        layout: ChunkLayout,
         voxel_data: VoxelData,
-        transform: na::Matrix4<f32>,
     }
 
     impl TestSphereCastContext {
         fn new(collider_radius: f32) -> Self {
-            // Use an arbitrary transformation
-            let transform = na::Rotation3::from_euler_angles(0.1, 0.2, 0.3).to_homogeneous()
-                * math::translate_along(&na::Vector3::new(0.5, 0.3, 0.2));
             let dimension: usize = 12;
 
             let mut test_ctx = TestSphereCastContext {
                 collider_radius,
-                dimension,
-                dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
+                layout: ChunkLayout::new(dimension),
                 voxel_data: VoxelData::Solid(Material::Void),
-                transform,
             };
 
             // Populate voxels. Consists of a single cube with grid coordinates from (1, 1, 1) to (2, 2, 2)
@@ -328,11 +416,11 @@ mod tests {
         }
 
         fn set_voxel(&mut self, coords: [usize; 3], material: Material) {
-            let dimension_with_margin = self.dimension + 2;
+            let dimension_with_margin = self.layout.dimension() + 2;
             debug_assert!(coords[0] < dimension_with_margin);
             debug_assert!(coords[1] < dimension_with_margin);
             debug_assert!(coords[2] < dimension_with_margin);
-            self.voxel_data.data_mut(self.dimension as u8)[coords[0]
+            self.voxel_data.data_mut(self.layout.dimension() as u8)[coords[0]
                 + coords[1] * dimension_with_margin
                 + coords[2] * dimension_with_margin.pow(2)] = material;
         }
@@ -344,19 +432,19 @@ mod tests {
         test_ctx: &TestSphereCastContext,
         ray_start_grid_coords: [f32; 3],
         ray_end_grid_coords: [f32; 3],
-        wrapped_fn: impl FnOnce(&ChunkSphereCastContext, f32),
+        wrapped_fn: impl FnOnce(&TestSphereCastContext, &Ray, f32),
     ) {
         let ray_start = math::lorentz_normalize(&na::Vector4::new(
-            ray_start_grid_coords[0] / test_ctx.dual_to_grid_factor,
-            ray_start_grid_coords[1] / test_ctx.dual_to_grid_factor,
-            ray_start_grid_coords[2] / test_ctx.dual_to_grid_factor,
+            ray_start_grid_coords[0] / test_ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[1] / test_ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[2] / test_ctx.layout.dual_to_grid_factor(),
             1.0,
         ));
 
         let ray_end = math::lorentz_normalize(&na::Vector4::new(
-            ray_end_grid_coords[0] / test_ctx.dual_to_grid_factor,
-            ray_end_grid_coords[1] / test_ctx.dual_to_grid_factor,
-            ray_end_grid_coords[2] / test_ctx.dual_to_grid_factor,
+            ray_end_grid_coords[0] / test_ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[1] / test_ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[2] / test_ctx.layout.dual_to_grid_factor(),
             1.0,
         ));
 
@@ -370,132 +458,158 @@ mod tests {
 
         let tanh_distance = (-math::mip(&ray_start, &ray_end)).acosh();
 
-        let bounding_box = VoxelAABB::from_ray_segment_and_radius(
-            test_ctx.dimension,
-            test_ctx.dual_to_grid_factor,
-            &ray,
-            tanh_distance,
-            test_ctx.collider_radius,
-        )
-        .unwrap();
-
-        let ctx = ChunkSphereCastContext {
-            dimension: test_ctx.dimension,
-            dual_to_grid_factor: test_ctx.dual_to_grid_factor,
-            chunk: ChunkId::new(NodeId::ROOT, Vertex::A),
-            transform: test_ctx.transform,
-            voxel_data: &test_ctx.voxel_data,
-            collider_radius: test_ctx.collider_radius,
-            ray: &ray,
-            bounding_box,
-        };
-
-        wrapped_fn(&ctx, tanh_distance)
+        wrapped_fn(test_ctx, &ray, tanh_distance)
     }
 
-    fn chunk_sphere_cast_wrapper(ctx: &ChunkSphereCastContext, tanh_distance: f32) -> CastEndpoint {
-        let mut endpoint = CastEndpoint {
+    fn chunk_sphere_cast_wrapper(
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
+        tanh_distance: f32,
+    ) -> Option<ChunkCastHit> {
+        chunk_sphere_cast(
+            ctx.collider_radius,
+            &ctx.voxel_data,
+            &ctx.layout,
+            ray,
             tanh_distance,
-            hit: None,
-        };
-        chunk_sphere_cast(ctx, &mut endpoint);
-        endpoint
+        )
     }
 
     fn find_face_collision_wrapper(
-        ctx: &ChunkSphereCastContext,
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
         t_axis: usize,
         tanh_distance: f32,
-    ) -> CastEndpoint {
-        let mut endpoint = CastEndpoint {
+    ) -> Option<ChunkCastHit> {
+        find_face_collision(
+            ctx.collider_radius,
+            &ctx.voxel_data,
+            &ctx.layout,
+            &VoxelAABB::from_ray_segment_and_radius(
+                &ctx.layout,
+                ray,
+                tanh_distance,
+                ctx.collider_radius,
+            )
+            .unwrap(),
+            t_axis,
+            ray,
             tanh_distance,
-            hit: None,
-        };
-        find_face_collision(ctx, t_axis, &mut endpoint);
-        endpoint
+        )
     }
 
     fn find_edge_collision_wrapper(
-        ctx: &ChunkSphereCastContext,
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
         t_axis: usize,
         tanh_distance: f32,
-    ) -> CastEndpoint {
-        let mut endpoint = CastEndpoint {
+    ) -> Option<ChunkCastHit> {
+        find_edge_collision(
+            ctx.collider_radius,
+            &ctx.voxel_data,
+            &ctx.layout,
+            &VoxelAABB::from_ray_segment_and_radius(
+                &ctx.layout,
+                ray,
+                tanh_distance,
+                ctx.collider_radius,
+            )
+            .unwrap(),
+            t_axis,
+            ray,
             tanh_distance,
-            hit: None,
-        };
-        find_edge_collision(ctx, t_axis, &mut endpoint);
-        endpoint
+        )
     }
 
     fn find_vertex_collision_wrapper(
-        ctx: &ChunkSphereCastContext,
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
         tanh_distance: f32,
-    ) -> CastEndpoint {
-        let mut endpoint = CastEndpoint {
+    ) -> Option<ChunkCastHit> {
+        find_vertex_collision(
+            ctx.collider_radius,
+            &ctx.voxel_data,
+            &ctx.layout,
+            &VoxelAABB::from_ray_segment_and_radius(
+                &ctx.layout,
+                ray,
+                tanh_distance,
+                ctx.collider_radius,
+            )
+            .unwrap(),
+            ray,
             tanh_distance,
-            hit: None,
-        };
-        find_vertex_collision(ctx, &mut endpoint);
-        endpoint
+        )
     }
 
-    fn test_face_collision(ctx: &ChunkSphereCastContext, t_axis: usize, tanh_distance: f32) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
+    fn test_face_collision(
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
+        t_axis: usize,
+        tanh_distance: f32,
+    ) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
-            &find_face_collision_wrapper(ctx, t_axis, tanh_distance),
+            &find_face_collision_wrapper(ctx, ray, t_axis, tanh_distance),
         );
-        sanity_check_normal(ctx, &endpoint);
+        sanity_check_normal(ray, &endpoint.unwrap());
     }
 
-    fn test_edge_collision(ctx: &ChunkSphereCastContext, t_axis: usize, tanh_distance: f32) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
+    fn test_edge_collision(
+        ctx: &TestSphereCastContext,
+        ray: &Ray,
+        t_axis: usize,
+        tanh_distance: f32,
+    ) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
-            &find_edge_collision_wrapper(ctx, t_axis, tanh_distance),
+            &find_edge_collision_wrapper(ctx, ray, t_axis, tanh_distance),
         );
-        sanity_check_normal(ctx, &endpoint);
+        sanity_check_normal(ray, &endpoint.unwrap());
     }
 
-    fn test_vertex_collision(ctx: &ChunkSphereCastContext, tanh_distance: f32) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, tanh_distance);
+    fn test_vertex_collision(ctx: &TestSphereCastContext, ray: &Ray, tanh_distance: f32) {
+        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
         assert_endpoints_hit_and_eq(
             &endpoint,
-            &find_vertex_collision_wrapper(ctx, tanh_distance),
+            &find_vertex_collision_wrapper(ctx, ray, tanh_distance),
         );
-        sanity_check_normal(ctx, &endpoint);
+        sanity_check_normal(ray, &endpoint.unwrap());
     }
 
     /// Check that the two endpoints contain a hit and are equal to each other. Useful for
     /// ensuring that a particular intersection type is detected by the general `chunk_sphere_cast`
     /// method.
-    fn assert_endpoints_hit_and_eq(endpoint0: &CastEndpoint, endpoint1: &CastEndpoint) {
-        assert_eq!(endpoint0.tanh_distance, endpoint1.tanh_distance);
-        assert!(endpoint0.hit.is_some());
-        assert!(endpoint1.hit.is_some());
+    fn assert_endpoints_hit_and_eq(
+        endpoint0: &Option<ChunkCastHit>,
+        endpoint1: &Option<ChunkCastHit>,
+    ) {
+        assert!(endpoint0.is_some());
+        assert!(endpoint1.is_some());
         assert_eq!(
-            endpoint0.hit.as_ref().unwrap().normal,
-            endpoint1.hit.as_ref().unwrap().normal
+            endpoint0.as_ref().unwrap().tanh_distance,
+            endpoint1.as_ref().unwrap().tanh_distance
+        );
+        assert_eq!(
+            endpoint0.as_ref().unwrap().normal,
+            endpoint1.as_ref().unwrap().normal
         );
     }
 
     /// Ensures that the normal is pointing outward, opposite the ray direction.
-    fn sanity_check_normal(ctx: &ChunkSphereCastContext, endpoint: &CastEndpoint) {
+    fn sanity_check_normal(ray: &Ray, hit: &ChunkCastHit) {
         // The ray we care about is after its start point has moved to the contact point.
         let ray = math::translate(
-            &ctx.ray.position,
-            &math::lorentz_normalize(&ctx.ray.ray_point(endpoint.tanh_distance)),
-        ) * ctx.ray;
-
-        // The ray should be in the normal's coordinate system.
-        let ray = ctx.transform * &ray;
-
-        let normal = endpoint.hit.as_ref().unwrap().normal;
+            &ray.position,
+            &math::lorentz_normalize(&ray.ray_point(hit.tanh_distance)),
+        ) * ray;
 
         // Project normal to be perpendicular to the ray's position
-        let corrected_normal =
-            math::lorentz_normalize(&(normal + ray.position * math::mip(&normal, &ray.position)));
+        let corrected_normal = math::lorentz_normalize(
+            &(hit.normal + ray.position * math::mip(&hit.normal, &ray.position)),
+        );
 
         // Check that the normal and ray are pointing opposite directions
         assert!(math::mip(&corrected_normal, &ray.direction) < 0.0);
@@ -516,8 +630,8 @@ mod tests {
             &test_ctx,
             [0.0, 1.5, 1.5],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_face_collision(ctx, 0, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_face_collision(ctx, ray, 0, tanh_distance);
             },
         );
 
@@ -525,8 +639,8 @@ mod tests {
             &test_ctx,
             [1.5, 1.5, 3.0],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_face_collision(ctx, 2, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_face_collision(ctx, ray, 2, tanh_distance);
             },
         );
 
@@ -535,8 +649,8 @@ mod tests {
             &test_ctx,
             [1.5, 3.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_edge_collision(ctx, 0, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_edge_collision(ctx, ray, 0, tanh_distance);
             },
         );
 
@@ -544,8 +658,8 @@ mod tests {
             &test_ctx,
             [3.0, 1.5, 3.0],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_edge_collision(ctx, 1, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_edge_collision(ctx, ray, 1, tanh_distance);
             },
         );
 
@@ -554,8 +668,8 @@ mod tests {
             &test_ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_vertex_collision(ctx, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_vertex_collision(ctx, ray, tanh_distance);
             },
         );
 
@@ -563,8 +677,8 @@ mod tests {
             &test_ctx,
             [3.0, 3.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                test_vertex_collision(ctx, tanh_distance);
+            |ctx, ray, tanh_distance| {
+                test_vertex_collision(ctx, ray, tanh_distance);
             },
         );
 
@@ -573,8 +687,8 @@ mod tests {
             &test_ctx,
             [3.0, 1.5, 1.5],
             [3.0, 3.0, 1.5],
-            |ctx, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            |ctx, ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
             },
         );
 
@@ -583,8 +697,8 @@ mod tests {
             &test_ctx,
             [3.0, 1.5, 1.5],
             [4.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            |ctx, ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
             },
         );
 
@@ -593,8 +707,8 @@ mod tests {
             &test_ctx,
             [8.0, 1.5, 1.5],
             [3.0, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            |ctx, ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
             },
         );
     }
@@ -611,8 +725,8 @@ mod tests {
             &test_ctx,
             [1.5, 1.5, 1.5],
             [4.5, 1.5, 1.5],
-            |ctx, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, tanh_distance).hit.is_none());
+            |ctx, ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
             },
         )
     }

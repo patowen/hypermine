@@ -93,6 +93,48 @@ impl VoxelData {
     }
 }
 
+pub struct ChunkLayout {
+    dimension: usize,
+    dual_to_grid_factor: f32,
+}
+
+impl ChunkLayout {
+    pub fn new(dimension: usize) -> Self {
+        ChunkLayout {
+            dimension,
+            dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
+        }
+    }
+
+    pub fn dimension(&self) -> usize {
+        self.dimension
+    }
+
+    pub fn dual_to_grid_factor(&self) -> f32 {
+        self.dual_to_grid_factor
+    }
+
+    /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
+    /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
+    #[inline]
+    pub fn dual_to_voxel(&self, dual_coord: f32) -> Option<usize> {
+        let floor_grid_coord = (dual_coord * self.dual_to_grid_factor).floor();
+
+        if !(floor_grid_coord >= 0.0 && floor_grid_coord < self.dimension as f32) {
+            None
+        } else {
+            Some(floor_grid_coord as usize + 1)
+        }
+    }
+
+    /// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
+    /// can be used to find the positions of voxel gridlines.
+    #[inline]
+    pub fn grid_to_dual(&self, grid_coord: usize) -> f32 {
+        grid_coord as f32 / self.dual_to_grid_factor
+    }
+}
+
 /// Ensures that every new node of the given DualGraph is populated with a [Node] and is
 /// ready for world generation.
 pub fn populate_fresh_nodes(graph: &mut DualGraph) {

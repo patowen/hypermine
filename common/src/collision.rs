@@ -5,7 +5,7 @@ use fxhash::FxHashSet;
 use crate::{
     dodeca::{self, Vertex},
     math,
-    node::{Chunk, ChunkId, DualGraph, VoxelData},
+    node::{Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::Position,
     sphere_collider::chunk_sphere_cast,
     world::Material,
@@ -28,6 +28,8 @@ pub fn sphere_cast(
     ray: &Ray,
     tanh_distance: f32,
 ) -> Result<CastEndpoint, SphereCastError> {
+    let layout = ChunkLayout::new(dimension);
+
     // A collision check is assumed to be a miss until a collision is found.
     // This `endpoint` variable gets updated over time before being returned.
     let mut endpoint = CastEndpoint {
@@ -59,33 +61,23 @@ pub fn sphere_cast(
             };
         let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
-        let dual_to_grid_factor = Vertex::dual_to_chunk_factor() as f32 * dimension as f32;
-
-        let bounding_box = VoxelAABB::from_ray_segment_and_radius(
-            dimension,
-            dual_to_grid_factor,
+        // Check collision within a single chunk
+        endpoint = chunk_sphere_cast(
+            collider_radius,
+            voxel_data,
+            &layout,
             &local_ray,
             endpoint.tanh_distance,
-            collider_radius,
-        );
-
-        // Check collision within a single chunk
-        if let Some(bounding_box) = bounding_box {
-            chunk_sphere_cast(
-                &ChunkSphereCastContext {
-                    dimension,
-                    dual_to_grid_factor,
-                    chunk,
-                    transform: math::mtranspose(&node_transform)
-                        * chunk.vertex.dual_to_node().cast(),
-                    voxel_data,
-                    collider_radius,
-                    ray: &local_ray,
-                    bounding_box,
-                },
-                &mut endpoint,
-            );
-        }
+        )
+        .map_or(endpoint, |hit| CastEndpoint {
+            tanh_distance: hit.tanh_distance,
+            hit: Some(CastHit {
+                chunk,
+                normal: math::mtranspose(&node_transform)
+                    * chunk.vertex.dual_to_node().cast()
+                    * hit.normal,
+            }),
+        });
 
         // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
         // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
@@ -264,24 +256,26 @@ impl VoxelAABB {
     /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
     /// bounding box lies entirely outside the chunk, including its margins.
     pub fn from_ray_segment_and_radius(
-        dimension: usize,
-        dual_to_grid_factor: f32,
+        layout: &ChunkLayout,
         ray: &Ray,
         tanh_distance: f32,
         radius: f32,
     ) -> Option<VoxelAABB> {
         // Convert the ray to grid coordinates
-        let grid_start = na::Point3::from_homogeneous(ray.position).unwrap() * dual_to_grid_factor;
+        let grid_start =
+            na::Point3::from_homogeneous(ray.position).unwrap() * layout.dual_to_grid_factor();
         let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
-            * dual_to_grid_factor;
+            * layout.dual_to_grid_factor();
         // Convert the radius to grid coordinates using a crude conservative estimate
-        let max_grid_radius = radius * dual_to_grid_factor;
+        let max_grid_radius = radius * layout.dual_to_grid_factor();
         let mut bounds = [[0; 2]; 3];
         for axis in 0..3 {
             let grid_min = grid_start[axis].min(grid_end[axis]) - max_grid_radius;
             let grid_max = grid_start[axis].max(grid_end[axis]) + max_grid_radius;
             let voxel_min = (grid_min + 1.0).floor().max(0.0);
-            let voxel_max = (grid_max + 1.0).floor().min(dimension as f32 + 1.0);
+            let voxel_max = (grid_max + 1.0)
+                .floor()
+                .min(layout.dimension() as f32 + 1.0);
 
             // This will happen when voxel_min is greater than dimension+1 or voxel_max is less than 0, which
             // occurs when the cube is out of range.
@@ -644,8 +638,7 @@ mod tests {
             .collect();
 
         let aabb = VoxelAABB::from_ray_segment_and_radius(
-            dimension,
-            dual_to_grid_factor,
+            &ChunkLayout::new(dimension),
             &ray,
             tanh_distance,
             radius,
