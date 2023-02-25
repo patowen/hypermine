@@ -12,7 +12,7 @@ use crate::{
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
 ///
-/// The `ray` parameter is given and any resulting hit normals are given in the local coordinate system of `position.
+/// The `ray` parameter and any resulting hit normals are given in the local coordinate system of `position`.
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
 ///
@@ -138,9 +138,7 @@ pub enum SphereCastError {
 /// Information about the intersection at the end of a ray segment.
 #[derive(Debug)]
 pub struct GraphCastHit {
-    /// The tanh of the length of the resulting ray segment so far. As new intersections are found, the
-    /// ray segment gets shorter each time.
-    /// TODO: Double-check documentation
+    /// The tanh of the distance traveled along the ray to result in this hit.
     pub tanh_distance: f32,
 
     /// Which chunk in the graph the hit occurred in

@@ -6,17 +6,19 @@ use crate::{
 };
 
 pub struct ChunkCastHit {
-    /// TODO: Document
+    /// The tanh of the distance traveled along the ray to result in this hit.
     pub tanh_distance: f32,
 
-    /// Represents the normal vector of the hit surface in the original coordinate system
-    /// of the sphere casting. To get the actual normal vector, project it so that it is orthogonal
-    /// to the endpoint in Lorentz space.
-    /// TODO: Fix this comment
+    /// Represents the normal vector of the hit surface in the dual coordinate system of the chunk.
+    /// To get the actual normal vector, project it so that it is orthogonal to the endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
 }
 
-/// Handles collisions for a single chunk.
+/// Performs sphere casting (swept collision query) against the voxels in the chunk with the given `voxel_data`
+///
+/// The `ray` parameter is given and any resulting hit normals are given in the chunk's dual coordinate system.
+///
+/// The `tanh_distance` is the hyperbolic tangent of the distance along the ray to check for hits.
 pub fn chunk_sphere_cast(
     collider_radius: f32,
     voxel_data: &VoxelData,
@@ -36,7 +38,6 @@ pub fn chunk_sphere_cast(
     };
 
     for t_axis in 0..3 {
-        // TODO: Set hit
         hit = find_face_collision(
             collider_radius,
             voxel_data,
@@ -375,6 +376,7 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
     result
 }
 
+/// Checks whether a voxel can be collided with. Any non-void voxel falls under this category.
 fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [usize; 3]) -> bool {
     let dimension_with_margin = layout.dimension() + 2;
     debug_assert!(coords[0] < dimension_with_margin);
@@ -468,7 +470,7 @@ mod tests {
     use super::*;
     use approx::*;
 
-    /// Helper structure used along with a ray to generate a `ChunkSphereCastContext`
+    /// Helper structure used to reduce the number of parameters to pass around with tests
     struct TestSphereCastContext {
         collider_radius: f32,
         layout: ChunkLayout,
@@ -485,7 +487,8 @@ mod tests {
                 voxel_data: VoxelData::Solid(Material::Void),
             };
 
-            // Populate voxels. Consists of a single cube with grid coordinates from (1, 1, 1) to (2, 2, 2)
+            // Populate voxels. Consists of a single voxel with voxel coordinates (2, 2, 2). The cube corresponding
+            // to this voxel has grid coordinates from (1, 1, 1) to (2, 2, 2)
             ctx.set_voxel([2, 2, 2], Material::Dirt);
 
             ctx
@@ -657,20 +660,14 @@ mod tests {
 
     /// Check that the two hits exist and are equal to each other. Useful for ensuring that
     /// a particular intersection type is detected by the general `chunk_sphere_cast` method.
-    fn assert_hits_exist_and_eq(
-        hit0: &Option<ChunkCastHit>,
-        hit1: &Option<ChunkCastHit>,
-    ) {
+    fn assert_hits_exist_and_eq(hit0: &Option<ChunkCastHit>, hit1: &Option<ChunkCastHit>) {
         assert!(hit0.is_some());
         assert!(hit1.is_some());
         assert_eq!(
             hit0.as_ref().unwrap().tanh_distance,
             hit1.as_ref().unwrap().tanh_distance
         );
-        assert_eq!(
-            hit0.as_ref().unwrap().normal,
-            hit1.as_ref().unwrap().normal
-        );
+        assert_eq!(hit0.as_ref().unwrap().normal, hit1.as_ref().unwrap().normal);
     }
 
     /// Ensures that the normal is pointing outward, opposite the ray direction.

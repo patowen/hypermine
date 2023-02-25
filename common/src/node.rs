@@ -93,6 +93,8 @@ impl VoxelData {
     }
 }
 
+/// Contains the context needed to know the locations of individual cubes within a chunk in the chunk's coordinate
+/// system. A given `ChunkLayout` is uniquely determined by its dimension.
 pub struct ChunkLayout {
     dimension: usize,
     dual_to_grid_factor: f32,
@@ -106,10 +108,12 @@ impl ChunkLayout {
         }
     }
 
+    /// Number of cubes on one axis of the chunk. Margins are not included.
     pub fn dimension(&self) -> usize {
         self.dimension
     }
 
+    /// Scale by this to convert dual coordinates to homogeneous grid coordinates.
     pub fn dual_to_grid_factor(&self) -> f32 {
         self.dual_to_grid_factor
     }
