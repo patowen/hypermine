@@ -1,7 +1,7 @@
 use tracing::{error, info};
 
 use crate::{
-    collision, math,
+    graph_collision, math,
     node::DualGraph,
     proto::{CharacterInput, Position},
     sanitize_motion_input, SimConfig,
@@ -104,9 +104,9 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let ray = collision::Ray::new(math::origin(), displacement_normalized);
+        let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
 
-        let cast_endpoint = collision::sphere_cast(
+        let cast_endpoint = graph_collision::sphere_cast(
             self.graph,
             self.cfg.chunk_size as usize,
             self.cfg.character_radius,

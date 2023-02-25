@@ -3,11 +3,11 @@ use std::collections::VecDeque;
 use fxhash::FxHashSet;
 
 use crate::{
+    chunk_collision::chunk_sphere_cast,
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::Position,
-    sphere_collider::chunk_sphere_cast,
     world::Material,
 };
 

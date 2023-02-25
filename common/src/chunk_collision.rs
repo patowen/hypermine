@@ -1,5 +1,5 @@
 use crate::{
-    collision::{Ray, VoxelAABB},
+    graph_collision::{Ray, VoxelAABB},
     math,
     node::{ChunkLayout, VoxelData},
     world::Material,
@@ -387,7 +387,7 @@ fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [usize; 
 
 #[cfg(test)]
 mod tests {
-    use crate::{collision::VoxelAABB, node::VoxelData};
+    use crate::{graph_collision::VoxelAABB, node::VoxelData};
 
     use super::*;
     use approx::*;
