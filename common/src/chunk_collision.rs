@@ -403,16 +403,16 @@ mod tests {
         fn new(collider_radius: f32) -> Self {
             let dimension: usize = 12;
 
-            let mut test_ctx = TestSphereCastContext {
+            let mut ctx = TestSphereCastContext {
                 collider_radius,
                 layout: ChunkLayout::new(dimension),
                 voxel_data: VoxelData::Solid(Material::Void),
             };
 
             // Populate voxels. Consists of a single cube with grid coordinates from (1, 1, 1) to (2, 2, 2)
-            test_ctx.set_voxel([2, 2, 2], Material::Dirt);
+            ctx.set_voxel([2, 2, 2], Material::Dirt);
 
-            test_ctx
+            ctx
         }
 
         fn set_voxel(&mut self, coords: [usize; 3], material: Material) {
@@ -429,22 +429,22 @@ mod tests {
     /// Helper method to create a `ChunkSphereCastContext` that can be used
     /// in a closure to call sphere casting methods.
     fn cast_with_test_ray(
-        test_ctx: &TestSphereCastContext,
+        ctx: &TestSphereCastContext,
         ray_start_grid_coords: [f32; 3],
         ray_end_grid_coords: [f32; 3],
-        wrapped_fn: impl FnOnce(&TestSphereCastContext, &Ray, f32),
+        wrapped_fn: impl FnOnce(&Ray, f32),
     ) {
         let ray_start = math::lorentz_normalize(&na::Vector4::new(
-            ray_start_grid_coords[0] / test_ctx.layout.dual_to_grid_factor(),
-            ray_start_grid_coords[1] / test_ctx.layout.dual_to_grid_factor(),
-            ray_start_grid_coords[2] / test_ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[0] / ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[1] / ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[2] / ctx.layout.dual_to_grid_factor(),
             1.0,
         ));
 
         let ray_end = math::lorentz_normalize(&na::Vector4::new(
-            ray_end_grid_coords[0] / test_ctx.layout.dual_to_grid_factor(),
-            ray_end_grid_coords[1] / test_ctx.layout.dual_to_grid_factor(),
-            ray_end_grid_coords[2] / test_ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[0] / ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[1] / ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[2] / ctx.layout.dual_to_grid_factor(),
             1.0,
         ));
 
@@ -458,7 +458,7 @@ mod tests {
 
         let tanh_distance = (-math::mip(&ray_start, &ray_end)).acosh();
 
-        wrapped_fn(test_ctx, &ray, tanh_distance)
+        wrapped_fn(&ray, tanh_distance)
     }
 
     fn chunk_sphere_cast_wrapper(
@@ -620,95 +620,95 @@ mod tests {
     #[test]
     fn chunk_sphere_cast_examples() {
         let collider_radius = 0.02;
-        let test_ctx = TestSphereCastContext::new(collider_radius);
+        let ctx = TestSphereCastContext::new(collider_radius);
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
         // Note: The voxel is centered at (1.5, 1.5, 1.5) in the grid coordinates used in this test.
 
         // Face collisions
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [0.0, 1.5, 1.5],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_face_collision(ctx, ray, 0, tanh_distance);
+            |ray, tanh_distance| {
+                test_face_collision(&ctx, ray, 0, tanh_distance);
             },
         );
 
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [1.5, 1.5, 3.0],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_face_collision(ctx, ray, 2, tanh_distance);
+            |ray, tanh_distance| {
+                test_face_collision(&ctx, ray, 2, tanh_distance);
             },
         );
 
         // Edge collisions
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [1.5, 3.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_edge_collision(ctx, ray, 0, tanh_distance);
+            |ray, tanh_distance| {
+                test_edge_collision(&ctx, ray, 0, tanh_distance);
             },
         );
 
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [3.0, 1.5, 3.0],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_edge_collision(ctx, ray, 1, tanh_distance);
+            |ray, tanh_distance| {
+                test_edge_collision(&ctx, ray, 1, tanh_distance);
             },
         );
 
         // Vertex collisions
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [0.0, 0.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_vertex_collision(ctx, ray, tanh_distance);
+            |ray, tanh_distance| {
+                test_vertex_collision(&ctx, ray, tanh_distance);
             },
         );
 
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [3.0, 3.0, 0.0],
             [1.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                test_vertex_collision(ctx, ray, tanh_distance);
+            |ray, tanh_distance| {
+                test_vertex_collision(&ctx, ray, tanh_distance);
             },
         );
 
         // No collision: Going sideways relative to a face
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [3.0, 1.5, 1.5],
             [3.0, 3.0, 1.5],
-            |ctx, ray, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
+            |ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(&ctx, ray, tanh_distance).is_none());
             },
         );
 
         // No collision: Going away from a face
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [3.0, 1.5, 1.5],
             [4.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
+            |ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(&ctx, ray, tanh_distance).is_none());
             },
         );
 
         // No collision: Past cast endpoint
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [8.0, 1.5, 1.5],
             [3.0, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
+            |ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(&ctx, ray, tanh_distance).is_none());
             },
         );
     }
@@ -719,14 +719,14 @@ mod tests {
     #[test]
     fn face_collisions_one_sided() {
         let collider_radius = 0.01;
-        let test_ctx = TestSphereCastContext::new(collider_radius);
+        let ctx = TestSphereCastContext::new(collider_radius);
 
         cast_with_test_ray(
-            &test_ctx,
+            &ctx,
             [1.5, 1.5, 1.5],
             [4.5, 1.5, 1.5],
-            |ctx, ray, tanh_distance| {
-                assert!(chunk_sphere_cast_wrapper(ctx, ray, tanh_distance).is_none());
+            |ray, tanh_distance| {
+                assert!(chunk_sphere_cast_wrapper(&ctx, ray, tanh_distance).is_none());
             },
         )
     }
