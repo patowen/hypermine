@@ -255,7 +255,7 @@ fn find_vertex_collision(
             continue;
         }
 
-        // A collision was found. Update the endpoint.
+        // A collision was found. Update the hit.
         let ray_endpoint = ray.ray_point(new_tanh_distance);
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
@@ -624,12 +624,12 @@ mod tests {
         t_axis: usize,
         tanh_distance: f32,
     ) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
-        assert_endpoints_hit_and_eq(
-            &endpoint,
+        let hit = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
+        assert_hits_exist_and_eq(
+            &hit,
             &find_face_collision_wrapper(ctx, ray, t_axis, tanh_distance),
         );
-        sanity_check_normal(ray, &endpoint.unwrap());
+        sanity_check_normal(ray, &hit.unwrap());
     }
 
     fn test_edge_collision(
@@ -638,39 +638,38 @@ mod tests {
         t_axis: usize,
         tanh_distance: f32,
     ) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
-        assert_endpoints_hit_and_eq(
-            &endpoint,
+        let hit = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
+        assert_hits_exist_and_eq(
+            &hit,
             &find_edge_collision_wrapper(ctx, ray, t_axis, tanh_distance),
         );
-        sanity_check_normal(ray, &endpoint.unwrap());
+        sanity_check_normal(ray, &hit.unwrap());
     }
 
     fn test_vertex_collision(ctx: &TestSphereCastContext, ray: &Ray, tanh_distance: f32) {
-        let endpoint = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
-        assert_endpoints_hit_and_eq(
-            &endpoint,
+        let hit = chunk_sphere_cast_wrapper(ctx, ray, tanh_distance);
+        assert_hits_exist_and_eq(
+            &hit,
             &find_vertex_collision_wrapper(ctx, ray, tanh_distance),
         );
-        sanity_check_normal(ray, &endpoint.unwrap());
+        sanity_check_normal(ray, &hit.unwrap());
     }
 
-    /// Check that the two endpoints contain a hit and are equal to each other. Useful for
-    /// ensuring that a particular intersection type is detected by the general `chunk_sphere_cast`
-    /// method.
-    fn assert_endpoints_hit_and_eq(
-        endpoint0: &Option<ChunkCastHit>,
-        endpoint1: &Option<ChunkCastHit>,
+    /// Check that the two hits exist and are equal to each other. Useful for ensuring that
+    /// a particular intersection type is detected by the general `chunk_sphere_cast` method.
+    fn assert_hits_exist_and_eq(
+        hit0: &Option<ChunkCastHit>,
+        hit1: &Option<ChunkCastHit>,
     ) {
-        assert!(endpoint0.is_some());
-        assert!(endpoint1.is_some());
+        assert!(hit0.is_some());
+        assert!(hit1.is_some());
         assert_eq!(
-            endpoint0.as_ref().unwrap().tanh_distance,
-            endpoint1.as_ref().unwrap().tanh_distance
+            hit0.as_ref().unwrap().tanh_distance,
+            hit1.as_ref().unwrap().tanh_distance
         );
         assert_eq!(
-            endpoint0.as_ref().unwrap().normal,
-            endpoint1.as_ref().unwrap().normal
+            hit0.as_ref().unwrap().normal,
+            hit1.as_ref().unwrap().normal
         );
     }
 
