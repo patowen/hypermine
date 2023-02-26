@@ -456,6 +456,39 @@ mod tests {
             collision_expected: true,
         }
         .execute();
+
+        // Colliding with a neighboring node's voxel before the center node's voxel
+        SphereCastExampleTestCase {
+            chosen_voxel: VoxelLocation::new(
+                &[Vertex::A.canonical_sides()[0]],
+                Vertex::A,
+                [1, 5, 5],
+            ),
+            additional_populated_voxels: &[VoxelLocation::new(&[], Vertex::A, [1, 6, 5])],
+            // Because we use the "A" vertex, the two coordinate systems below coincide for x = 0.0
+            start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
+            chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
+            collider_radius: 0.02,
+            ray_length_modifier: 0.0,
+            collision_expected: true,
+        }
+        .execute();
+
+        // Colliding with the center node's voxel before a neighboring node's voxel
+        SphereCastExampleTestCase {
+            chosen_voxel: VoxelLocation::new(&[], Vertex::A, [1, 5, 5]),
+            additional_populated_voxels: &[VoxelLocation::new(
+                &[Vertex::A.canonical_sides()[0]],
+                Vertex::A,
+                [1, 6, 5],
+            )],
+            start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
+            chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
+            collider_radius: 0.02,
+            ray_length_modifier: 0.0,
+            collision_expected: true,
+        }
+        .execute();
     }
 
     /// Tests that a sphere cast that gets close to the corner of an unloaded chunk does not throw an error as
