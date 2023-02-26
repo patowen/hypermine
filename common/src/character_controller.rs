@@ -195,7 +195,7 @@ fn apply_normals(
 }
 
 fn apply_normals_old(
-    mut normals: Vec<na::UnitVector3<f32>>,
+    normals: Vec<na::UnitVector3<f32>>,
     mut subject: na::Vector3<f32>,
 ) -> na::Vector3<f32> {
     // In this method, the w-coordinate is assumed to be 0 for all vectors passed in.
@@ -206,23 +206,26 @@ fn apply_normals_old(
         return na::Vector3::zeros();
     }
 
+    let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
     for i in 0..normals.len() {
         for j in i + 1..normals.len() {
-            normals[j] = na::UnitVector3::new_normalize(project_ortho(&normals[j], &normals[i]));
+            ortho_normals[j] = (ortho_normals[j]
+                - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
+            .normalize();
         }
         // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
         // This can be fixed with a bit of extra math.
         // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
-        subject = project_ortho(&subject, &normals[i]) + *normals[i] * 1e-4;
+        subject = project_ortho(&subject, &ortho_normals[i]) + ortho_normals[i] * 1e-4;
     }
     subject
 }
 
 fn project_ortho<N: na::RealField + Copy>(
     v: &na::Vector3<N>,
-    n: &na::UnitVector3<N>,
+    n: &na::Vector3<N>,
 ) -> na::Vector3<N> {
-    v - n.into_inner() * n.dot(v)
+    v - n * n.dot(v)
 }
 
 struct CollisionCheckingResult {
