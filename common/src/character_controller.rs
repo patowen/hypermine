@@ -95,7 +95,7 @@ impl CharacterControllerPass<'_> {
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
-                *self.velocity = apply_normals_old(active_normals.clone(), effective_velocity);
+                *self.velocity = apply_normals(active_normals.clone(), effective_velocity);
                 effective_velocity = *self.velocity;
                 remaining_dt -= collision.tanh_distance.atanh() / initial_velocity_norm;
             } else {
@@ -169,7 +169,7 @@ fn apply_normals(
     normals: Vec<na::UnitVector3<f32>>,
     mut subject: na::Vector3<f32>,
 ) -> na::Vector3<f32> {
-    let epsilon = subject.magnitude() * 1e-5;
+    let epsilon = subject.magnitude() * 1e-4;
 
     if normals.len() >= 3 {
         // The normals are assumed to be linearly independent,
@@ -184,48 +184,11 @@ fn apply_normals(
                 - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
             .normalize();
         }
-        // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
-        // This can be fixed with a bit of extra math.
-        // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
         let subject_displacement_factor =
-            (1.0 - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]) * epsilon;
+            (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
         subject += ortho_normals[i] * subject_displacement_factor;
     }
     subject
-}
-
-fn apply_normals_old(
-    normals: Vec<na::UnitVector3<f32>>,
-    mut subject: na::Vector3<f32>,
-) -> na::Vector3<f32> {
-    let epsilon = subject.magnitude() * 1e-5;
-
-    if normals.len() >= 3 {
-        // The normals are assumed to be linearly independent with w coordinate 0,
-        // so applying all of them will zero out the subject.
-        return na::Vector3::zeros();
-    }
-
-    let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
-    for i in 0..normals.len() {
-        for j in i + 1..normals.len() {
-            ortho_normals[j] = (ortho_normals[j]
-                - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
-            .normalize();
-        }
-        // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
-        // This can be fixed with a bit of extra math.
-        // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
-        subject = project_ortho(&subject, &ortho_normals[i]) + ortho_normals[i] * epsilon;
-    }
-    subject
-}
-
-fn project_ortho<N: na::RealField + Copy>(
-    v: &na::Vector3<N>,
-    n: &na::Vector3<N>,
-) -> na::Vector3<N> {
-    v - n * n.dot(v)
 }
 
 struct CollisionCheckingResult {
