@@ -68,15 +68,7 @@ impl CharacterControllerPass<'_> {
             let expected_displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
 
             // Update position with collision checking
-            let collision_checking_result = self.check_collision(&expected_displacement);
-            self.position.local *= collision_checking_result.allowed_displacement;
-            if let Some(collision) = collision_checking_result.collision {
-                *self.velocity = na::Vector3::zeros();
-                // We are not using collision normals yet, so print them to the console to allow
-                // sanity checking. Note that the "orientation" quaternion is not used here, so the
-                // numbers will only make sense if the character doesn't look around.
-                info!("Collision: normal = {:?}", collision.normal);
-            }
+            self.apply_velocity((*self.velocity + old_velocity) * 0.5);
         }
 
         // Renormalize
@@ -87,6 +79,28 @@ impl CharacterControllerPass<'_> {
         if next_node != self.position.node {
             self.position.node = next_node;
             self.position.local = transition_xf * self.position.local;
+        }
+    }
+
+    fn apply_velocity(&mut self, mut effective_velocity: na::Vector3<f32>) {
+        let initial_velocity_norm = self.velocity.norm();
+
+        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
+        let mut remaining_dt = self.dt_seconds;
+        for _ in 0..5 {
+            let cc_result = self.check_collision(&(effective_velocity * remaining_dt));
+            self.position.local *= cc_result.allowed_displacement;
+
+            if let Some(collision) = cc_result.collision {
+                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals.push(collision.normal);
+
+                *self.velocity = apply_normals(active_normals.clone(), *self.velocity);
+                effective_velocity = *self.velocity;
+                remaining_dt -= collision.tanh_distance.atanh() / initial_velocity_norm;
+            } else {
+                break;
+            }
         }
     }
 
@@ -138,6 +152,7 @@ impl CharacterControllerPass<'_> {
         CollisionCheckingResult {
             allowed_displacement,
             collision: cast_hit.map(|hit| Collision {
+                tanh_distance: hit.tanh_distance,
                 // `CastEndpoint` has its `normal` given relative to the character's original position,
                 // but we want the normal relative to the character after the character moves to meet the wall.
                 // This normal now represents a contact point at the origin, so we omit the w-coordinate
@@ -150,6 +165,35 @@ impl CharacterControllerPass<'_> {
     }
 }
 
+fn apply_normals(
+    normals: Vec<na::UnitVector3<f32>>,
+    mut subject: na::Vector3<f32>,
+) -> na::Vector3<f32> {
+    let epsilon = subject.magnitude() * 1e-5;
+
+    if normals.len() >= 3 {
+        // The normals are assumed to be linearly independent,
+        // so applying all of them will zero out the subject.
+        return na::Vector3::zeros();
+    }
+
+    let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
+    for i in 0..normals.len() {
+        for j in i + 1..normals.len() {
+            ortho_normals[j] = (ortho_normals[j]
+                - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
+            .normalize();
+        }
+        // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
+        // This can be fixed with a bit of extra math.
+        // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
+        let subject_displacement_factor =
+            (1.0 - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]) * epsilon;
+        subject += ortho_normals[i] * subject_displacement_factor;
+    }
+    subject
+}
+
 struct CollisionCheckingResult {
     /// Multiplying the character's position by this matrix will move the character as far as it can up to its intended
     /// displacement until it hits the wall.
@@ -158,6 +202,8 @@ struct CollisionCheckingResult {
 }
 
 struct Collision {
+    tanh_distance: f32,
+
     /// This collision normal faces away from the collision surface and is given in the perspective of the character
     /// _after_ it is transformed by `allowed_displacement`. The 4th coordinate of this normal vector is assumed to be
     /// 0.0 and is therefore omitted.
