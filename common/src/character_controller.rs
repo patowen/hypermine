@@ -95,7 +95,7 @@ impl CharacterControllerPass<'_> {
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
-                *self.velocity = apply_normals(active_normals.clone(), *self.velocity);
+                *self.velocity = apply_normals_old(active_normals.clone(), effective_velocity);
                 effective_velocity = *self.velocity;
                 remaining_dt -= collision.tanh_distance.atanh() / initial_velocity_norm;
             } else {
@@ -192,6 +192,37 @@ fn apply_normals(
         subject += ortho_normals[i] * subject_displacement_factor;
     }
     subject
+}
+
+fn apply_normals_old(
+    mut normals: Vec<na::UnitVector3<f32>>,
+    mut subject: na::Vector3<f32>,
+) -> na::Vector3<f32> {
+    // In this method, the w-coordinate is assumed to be 0 for all vectors passed in.
+
+    if normals.len() >= 3 {
+        // The normals are assumed to be linearly independent with w coordinate 0,
+        // so applying all of them will zero out the subject.
+        return na::Vector3::zeros();
+    }
+
+    for i in 0..normals.len() {
+        for j in i + 1..normals.len() {
+            normals[j] = na::UnitVector3::new_normalize(project_ortho(&normals[j], &normals[i]));
+        }
+        // TODO: This won't work as-is, since inner corners sharper than 45 degrees can cause the resulting normal to point into a wall.
+        // This can be fixed with a bit of extra math.
+        // TODO: We should see how low the epsilon here can go before the player starts getting stuck.
+        subject = project_ortho(&subject, &normals[i]) + *normals[i] * 1e-4;
+    }
+    subject
+}
+
+fn project_ortho<N: na::RealField + Copy>(
+    v: &na::Vector3<N>,
+    n: &na::UnitVector3<N>,
+) -> na::Vector3<N> {
+    v - n.into_inner() * n.dot(v)
 }
 
 struct CollisionCheckingResult {
