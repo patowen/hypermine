@@ -109,11 +109,13 @@ impl ChunkLayout {
     }
 
     /// Number of cubes on one axis of the chunk. Margins are not included.
+    #[inline]
     pub fn dimension(&self) -> usize {
         self.dimension
     }
 
     /// Scale by this to convert dual coordinates to homogeneous grid coordinates.
+    #[inline]
     pub fn dual_to_grid_factor(&self) -> f32 {
         self.dual_to_grid_factor
     }
