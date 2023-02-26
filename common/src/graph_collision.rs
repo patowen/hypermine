@@ -197,15 +197,35 @@ mod tests {
 
     use super::*;
 
+    /// Convenience struct used to locate a particular voxel that should be solid in a test case.
+    struct VoxelLocation<'a> {
+        /// Path from the origin node to the voxel
+        node_path: &'a [Side],
+
+        /// Which chunk in the given node the voxel is in
+        vertex: Vertex,
+
+        /// The coordinates of the voxel, including margins
+        coords: [usize; 3],
+    }
+
+    impl VoxelLocation<'_> {
+        fn new(node_path: &[Side], vertex: Vertex, coords: [usize; 3]) -> VoxelLocation<'_> {
+            VoxelLocation {
+                node_path,
+                vertex,
+                coords,
+            }
+        }
+    }
+
     struct SphereCastExampleTestCase<'a> {
-        /// Path from the origin node to the populated voxel
-        chosen_node_path: &'a [Side],
+        /// Which voxel the test case focuses on. Also determines the coordinate system of the ray.
+        /// Any detected collision is expected to be on this voxel.
+        chosen_voxel: VoxelLocation<'a>,
 
-        /// Which chunk in the chosen node should have the populated voxel
-        chosen_vertex: Vertex,
-
-        /// Which voxel should be populated
-        chosen_voxel: [usize; 3],
+        /// Which voxels should be solid in the test case
+        additional_populated_voxels: &'a [VoxelLocation<'a>],
 
         /// Grid coordinates of ray's start position relative to the root's "A" chunk
         start_chunk_relative_grid_ray_start: [f32; 3],
@@ -242,30 +262,18 @@ mod tests {
                 }
             }
 
-            // Find the ChunkId of the chosen chunk
-            let chosen_chunk = ChunkId::new(
-                self.chosen_node_path
-                    .iter()
-                    .fold(NodeId::ROOT, |node, &side| {
-                        graph.neighbor(node, side).unwrap()
-                    }),
-                self.chosen_vertex,
-            );
-            let Chunk::Populated { voxels, .. } = graph.get_chunk_mut(chosen_chunk).unwrap() else {
-                panic!("All chunks should be populated.");
-            };
+            Self::populate_voxel(&mut graph, dimension, &self.chosen_voxel);
 
-            // Populate the chosen voxel with dirt.
-            voxels.data_mut(dimension as u8)[self.chosen_voxel[0]
-                + self.chosen_voxel[1] * (dimension + 2)
-                + self.chosen_voxel[2] * (dimension + 2).pow(2)] = Material::Dirt;
+            for voxel in self.additional_populated_voxels {
+                Self::populate_voxel(&mut graph, dimension, voxel);
+            }
 
             // Find the transform of the chosen chunk
             let chosen_chunk_transform: na::Matrix4<f32> =
-                self.chosen_node_path.iter().fold(
+                self.chosen_voxel.node_path.iter().fold(
                     na::Matrix4::identity(),
                     |transform: na::Matrix4<f32>, side| transform * side.reflection().cast::<f32>(),
-                ) * self.chosen_vertex.dual_to_node().cast();
+                ) * self.chosen_voxel.vertex.dual_to_node().cast();
 
             let ray_target = chosen_chunk_transform
                 * math::lorentz_normalize(&na::Vector4::new(
@@ -309,7 +317,7 @@ mod tests {
                 assert!(hit.is_some(), "no collision detected");
                 assert_eq!(
                     hit.as_ref().unwrap().chunk,
-                    chosen_chunk,
+                    Self::get_voxel_chunk(&graph, &self.chosen_voxel),
                     "collision occurred in wrong chunk"
                 );
                 assert!(
@@ -320,6 +328,39 @@ mod tests {
                 assert!(hit.is_none(), "unexpected collision detected");
             }
         }
+
+        fn populate_voxel(graph: &mut DualGraph, dimension: usize, voxel_location: &VoxelLocation) {
+            // Find the ChunkId of the given chunk
+            let chunk = ChunkId::new(
+                voxel_location
+                    .node_path
+                    .iter()
+                    .fold(NodeId::ROOT, |node, &side| {
+                        graph.neighbor(node, side).unwrap()
+                    }),
+                voxel_location.vertex,
+            );
+            let Chunk::Populated { voxels: voxel_data, .. } = graph.get_chunk_mut(chunk).unwrap() else {
+                panic!("All chunks should be populated.");
+            };
+
+            // Populate the given voxel with dirt.
+            voxel_data.data_mut(dimension as u8)[voxel_location.coords[0]
+                + voxel_location.coords[1] * (dimension + 2)
+                + voxel_location.coords[2] * (dimension + 2).pow(2)] = Material::Dirt;
+        }
+
+        fn get_voxel_chunk(graph: &DualGraph, voxel_location: &VoxelLocation) -> ChunkId {
+            ChunkId::new(
+                voxel_location
+                    .node_path
+                    .iter()
+                    .fold(NodeId::ROOT, |node, &side| {
+                        graph.neighbor(node, side).unwrap()
+                    }),
+                voxel_location.vertex,
+            )
+        }
     }
 
     /// Checks that `sphere_cast` behaves as expected under normal circumstances.
@@ -327,9 +368,8 @@ mod tests {
     fn sphere_cast_examples() {
         // Basic test case
         SphereCastExampleTestCase {
-            chosen_node_path: &[Side::G],
-            chosen_vertex: Vertex::I,
-            chosen_voxel: [3, 4, 6],
+            chosen_voxel: VoxelLocation::new(&[Side::G], Vertex::I, [3, 4, 6]),
+            additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [2.5, 3.5, 5.5],
             collider_radius: 0.02,
@@ -340,9 +380,12 @@ mod tests {
 
         // Barely touching a neighboring node
         SphereCastExampleTestCase {
-            chosen_node_path: &[Vertex::B.canonical_sides()[0]],
-            chosen_vertex: Vertex::B,
-            chosen_voxel: [1, 12, 12],
+            chosen_voxel: VoxelLocation::new(
+                &[Vertex::B.canonical_sides()[0]],
+                Vertex::B,
+                [1, 12, 12],
+            ),
+            additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [0.0, 12.0, 12.0],
             collider_radius: 0.02,
@@ -353,9 +396,12 @@ mod tests {
 
         // Barely not touching a neighboring node
         SphereCastExampleTestCase {
-            chosen_node_path: &[Vertex::B.canonical_sides()[0]],
-            chosen_vertex: Vertex::B,
-            chosen_voxel: [1, 12, 12],
+            chosen_voxel: VoxelLocation::new(
+                &[Vertex::B.canonical_sides()[0]],
+                Vertex::B,
+                [1, 12, 12],
+            ),
+            additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [0.0, 12.0, 12.0],
             collider_radius: 0.02,
@@ -375,14 +421,13 @@ mod tests {
                 .iter()
                 .position(|side| !Vertex::A.canonical_sides().contains(side))
                 .unwrap();
-            let mut chosen_voxel = [1, 1, 1];
-            chosen_voxel[corresponding_axis] = 12;
+            let mut chosen_voxel_coords = [1, 1, 1];
+            chosen_voxel_coords[corresponding_axis] = 12;
             let mut grid_ray_end = [0.0, 0.0, 0.0];
             grid_ray_end[corresponding_axis] = 12.0;
             SphereCastExampleTestCase {
-                chosen_node_path: &[],
-                chosen_vertex,
-                chosen_voxel,
+                chosen_voxel: VoxelLocation::new(&[], chosen_vertex, chosen_voxel_coords),
+                additional_populated_voxels: &[],
                 start_chunk_relative_grid_ray_start: [0.0, 0.0, 0.0], // Node's A-vertex corner
                 chosen_chunk_relative_grid_ray_end: grid_ray_end,
                 collider_radius: 0.02,
@@ -394,13 +439,16 @@ mod tests {
 
         // Barely touching a node opposite the original node at a corner
         SphereCastExampleTestCase {
-            chosen_node_path: &[
-                Vertex::D.canonical_sides()[0],
-                Vertex::D.canonical_sides()[1],
-                Vertex::D.canonical_sides()[2],
-            ],
-            chosen_vertex: Vertex::D,
-            chosen_voxel: [1, 1, 1],
+            chosen_voxel: VoxelLocation::new(
+                &[
+                    Vertex::D.canonical_sides()[0],
+                    Vertex::D.canonical_sides()[1],
+                    Vertex::D.canonical_sides()[2],
+                ],
+                Vertex::D,
+                [1, 1, 1],
+            ),
+            additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [0.0, 0.0, 0.0],
             collider_radius: 0.02,
