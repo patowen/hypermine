@@ -81,7 +81,7 @@ pub fn sphere_cast(
         let klein_ray_end =
             na::Point3::from_homogeneous(local_ray.ray_point(current_tanh_distance)).unwrap();
 
-        // Add neighboring chunks as necessary, using one coordinate at a time.
+        // Add neighboring chunks as necessary based on a conservative AABB check, using one coordinate at a time.
         for axis in 0..3 {
             // Check for neighboring nodes
             if klein_ray_start[axis] <= klein_lower_boundary
@@ -91,11 +91,12 @@ pub fn sphere_cast(
                 let next_node_transform = side.reflection().cast::<f32>() * node_transform;
                 // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                 // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
-                // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners.
+                // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
+                // because the AABB check can have false positives.
                 let ray_node_distance = (next_node_transform * ray.position).w.acosh();
                 let ray_length = current_tanh_distance.atanh();
-                if ray_node_distance - ray_length
-                    > dodeca::BOUNDING_SPHERE_RADIUS as f32 + collider_radius
+                if ray_node_distance - ray_length - collider_radius
+                    > dodeca::BOUNDING_SPHERE_RADIUS as f32
                 {
                     // Ray cannot intersect node
                     continue;
