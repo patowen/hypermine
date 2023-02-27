@@ -87,11 +87,14 @@ impl CharacterControllerPass<'_> {
 
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
         let mut remaining_dt = self.dt_seconds;
-        for _ in 0..5 {
+        for i in 0..5 {
             let cc_result = self.check_collision(&(effective_velocity * remaining_dt));
             self.position.local *= cc_result.allowed_displacement;
 
             if let Some(collision) = cc_result.collision {
+                if i >= 1 {
+                    println!("Blocked by {}, {:?}", collision.tanh_distance, collision.normal.dot(&effective_velocity));
+                }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
@@ -184,10 +187,22 @@ fn apply_normals(
                 - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
             .normalize();
         }
-        let subject_displacement_factor =
+        /*let subject_displacement_factor =
             (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
-        subject += ortho_normals[i] * subject_displacement_factor;
+        subject += ortho_normals[i] * subject_displacement_factor;*/
+
+        subject = subject - ortho_normals[i] * subject.dot(&ortho_normals[i]) + ortho_normals[i] * epsilon;
     }
+
+    /*println!("Subject: {:?}, Epsilon: {}", subject, epsilon);
+    for n in &normals {
+        println!("Normal: {:?}", n);
+    }
+    for n in &normals {
+        println!("Dot vs epsilon: {}", n.dot(&subject) / epsilon);
+    }
+    println!();*/
+
     subject
 }
 
