@@ -143,7 +143,13 @@ fn find_face_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             normal: normal * collision_side,
-            report: format!("Face collision at {:?}", tuv_to_xyz(t_axis, [t as f32, voxel_u as f32 - 0.5, voxel_v as f32 - 0.5])),
+            report: format!(
+                "Face collision at {:?}",
+                tuv_to_xyz(
+                    t_axis,
+                    [t as f32, voxel_u as f32 - 0.5, voxel_v as f32 - 0.5]
+                )
+            ),
         });
     }
 
@@ -167,17 +173,26 @@ fn find_edge_collision(
 
     // Loop through all grid lines overlapping the bounding box
     for (u, v) in bounding_box.grid_lines(u_axis, v_axis) {
-        let edge_pos = math::lorentz_normalize(&tuv_to_xyz(
+        // Compute vectors Lorentz-orthogonal to the edge and to each other
+        let edge_normal0 = math::lorentz_normalize(&tuv_to_xyz(
             t_axis,
-            na::Vector4::new(0.0, layout.grid_to_dual(u), layout.grid_to_dual(v), 1.0),
+            na::Vector4::new(0.0, 1.0, 0.0, layout.grid_to_dual(u)),
         ));
-        let edge_dir = tuv_to_xyz(t_axis, na::Vector4::new(1.0, 0.0, 0.0, 0.0));
+
+        let edge_normal1 = tuv_to_xyz(
+            t_axis,
+            na::Vector4::new(0.0, 0.0, 1.0, layout.grid_to_dual(v)),
+        );
+
+        let edge_normal1 = math::lorentz_normalize(
+            &(edge_normal1 - edge_normal0 * math::mip(&edge_normal0, &edge_normal1)),
+        );
 
         let Some(new_tanh_distance) = solve_sphere_line_intersection(
             ray,
-            &edge_pos,
-            &edge_dir,
-            collider_radius.cosh(),
+            &edge_normal0,
+            &edge_normal1,
+            collider_radius.sinh(),
         ) else {
             continue;
         };
@@ -188,8 +203,9 @@ fn find_edge_collision(
         }
 
         let ray_endpoint = ray.ray_point(new_tanh_distance);
-        let contact_point = -edge_pos * math::mip(&ray_endpoint, &edge_pos)
-            + edge_dir * math::mip(&ray_endpoint, &edge_dir);
+        let contact_point = ray_endpoint
+            - edge_normal0 * math::mip(&ray_endpoint, &edge_normal0)
+            - edge_normal1 * math::mip(&ray_endpoint, &edge_normal1);
 
         // Compute the t-coordinate of the voxels at the contact point
         let Some(voxel_t) = layout.dual_to_voxel(contact_point[t_axis] / contact_point.w) else {
@@ -213,7 +229,10 @@ fn find_edge_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             normal: ray_endpoint - contact_point,
-            report: format!("Edge collision at {:?}", tuv_to_xyz(t_axis, [voxel_t as f32 - 0.5, u as f32, v as f32])),
+            report: format!(
+                "Edge collision at {:?}",
+                tuv_to_xyz(t_axis, [voxel_t as f32 - 0.5, u as f32, v as f32])
+            ),
         });
     }
 
@@ -293,21 +312,21 @@ fn solve_sphere_plane_intersection(
 /// intersects the given line.
 fn solve_sphere_line_intersection(
     ray: &Ray,
-    line_position: &na::Vector4<f32>,
-    line_direction: &na::Vector4<f32>,
-    cosh_radius: f32,
+    line_normal0: &na::Vector4<f32>,
+    line_normal1: &na::Vector4<f32>,
+    sinh_radius: f32,
 ) -> Option<f32> {
     // This could be made more numerically stable by using a formula that depends on sinh_radius,
     // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.position, line_position);
-    let mip_dir_a = math::mip(&ray.direction, line_position);
-    let mip_pos_b = math::mip(&ray.position, line_direction);
-    let mip_dir_b = math::mip(&ray.direction, line_direction);
+    let mip_pos_a = math::mip(&ray.position, line_normal0);
+    let mip_dir_a = math::mip(&ray.direction, line_normal0);
+    let mip_pos_b = math::mip(&ray.position, line_normal1);
+    let mip_dir_b = math::mip(&ray.direction, line_normal1);
 
     solve_quadratic(
-        mip_pos_a.powi(2) - mip_pos_b.powi(2) - cosh_radius.powi(2),
-        mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b,
-        mip_dir_a.powi(2) - mip_dir_b.powi(2) + cosh_radius.powi(2),
+        mip_pos_a.powi(2) + mip_pos_b.powi(2) - sinh_radius.powi(2),
+        mip_pos_a * mip_dir_a + mip_pos_b * mip_dir_b,
+        mip_dir_a.powi(2) + mip_dir_b.powi(2) + sinh_radius.powi(2),
     )
 }
 
@@ -866,25 +885,20 @@ mod tests {
                 math::origin(),
                 na::Vector4::new(1.0, 2.0, 3.0, 0.0).normalize(),
             );
-        let line_position = na::Vector4::w();
-        let line_direction = na::Vector4::y();
+        let line_normal0 = na::Vector4::x();
+        let line_normal1 = na::Vector4::z();
         let hit_point = math::lorentz_normalize(
             &ray.ray_point(
-                solve_sphere_line_intersection(
-                    &ray,
-                    &line_position,
-                    &line_direction,
-                    0.2_f32.cosh(),
-                )
-                .unwrap(),
+                solve_sphere_line_intersection(&ray, &line_normal0, &line_normal1, 0.2_f32.sinh())
+                    .unwrap(),
             ),
         );
         // Measue the distance from hit_point to the line and ensure it's equal to the radius
         assert_abs_diff_eq!(
-            (math::mip(&hit_point, &line_position).powi(2)
-                - math::mip(&hit_point, &line_direction).powi(2))
+            (math::mip(&hit_point, &line_normal0).powi(2)
+                + math::mip(&hit_point, &line_normal1).powi(2))
             .sqrt(),
-            0.2_f32.cosh(),
+            0.2_f32.sinh(),
             epsilon = 1e-4
         );
     }
@@ -897,10 +911,10 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.7, 0.0))
             * math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let line_position = na::Vector4::w();
-        let line_direction = na::Vector4::y();
+        let line_normal0 = na::Vector4::x();
+        let line_normal1 = na::Vector4::z();
         assert_abs_diff_eq!(
-            solve_sphere_line_intersection(&ray, &line_position, &line_direction, 0.2_f32.cosh())
+            solve_sphere_line_intersection(&ray, &line_normal0, &line_normal1, 0.2_f32.sinh())
                 .unwrap(),
             0.3_f32.tanh(),
             epsilon = 1e-4
@@ -912,13 +926,13 @@ mod tests {
         // No collision with the line anywhere along the ray's line
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::x());
-        let line_position = na::Vector4::w();
-        let line_direction = na::Vector4::y();
+        let line_normal0 = na::Vector4::x();
+        let line_normal1 = na::Vector4::z();
         assert!(solve_sphere_line_intersection(
             &ray,
-            &line_position,
-            &line_direction,
-            0.2_f32.cosh()
+            &line_normal0,
+            &line_normal1,
+            0.2_f32.sinh()
         )
         .is_none());
     }
@@ -928,14 +942,14 @@ mod tests {
         // Sphere is already contacting the line, with some error
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let line_position = na::Vector4::w();
-        let line_direction = na::Vector4::y();
+        let line_normal0 = na::Vector4::x();
+        let line_normal1 = na::Vector4::z();
         assert_eq!(
             solve_sphere_line_intersection(
                 &ray,
-                &line_position,
-                &line_direction,
-                0.2001_f32.cosh()
+                &line_normal0,
+                &line_normal1,
+                0.2001_f32.sinh()
             )
             .unwrap(),
             0.0
