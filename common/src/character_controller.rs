@@ -12,6 +12,7 @@ pub fn run_character_step(
     graph: &DualGraph,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
+    orientation: &na::UnitQuaternion<f32>,
     input: &CharacterInput,
     dt_seconds: f32,
 ) {
@@ -20,6 +21,7 @@ pub fn run_character_step(
         graph,
         position,
         velocity,
+        orientation,
         input,
         dt_seconds,
     }
@@ -31,6 +33,7 @@ struct CharacterControllerPass<'a> {
     graph: &'a DualGraph,
     position: &'a mut Position,
     velocity: &'a mut na::Vector3<f32>,
+    orientation: &'a na::UnitQuaternion<f32>,
     input: &'a CharacterInput,
     dt_seconds: f32,
 }
@@ -89,6 +92,7 @@ impl CharacterControllerPass<'_> {
             self.position.local *= cc_result.displacement_transform;
 
             if let Some(collision) = cc_result.collision {
+                println!("Collision: {}, Normal: {:?}", collision.report, self.orientation.conjugate().to_rotation_matrix() * collision.normal);
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 

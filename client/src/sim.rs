@@ -228,6 +228,7 @@ impl Sim {
             latest_input,
             *pos,
             ch.state.velocity,
+            &ch.state.orientation,
         );
     }
 
@@ -294,7 +295,7 @@ impl Sim {
         };
         let generation = self
             .prediction
-            .push(&params.cfg, &self.graph, &character_input);
+            .push(&params.cfg, &self.graph, &character_input, &self.orientation);
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
         let _ = self.net.outgoing.send(Command {
@@ -324,6 +325,7 @@ impl Sim {
                 &self.graph,
                 &mut result,
                 &mut predicted_velocity,
+                &self.orientation,
                 &predicted_input,
                 self.since_input_sent.as_secs_f32(),
             );

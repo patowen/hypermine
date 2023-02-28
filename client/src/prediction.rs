@@ -33,12 +33,13 @@ impl PredictedMotion {
 
     /// Update for input about to be sent to the server, returning the generation it should be
     /// tagged with
-    pub fn push(&mut self, cfg: &SimConfig, graph: &DualGraph, input: &CharacterInput) -> u16 {
+    pub fn push(&mut self, cfg: &SimConfig, graph: &DualGraph, input: &CharacterInput, orientation: &na::UnitQuaternion<f32>) -> u16 {
         character_controller::run_character_step(
             cfg,
             graph,
             &mut self.predicted_position,
             &mut self.predicted_velocity,
+            orientation,
             input,
             cfg.step_interval.as_secs_f32(),
         );
@@ -55,6 +56,7 @@ impl PredictedMotion {
         generation: u16,
         position: Position,
         velocity: na::Vector3<f32>,
+        orientation: &na::UnitQuaternion<f32>,
     ) {
         let first_gen = self.generation.wrapping_sub(self.log.len() as u16);
         let obsolete = usize::from(generation.wrapping_sub(first_gen));
@@ -72,6 +74,7 @@ impl PredictedMotion {
                 graph,
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
+                &orientation,
                 input,
                 cfg.step_interval.as_secs_f32(),
             );
@@ -113,7 +116,7 @@ mod tests {
 
         // Helper functions to make test more readable
         let push =
-            |pred: &mut PredictedMotion| pred.push(&mock_cfg, &mock_graph, &mock_character_input);
+            |pred: &mut PredictedMotion| pred.push(&mock_cfg, &mock_graph, &mock_character_input, &na::UnitQuaternion::identity());
         let reconcile = |pred: &mut PredictedMotion, generation| {
             pred.reconcile(
                 &mock_cfg,
@@ -121,6 +124,7 @@ mod tests {
                 generation,
                 pos(),
                 na::Vector3::zeros(),
+                &na::UnitQuaternion::identity(),
             )
         };
 
