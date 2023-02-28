@@ -1,4 +1,4 @@
-use tracing::{error, info};
+use tracing::error;
 
 use crate::{
     graph_collision, math,
@@ -96,9 +96,6 @@ impl CharacterControllerPass<'_> {
             self.position.local *= cc_result.displacement_transform;
 
             if let Some(collision) = cc_result.collision {
-                if self.mode == 2 {
-                    println!("Collision: {}, Normal: {:?}", collision.report, self.orientation.conjugate().to_rotation_matrix() * collision.normal);
-                }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
@@ -192,22 +189,10 @@ fn apply_normals(
                 - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
             .normalize();
         }
-        /*let subject_displacement_factor =
+        let subject_displacement_factor =
             (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
-        subject += ortho_normals[i] * subject_displacement_factor;*/
-
-        subject = subject - ortho_normals[i] * subject.dot(&ortho_normals[i])
-            + ortho_normals[i] * epsilon;
+        subject += ortho_normals[i] * subject_displacement_factor;
     }
-
-    /*println!("Subject: {:?}, Epsilon: {}", subject, epsilon);
-    for n in &normals {
-        println!("Normal: {:?}", n);
-    }
-    for n in &normals {
-        println!("Dot vs epsilon: {}", n.dot(&subject) / epsilon);
-    }
-    println!();*/
 
     subject
 }
