@@ -12,6 +12,8 @@ pub struct ChunkCastHit {
     /// Represents the normal vector of the hit surface in the dual coordinate system of the chunk.
     /// To get the actual normal vector, project it so that it is orthogonal to the endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
+
+    pub report: String,
 }
 
 /// Performs sphere casting (swept collision query) against the voxels in the chunk with the given `voxel_data`
@@ -141,6 +143,7 @@ fn find_face_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             normal: normal * collision_side,
+            report: format!("Face collision at {:?}", tuv_to_xyz(t_axis, [t as f32, voxel_u as f32 - 0.5, voxel_v as f32 - 0.5])),
         });
     }
 
@@ -210,6 +213,7 @@ fn find_edge_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             normal: ray_endpoint - contact_point,
+            report: format!("Edge collision at {:?}", tuv_to_xyz(t_axis, [voxel_t as f32 - 0.5, u as f32, v as f32])),
         });
     }
 
@@ -261,6 +265,7 @@ fn find_vertex_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             normal: ray_endpoint - vertex_position,
+            report: format!("Vertex collision at {:?}", [x as f32, y as f32, z as f32]),
         });
     }
 

@@ -93,7 +93,7 @@ impl CharacterControllerPass<'_> {
 
             if let Some(collision) = cc_result.collision {
                 if i >= 1 {
-                    println!("Blocked by {}, {:?}", collision.tanh_distance, collision.normal.dot(&effective_velocity));
+                    println!("Blocked by {}, {}, {:?}", collision.report, collision.tanh_distance, collision.normal.dot(&effective_velocity));
                 }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
@@ -163,6 +163,8 @@ impl CharacterControllerPass<'_> {
                 normal: na::UnitVector3::new_normalize(
                     (math::mtranspose(&allowed_displacement) * hit.normal).xyz(),
                 ),
+
+                report: hit.report,
             }),
         }
     }
@@ -220,6 +222,8 @@ struct Collision {
     /// _after_ it is transformed by `allowed_displacement`. The 4th coordinate of this normal vector is assumed to be
     /// 0.0 and is therefore omitted.
     normal: na::UnitVector3<f32>,
+
+    report: String,
 }
 
 impl CollisionCheckingResult {
