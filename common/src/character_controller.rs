@@ -99,10 +99,10 @@ impl CharacterControllerPass<'_> {
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
-                *self.velocity = apply_normals(active_normals.clone(), *self.velocity);
+                apply_normals(&active_normals, self.velocity);
 
                 expected_displacement -= cc_result.displacement_vector;
-                expected_displacement = apply_normals(active_normals.clone(), expected_displacement);
+                apply_normals(&active_normals, &mut expected_displacement);
             } else {
                 break;
             }
@@ -171,15 +171,15 @@ impl CharacterControllerPass<'_> {
 }
 
 fn apply_normals(
-    normals: Vec<na::UnitVector3<f32>>,
-    mut subject: na::Vector3<f32>,
-) -> na::Vector3<f32> {
+    normals: &Vec<na::UnitVector3<f32>>,
+    subject: &mut na::Vector3<f32>,
+) {
     let epsilon = subject.magnitude() * 1e-4;
 
     if normals.len() >= 3 {
         // The normals are assumed to be linearly independent,
         // so applying all of them will zero out the subject.
-        return na::Vector3::zeros();
+        *subject = na::Vector3::zeros();
     }
 
     let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
@@ -191,10 +191,8 @@ fn apply_normals(
         }
         let subject_displacement_factor =
             (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
-        subject += ortho_normals[i] * subject_displacement_factor;
+        *subject += ortho_normals[i] * subject_displacement_factor;
     }
-
-    subject
 }
 
 struct CollisionCheckingResult {
