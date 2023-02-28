@@ -1,3 +1,4 @@
+use rand_distr::num_traits::Zero;
 use tracing::{error, info};
 
 use crate::{
@@ -87,19 +88,16 @@ impl CharacterControllerPass<'_> {
 
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
         let mut remaining_dt = self.dt_seconds;
-        for i in 0..5 {
+        for _ in 0..5 {
             let cc_result = self.check_collision(&(effective_velocity * remaining_dt));
-            self.position.local *= cc_result.allowed_displacement;
+            self.position.local *= cc_result.displacement_transform;
 
             if let Some(collision) = cc_result.collision {
-                if i >= 1 {
-                    println!("Blocked by {}, {}, {:?}", collision.report, collision.tanh_distance, collision.normal.dot(&effective_velocity));
-                }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
-                *self.velocity = apply_normals(active_normals.clone(), effective_velocity);
-                effective_velocity = *self.velocity;
+                *self.velocity = apply_normals(active_normals.clone(), *self.velocity);
+                effective_velocity = apply_normals(active_normals.clone(), effective_velocity);
                 remaining_dt -= collision.tanh_distance.atanh() / initial_velocity_norm;
             } else {
                 break;
@@ -141,19 +139,17 @@ impl CharacterControllerPass<'_> {
             }
         };
 
-        let allowed_displacement = math::translate(
-            &ray.position,
-            &math::lorentz_normalize(
-                &ray.ray_point(
-                    cast_hit
-                        .as_ref()
-                        .map_or(tanh_distance, |hit| hit.tanh_distance),
-                ),
-            ),
-        );
+        let distance = cast_hit
+            .as_ref()
+            .map_or(tanh_distance, |hit| hit.tanh_distance)
+            .atanh();
+
+        let displacement_vector = displacement_normalized.xyz() * distance;
+        let displacement_transform = math::translate_along(&displacement_vector);
 
         CollisionCheckingResult {
-            allowed_displacement,
+            displacement_vector,
+            displacement_transform,
             collision: cast_hit.map(|hit| Collision {
                 tanh_distance: hit.tanh_distance,
                 // `CastEndpoint` has its `normal` given relative to the character's original position,
@@ -161,7 +157,7 @@ impl CharacterControllerPass<'_> {
                 // This normal now represents a contact point at the origin, so we omit the w-coordinate
                 // to ensure that it's orthogonal to the origin.
                 normal: na::UnitVector3::new_normalize(
-                    (math::mtranspose(&allowed_displacement) * hit.normal).xyz(),
+                    (math::mtranspose(&displacement_transform) * hit.normal).xyz(),
                 ),
 
                 report: hit.report,
@@ -193,7 +189,8 @@ fn apply_normals(
             (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
         subject += ortho_normals[i] * subject_displacement_factor;*/
 
-        subject = subject - ortho_normals[i] * subject.dot(&ortho_normals[i]) + ortho_normals[i] * epsilon;
+        subject = subject - ortho_normals[i] * subject.dot(&ortho_normals[i])
+            + ortho_normals[i] * epsilon;
     }
 
     /*println!("Subject: {:?}, Epsilon: {}", subject, epsilon);
@@ -209,9 +206,10 @@ fn apply_normals(
 }
 
 struct CollisionCheckingResult {
+    displacement_vector: na::Vector3<f32>,
     /// Multiplying the character's position by this matrix will move the character as far as it can up to its intended
     /// displacement until it hits the wall.
-    allowed_displacement: na::Matrix4<f32>,
+    displacement_transform: na::Matrix4<f32>,
     collision: Option<Collision>,
 }
 
@@ -231,7 +229,8 @@ impl CollisionCheckingResult {
     /// and has nothing to check collision against. Also useful as a last resort fallback if an unexpected error occurs.
     fn stationary() -> CollisionCheckingResult {
         CollisionCheckingResult {
-            allowed_displacement: na::Matrix4::identity(),
+            displacement_vector: na::Vector3::zeros(),
+            displacement_transform: na::Matrix4::identity(),
             collision: None,
         }
     }
