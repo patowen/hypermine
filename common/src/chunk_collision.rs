@@ -183,7 +183,6 @@ fn find_edge_collision(
             t_axis,
             na::Vector4::new(0.0, 0.0, 1.0, layout.grid_to_dual(v)),
         );
-
         let edge_normal1 = math::lorentz_normalize(
             &(edge_normal1 - edge_normal0 * math::mip(&edge_normal0, &edge_normal1)),
         );
@@ -261,16 +260,24 @@ fn find_vertex_collision(
             continue;
         }
 
-        // Determine the cube-centric coordinates of the vertex
-        let vertex_position = math::lorentz_normalize(&na::Vector4::new(
-            layout.grid_to_dual(x),
-            layout.grid_to_dual(y),
-            layout.grid_to_dual(z),
-            1.0,
-        ));
+        // Compute vectors Lorentz-orthogonal to the vertex and to each other
+        let vertex_normal0 =
+            math::lorentz_normalize(&na::Vector4::new(1.0, 0.0, 0.0, layout.grid_to_dual(x)));
+
+        let vertex_normal1 = na::Vector4::new(0.0, 1.0, 0.0, layout.grid_to_dual(y));
+        let vertex_normal1 = math::lorentz_normalize(
+            &(vertex_normal1 - vertex_normal0 * math::mip(&vertex_normal0, &vertex_normal1)),
+        );
+
+        let vertex_normal2 = na::Vector4::new(0.0, 0.0, 1.0, layout.grid_to_dual(z));
+        let vertex_normal2 = math::lorentz_normalize(
+            &(vertex_normal2
+                - vertex_normal0 * math::mip(&vertex_normal0, &vertex_normal2)
+                - vertex_normal1 * math::mip(&vertex_normal1, &vertex_normal2)),
+        );
 
         let Some(new_tanh_distance) =
-            solve_sphere_point_intersection(ray, &vertex_position, collider_radius.cosh()) else {
+            solve_sphere_point_intersection(ray, &vertex_normal0, &vertex_normal1, &vertex_normal2, collider_radius.sinh()) else {
                 continue;
             };
 
@@ -278,6 +285,14 @@ fn find_vertex_collision(
         if new_tanh_distance >= hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance) {
             continue;
         }
+
+        // Determine the cube-centric coordinates of the vertex
+        let vertex_position = math::lorentz_normalize(&na::Vector4::new(
+            layout.grid_to_dual(x),
+            layout.grid_to_dual(y),
+            layout.grid_to_dual(z),
+            1.0,
+        ));
 
         // A collision was found. Update the hit.
         let ray_endpoint = ray.ray_point(new_tanh_distance);
@@ -316,8 +331,6 @@ fn solve_sphere_line_intersection(
     line_normal1: &na::Vector4<f32>,
     sinh_radius: f32,
 ) -> Option<f32> {
-    // This could be made more numerically stable by using a formula that depends on sinh_radius,
-    // but the precision requirements of collision should be pretty lax.
     let mip_pos_a = math::mip(&ray.position, line_normal0);
     let mip_dir_a = math::mip(&ray.direction, line_normal0);
     let mip_pos_b = math::mip(&ray.position, line_normal1);
@@ -334,18 +347,22 @@ fn solve_sphere_line_intersection(
 /// intersects the given point.
 fn solve_sphere_point_intersection(
     ray: &Ray,
-    point_position: &na::Vector4<f32>,
-    cosh_radius: f32,
+    point_normal0: &na::Vector4<f32>,
+    point_normal1: &na::Vector4<f32>,
+    point_normal2: &na::Vector4<f32>,
+    sinh_radius: f32,
 ) -> Option<f32> {
-    // This could be made more numerically stable by using a formula that depends on sinh_radius,
-    // but the precision requirements of collision should be pretty lax.
-    let mip_pos_a = math::mip(&ray.position, point_position);
-    let mip_dir_a = math::mip(&ray.direction, point_position);
+    let mip_pos_a = math::mip(&ray.position, point_normal0);
+    let mip_dir_a = math::mip(&ray.direction, point_normal0);
+    let mip_pos_b = math::mip(&ray.position, point_normal1);
+    let mip_dir_b = math::mip(&ray.direction, point_normal1);
+    let mip_pos_c = math::mip(&ray.position, point_normal2);
+    let mip_dir_c = math::mip(&ray.direction, point_normal2);
 
     solve_quadratic(
-        mip_pos_a.powi(2) - cosh_radius.powi(2),
-        mip_pos_a * mip_dir_a,
-        mip_dir_a.powi(2) + cosh_radius.powi(2),
+        mip_pos_a.powi(2) + mip_pos_b.powi(2) + mip_pos_c.powi(2) - sinh_radius.powi(2),
+        mip_pos_a * mip_dir_a + mip_pos_b * mip_dir_b + mip_pos_c * mip_dir_c,
+        mip_dir_a.powi(2) + mip_dir_b.powi(2) + mip_dir_c.powi(2) + sinh_radius.powi(2),
     )
 }
 
@@ -928,13 +945,10 @@ mod tests {
             * &Ray::new(math::origin(), na::Vector4::x());
         let line_normal0 = na::Vector4::x();
         let line_normal1 = na::Vector4::z();
-        assert!(solve_sphere_line_intersection(
-            &ray,
-            &line_normal0,
-            &line_normal1,
-            0.2_f32.sinh()
-        )
-        .is_none());
+        assert!(
+            solve_sphere_line_intersection(&ray, &line_normal0, &line_normal1, 0.2_f32.sinh())
+                .is_none()
+        );
     }
 
     #[test]
@@ -945,13 +959,8 @@ mod tests {
         let line_normal0 = na::Vector4::x();
         let line_normal1 = na::Vector4::z();
         assert_eq!(
-            solve_sphere_line_intersection(
-                &ray,
-                &line_normal0,
-                &line_normal1,
-                0.2001_f32.sinh()
-            )
-            .unwrap(),
+            solve_sphere_line_intersection(&ray, &line_normal0, &line_normal1, 0.2001_f32.sinh())
+                .unwrap(),
             0.0
         );
     }
@@ -965,9 +974,21 @@ mod tests {
                 na::Vector4::new(1.0, 2.0, 6.0, 0.0).normalize(),
             );
         let point_position = math::origin();
-        let hit_point = math::lorentz_normalize(&ray.ray_point(
-            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).unwrap(),
-        ));
+        let point_normal0 = na::Vector4::x();
+        let point_normal1 = na::Vector4::y();
+        let point_normal2 = na::Vector4::z();
+        let hit_point = math::lorentz_normalize(
+            &ray.ray_point(
+                solve_sphere_point_intersection(
+                    &ray,
+                    &point_normal0,
+                    &point_normal1,
+                    &point_normal2,
+                    0.2_f32.sinh(),
+                )
+                .unwrap(),
+            ),
+        );
         assert_abs_diff_eq!(
             -math::mip(&hit_point, &point_position),
             0.2_f32.cosh(),
@@ -980,9 +1001,18 @@ mod tests {
         // Directly hit the origin with a ray 0.5 units away and a radius of 0.2.
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let point_position = math::origin();
+        let point_normal0 = na::Vector4::x();
+        let point_normal1 = na::Vector4::y();
+        let point_normal2 = na::Vector4::z();
         assert_abs_diff_eq!(
-            solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).unwrap(),
+            solve_sphere_point_intersection(
+                &ray,
+                &point_normal0,
+                &point_normal1,
+                &point_normal2,
+                0.2_f32.sinh()
+            )
+            .unwrap(),
             0.3_f32.tanh(),
             epsilon = 1e-4
         );
@@ -993,8 +1023,17 @@ mod tests {
         // No collision with the point anywhere along the ray's line
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(math::origin(), na::Vector4::x());
-        let point_position = math::origin();
-        assert!(solve_sphere_point_intersection(&ray, &point_position, 0.2_f32.cosh()).is_none());
+        let point_normal0 = na::Vector4::x();
+        let point_normal1 = na::Vector4::y();
+        let point_normal2 = na::Vector4::z();
+        assert!(solve_sphere_point_intersection(
+            &ray,
+            &point_normal0,
+            &point_normal1,
+            &point_normal2,
+            0.2_f32.sinh()
+        )
+        .is_none());
     }
 
     #[test]
@@ -1002,9 +1041,18 @@ mod tests {
         // Sphere is already contacting the point, with some error
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.2))
             * &Ray::new(math::origin(), na::Vector4::z());
-        let point_position = math::origin();
+        let point_normal0 = na::Vector4::x();
+        let point_normal1 = na::Vector4::y();
+        let point_normal2 = na::Vector4::z();
         assert_eq!(
-            solve_sphere_point_intersection(&ray, &point_position, 0.2001_f32.cosh()).unwrap(),
+            solve_sphere_point_intersection(
+                &ray,
+                &point_normal0,
+                &point_normal1,
+                &point_normal2,
+                0.2001_f32.sinh()
+            )
+            .unwrap(),
             0.0
         );
     }
