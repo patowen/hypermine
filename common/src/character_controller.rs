@@ -7,7 +7,6 @@ use crate::{
     sanitize_motion_input, SimConfig,
 };
 
-#[allow(clippy::too_many_arguments)]
 pub fn run_character_step(
     cfg: &SimConfig,
     graph: &DualGraph,
