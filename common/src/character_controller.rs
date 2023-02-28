@@ -1,4 +1,3 @@
-use rand_distr::num_traits::Zero;
 use tracing::{error, info};
 
 use crate::{
@@ -69,7 +68,7 @@ impl CharacterControllerPass<'_> {
             let expected_displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
 
             // Update position with collision checking
-            self.apply_velocity((*self.velocity + old_velocity) * 0.5);
+            self.apply_velocity(expected_displacement);
         }
 
         // Renormalize
@@ -83,13 +82,10 @@ impl CharacterControllerPass<'_> {
         }
     }
 
-    fn apply_velocity(&mut self, mut effective_velocity: na::Vector3<f32>) {
-        let initial_velocity_norm = self.velocity.norm();
-
+    fn apply_velocity(&mut self, mut expected_displacement: na::Vector3<f32>) {
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
-        let mut remaining_dt = self.dt_seconds;
         for _ in 0..5 {
-            let cc_result = self.check_collision(&(effective_velocity * remaining_dt));
+            let cc_result = self.check_collision(&expected_displacement);
             self.position.local *= cc_result.displacement_transform;
 
             if let Some(collision) = cc_result.collision {
@@ -97,8 +93,9 @@ impl CharacterControllerPass<'_> {
                 active_normals.push(collision.normal);
 
                 *self.velocity = apply_normals(active_normals.clone(), *self.velocity);
-                effective_velocity = apply_normals(active_normals.clone(), effective_velocity);
-                remaining_dt -= collision.tanh_distance.atanh() / initial_velocity_norm;
+
+                expected_displacement -= cc_result.displacement_vector;
+                expected_displacement = apply_normals(active_normals.clone(), expected_displacement);
             } else {
                 break;
             }
