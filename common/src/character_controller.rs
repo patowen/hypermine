@@ -13,20 +13,16 @@ pub fn run_character_step(
     graph: &DualGraph,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
-    orientation: &na::UnitQuaternion<f32>,
     input: &CharacterInput,
     dt_seconds: f32,
-    mode: u8,
 ) {
     CharacterControllerPass {
         cfg,
         graph,
         position,
         velocity,
-        orientation,
         input,
         dt_seconds,
-        mode,
     }
     .step();
 }
@@ -36,10 +32,8 @@ struct CharacterControllerPass<'a> {
     graph: &'a DualGraph,
     position: &'a mut Position,
     velocity: &'a mut na::Vector3<f32>,
-    orientation: &'a na::UnitQuaternion<f32>,
     input: &'a CharacterInput,
     dt_seconds: f32,
-    mode: u8,
 }
 
 impl CharacterControllerPass<'_> {
@@ -155,7 +149,6 @@ impl CharacterControllerPass<'_> {
             displacement_vector,
             displacement_transform,
             collision: cast_hit.map(|hit| Collision {
-                tanh_distance: hit.tanh_distance,
                 // `CastEndpoint` has its `normal` given relative to the character's original position,
                 // but we want the normal relative to the character after the character moves to meet the wall.
                 // This normal now represents a contact point at the origin, so we omit the w-coordinate
@@ -163,17 +156,12 @@ impl CharacterControllerPass<'_> {
                 normal: na::UnitVector3::new_normalize(
                     (math::mtranspose(&displacement_transform) * hit.normal).xyz(),
                 ),
-
-                report: hit.report,
             }),
         }
     }
 }
 
-fn apply_normals(
-    normals: &Vec<na::UnitVector3<f32>>,
-    subject: &mut na::Vector3<f32>,
-) {
+fn apply_normals(normals: &Vec<na::UnitVector3<f32>>, subject: &mut na::Vector3<f32>) {
     let epsilon = subject.magnitude() * 1e-4;
 
     if normals.len() >= 3 {
@@ -204,14 +192,10 @@ struct CollisionCheckingResult {
 }
 
 struct Collision {
-    tanh_distance: f32,
-
     /// This collision normal faces away from the collision surface and is given in the perspective of the character
     /// _after_ it is transformed by `allowed_displacement`. The 4th coordinate of this normal vector is assumed to be
     /// 0.0 and is therefore omitted.
     normal: na::UnitVector3<f32>,
-
-    report: String,
 }
 
 impl CollisionCheckingResult {

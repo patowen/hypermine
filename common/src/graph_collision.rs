@@ -71,7 +71,6 @@ pub fn sphere_cast(
                 normal: math::mtranspose(&node_transform)
                     * chunk.vertex.dual_to_node().cast()
                     * hit.normal,
-                report: hit.report,
             })
         });
 
@@ -148,8 +147,6 @@ pub struct GraphCastHit {
     /// of the sphere casting. To get the actual normal vector, project it so that it is orthogonal
     /// to the endpoint in Lorentz space.
     pub normal: na::Vector4<f32>,
-
-    pub report: String,
 }
 
 /// A ray in hyperbolic space. The fields must be lorentz normalized, with `mip(position, position) == -1`,
