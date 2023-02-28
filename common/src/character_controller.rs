@@ -7,6 +7,7 @@ use crate::{
     sanitize_motion_input, SimConfig,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_character_step(
     cfg: &SimConfig,
     graph: &DualGraph,
@@ -15,6 +16,7 @@ pub fn run_character_step(
     orientation: &na::UnitQuaternion<f32>,
     input: &CharacterInput,
     dt_seconds: f32,
+    mode: u8,
 ) {
     CharacterControllerPass {
         cfg,
@@ -24,6 +26,7 @@ pub fn run_character_step(
         orientation,
         input,
         dt_seconds,
+        mode,
     }
     .step();
 }
@@ -36,6 +39,7 @@ struct CharacterControllerPass<'a> {
     orientation: &'a na::UnitQuaternion<f32>,
     input: &'a CharacterInput,
     dt_seconds: f32,
+    mode: u8,
 }
 
 impl CharacterControllerPass<'_> {
@@ -92,7 +96,9 @@ impl CharacterControllerPass<'_> {
             self.position.local *= cc_result.displacement_transform;
 
             if let Some(collision) = cc_result.collision {
-                println!("Collision: {}, Normal: {:?}", collision.report, self.orientation.conjugate().to_rotation_matrix() * collision.normal);
+                if self.mode == 2 {
+                    println!("Collision: {}, Normal: {:?}", collision.report, self.orientation.conjugate().to_rotation_matrix() * collision.normal);
+                }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 

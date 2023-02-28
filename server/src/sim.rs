@@ -130,6 +130,7 @@ impl Sim {
                 &character.state.orientation,
                 input,
                 self.cfg.step_interval.as_secs_f32(),
+                0, // Server
             );
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }

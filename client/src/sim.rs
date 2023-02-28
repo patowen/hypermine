@@ -328,6 +328,7 @@ impl Sim {
                 &self.orientation,
                 &predicted_input,
                 self.since_input_sent.as_secs_f32(),
+                2, // Post-prediction view
             );
         }
         result.local *= self.orientation.to_homogeneous();

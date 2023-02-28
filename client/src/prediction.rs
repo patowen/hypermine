@@ -42,6 +42,7 @@ impl PredictedMotion {
             orientation,
             input,
             cfg.step_interval.as_secs_f32(),
+            1, // Prediction
         );
         self.log.push_back(input.clone());
         self.generation = self.generation.wrapping_add(1);
@@ -74,9 +75,10 @@ impl PredictedMotion {
                 graph,
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
-                &orientation,
+                orientation,
                 input,
                 cfg.step_interval.as_secs_f32(),
+                3, // Reconcile
             );
         }
     }
