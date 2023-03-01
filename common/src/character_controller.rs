@@ -160,15 +160,21 @@ impl CharacterControllerPass<'_> {
     }
 }
 
-fn apply_normals(normals: &Vec<na::UnitVector3<f32>>, subject: &mut na::Vector3<f32>) {
-    let epsilon = subject.magnitude() * 1e-4;
-
+fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
     if normals.len() >= 3 {
-        // The normals are assumed to be linearly independent,
-        // so applying all of them will zero out the subject.
+        // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
+        // There is no need to do any extra logic to handle precision limitations in this case.
         *subject = na::Vector3::zeros();
     }
 
+    apply_normals_internal(normals, subject, subject.magnitude() * 1e-4);
+}
+
+fn apply_normals_internal(
+    normals: &[na::UnitVector3<f32>],
+    subject: &mut na::Vector3<f32>,
+    distance: f32,
+) {
     let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
     for i in 0..normals.len() {
         for j in i + 1..normals.len() {
@@ -177,7 +183,7 @@ fn apply_normals(normals: &Vec<na::UnitVector3<f32>>, subject: &mut na::Vector3<
             .normalize();
         }
         let subject_displacement_factor =
-            (epsilon - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
+            (distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
         *subject += ortho_normals[i] * subject_displacement_factor;
     }
 }
@@ -205,6 +211,53 @@ impl CollisionCheckingResult {
             displacement_vector: na::Vector3::zeros(),
             displacement_transform: na::Matrix4::identity(),
             collision: None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use approx::assert_abs_diff_eq;
+
+    use super::*;
+
+    #[test]
+    fn apply_normals_internal_examples() {
+        // Zero vectors (No-op but should not panic)
+        test_apply_normals_internal(&[], [0.60, -0.85, 0.90], 0.2);
+
+        // One vector
+        test_apply_normals_internal(&[[-0.48, -0.10, -0.67]], [0.85, -0.53, -0.61], 0.2);
+
+        // Two vectors
+        test_apply_normals_internal(
+            &[[-0.17, 0.07, -0.38], [-0.85, 0.19, -0.84]],
+            [0.19, -0.84, -0.62],
+            0.2,
+        );
+
+        // Three vectors (Not in use as of the creation of this test but should work anyways)
+        test_apply_normals_internal(
+            &[
+                [-0.24, 0.90, -0.06],
+                [-0.91, 0.01, 0.44],
+                [0.02, -0.65, -0.12],
+            ],
+            [0.91, -0.01, -0.61],
+            0.2,
+        );
+    }
+
+    fn test_apply_normals_internal(normals: &[[f32; 3]], subject: [f32; 3], distance: f32) {
+        let normals: Vec<na::UnitVector3<f32>> = normals
+            .iter()
+            .map(|n| na::UnitVector3::new_normalize(na::Vector3::new(n[0], n[1], n[2])))
+            .collect();
+        let mut subject = na::Vector3::new(subject[0], subject[1], subject[2]);
+
+        apply_normals_internal(&normals, &mut subject, distance);
+        for normal in normals {
+            assert_abs_diff_eq!(subject.dot(&normal), distance, epsilon = 1.0e-5);
         }
     }
 }
