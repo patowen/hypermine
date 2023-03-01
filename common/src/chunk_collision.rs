@@ -952,6 +952,86 @@ mod tests {
     }
 
     #[test]
+    fn solve_sphere_line_intersection_precision() {
+        // Using ray coordinates determined empirically from manual playtesting, show that the
+        // current implementation of `solve_sphere_line_intersection` provides better results
+        // than an arguably-simpler implementation involving the line's position and direction.
+        // Similar reasoning can also apply to `solve_sphere_point_intersection` even though it is
+        // not tested explicitly in the same way.
+        let ray = Ray::new(
+            na::Vector4::new(-0.019093871, -0.0014823675, 0.059645057, 1.0019588),
+            na::Vector4::new(-0.02954007, 0.9965602, 0.07752046, 0.003702946),
+        );
+        let line_position = na::Vector4::<f32>::w();
+        let line_direction = na::Vector4::<f32>::z();
+        let line_normal0 = na::Vector4::<f32>::x();
+        let line_normal1 = na::Vector4::<f32>::y();
+        let radius = 0.019090926_f32;
+        // Show that the actual implementation returns the correct result
+        assert!(
+            solve_sphere_line_intersection(&ray, &line_normal0, &line_normal1, radius.sinh())
+                .is_none()
+        );
+        // Show that the alternative implementation returns the wrong result
+        assert_eq!(
+            solve_sphere_line_intersection_alternative_implementation(
+                &ray,
+                &line_position,
+                &line_direction,
+                radius.cosh()
+            ),
+            Some(0.0)
+        );
+        // Show that the ray is well-behaved
+        assert_abs_diff_eq!(
+            math::mip(&ray.position, &ray.position),
+            -1.0,
+            epsilon = 1.0e-5
+        );
+        assert_abs_diff_eq!(
+            math::mip(&ray.direction, &ray.direction),
+            1.0,
+            epsilon = 1.0e-5
+        );
+        assert_abs_diff_eq!(
+            math::mip(&ray.position, &ray.direction),
+            0.0,
+            epsilon = 1.0e-5
+        );
+        // Show that the correct result is not to report an intersection with a distance of 0.0 by measuring the
+        // the distance from the ray's position to the line in higher-precision arithmetic.
+        assert!(
+            math::lorentz_normalize(&ray.position.cast::<f64>())
+                .xy()
+                .magnitude()
+                > (radius as f64).sinh()
+        );
+    }
+
+    /// An alternative implementation of `solve_sphere_line_intersection` that uses the line's position
+    /// and direction instead of two normals. Ostensibly, the results are the same, but for small radii,
+    /// this implementation has less precision.
+    fn solve_sphere_line_intersection_alternative_implementation(
+        ray: &Ray,
+        line_position: &na::Vector4<f32>,
+        line_direction: &na::Vector4<f32>,
+        cosh_radius: f32,
+    ) -> Option<f32> {
+        // This could be made more numerically stable by using a formula that depends on sinh_radius,
+        // but the precision requirements of collision should be pretty lax.
+        let mip_pos_a = math::mip(&ray.position, line_position);
+        let mip_dir_a = math::mip(&ray.direction, line_position);
+        let mip_pos_b = math::mip(&ray.position, line_direction);
+        let mip_dir_b = math::mip(&ray.direction, line_direction);
+
+        solve_quadratic(
+            mip_pos_a.powi(2) - mip_pos_b.powi(2) - cosh_radius.powi(2),
+            mip_pos_a * mip_dir_a - mip_pos_b * mip_dir_b,
+            mip_dir_a.powi(2) - mip_dir_b.powi(2) + cosh_radius.powi(2),
+        )
+    }
+
+    #[test]
     fn solve_sphere_point_intersection_example() {
         // Hit the origin with a radius of 0.2
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))

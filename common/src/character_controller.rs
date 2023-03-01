@@ -220,7 +220,7 @@ fn apply_normals_internal(
 }
 
 struct CollisionCheckingResult {
-    ///The displacement allowed by the character before hitting a wall. The result of
+    /// The displacement allowed for the character before hitting a wall. The result of
     /// `math::translate_along(&displacement_vector)` is `displacement_transform`.
     displacement_vector: na::Vector3<f32>,
 
