@@ -81,7 +81,7 @@ impl CharacterControllerPass<'_> {
         }
     }
 
-    /// Update the position based on the given average velocity while handling collisions. Also updates the velocity
+    /// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
     /// based on collisions that occur.
     fn apply_velocity(&mut self, estimated_average_velocity: &na::Vector3<f32>) {
         // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
