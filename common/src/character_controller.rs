@@ -67,7 +67,6 @@ impl CharacterControllerPass<'_> {
             //    stop moving after releasing a direction key.
             let estimated_average_velocity = (*self.velocity + old_velocity) * 0.5;
 
-            // Update position with collision checking
             self.apply_velocity(&estimated_average_velocity);
         }
 
@@ -82,6 +81,8 @@ impl CharacterControllerPass<'_> {
         }
     }
 
+    /// Update the position based on the given average velocity while handling collisions. Also updates the velocity
+    /// based on collisions that occur.
     fn apply_velocity(&mut self, estimated_average_velocity: &na::Vector3<f32>) {
         // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
         // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
@@ -203,22 +204,30 @@ fn apply_normals_internal(
 ) {
     let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
     for i in 0..normals.len() {
+        // Perform the Gram-Schmidt process on `normals` to produce `ortho_normals`.
         for j in i + 1..normals.len() {
             ortho_normals[j] = (ortho_normals[j]
                 - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
             .normalize();
         }
-        let subject_displacement_factor =
-            (distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]);
-        *subject += ortho_normals[i] * subject_displacement_factor;
+
+        // The following formula ensures that the dot product of `subject` and `normals[i]` is `distance.
+        // Because we only move the subject along `ortho_normals[i]`, this adjustment does not affect the
+        // subject's dot product with any earlier normals.
+        *subject += ortho_normals[i]
+            * ((distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]));
     }
 }
 
 struct CollisionCheckingResult {
+    ///The displacement allowed by the character before hitting a wall. The result of
+    /// `math::translate_along(&displacement_vector)` is `displacement_transform`.
     displacement_vector: na::Vector3<f32>,
+
     /// Multiplying the character's position by this matrix will move the character as far as it can up to its intended
     /// displacement until it hits the wall.
     displacement_transform: na::Matrix4<f32>,
+
     collision: Option<Collision>,
 }
 
