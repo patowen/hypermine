@@ -1,4 +1,4 @@
-use tracing::error;
+use tracing::{error, warn};
 
 use crate::{
     graph_collision, math,
@@ -58,17 +58,17 @@ impl CharacterControllerPass<'_> {
                 *self.velocity += current_to_target_velocity;
             }
 
-            // Set expected displacement by using the average of the old velocity and new velocity,
+            // Estimate the average velocity by using the average of the old velocity and new velocity,
             // which has the effect of modeling a velocity that changes linearly over the timestep.
             // This is necessary to avoid the following two issues:
             // 1. Input lag, which would occur if only the old velocity was used
             // 2. Movement artifacts, which would occur if only the new velocity was used. One
             //    example of such an artifact is the character moving backwards slightly when they
             //    stop moving after releasing a direction key.
-            let expected_displacement = (*self.velocity + old_velocity) * 0.5 * self.dt_seconds;
+            let estimated_average_velocity = (*self.velocity + old_velocity) * 0.5;
 
             // Update position with collision checking
-            self.apply_velocity(expected_displacement);
+            self.apply_velocity(&estimated_average_velocity);
         }
 
         // Renormalize
@@ -82,23 +82,41 @@ impl CharacterControllerPass<'_> {
         }
     }
 
-    fn apply_velocity(&mut self, mut expected_displacement: na::Vector3<f32>) {
-        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
-        for _ in 0..5 {
-            let cc_result = self.check_collision(&expected_displacement);
-            self.position.local *= cc_result.displacement_transform;
+    fn apply_velocity(&mut self, estimated_average_velocity: &na::Vector3<f32>) {
+        // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
+        // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
+        // in which case further movement processing is delayed until the next time step.
+        const MAX_COLLISION_ITERATIONS: u32 = 5;
 
-            if let Some(collision) = cc_result.collision {
+        let mut expected_displacement = estimated_average_velocity * self.dt_seconds;
+        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+
+        let mut all_collisions_resolved = false;
+
+        for _ in 0..MAX_COLLISION_ITERATIONS {
+            let collision_result = self.check_collision(&expected_displacement);
+            self.position.local *= collision_result.displacement_transform;
+
+            if let Some(collision) = collision_result.collision {
+                // We maintain a list of surface normals that should restrict player movement. We remove normals for
+                // surfaces the player is pushed away from and add the surface normal of the latest collision.
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
 
-                apply_normals(&active_normals, self.velocity);
-
-                expected_displacement -= cc_result.displacement_vector;
+                // Update the expected displacement to whatever is remaining.
+                expected_displacement -= collision_result.displacement_vector;
                 apply_normals(&active_normals, &mut expected_displacement);
+
+                // Also update the velocity to ensure that walls kill momentum.
+                apply_normals(&active_normals, self.velocity);
             } else {
+                all_collisions_resolved = true;
                 break;
             }
+        }
+
+        if !all_collisions_resolved {
+            warn!("A character entity processed too many collisions and collision resolution was cut short.");
         }
     }
 
@@ -160,6 +178,10 @@ impl CharacterControllerPass<'_> {
     }
 }
 
+/// Modifies the `subject` by a linear combination of the `normals` to ensure that it is approximately
+/// orthogonal to all the normals. The normals are assumed to be linearly independent, and, assuming the final
+/// result is nonzero, a small correction is applied to ensure that the subject is moving away from the surfaces
+/// the normals represent even when floating point approximation is involved.
 fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
     if normals.len() >= 3 {
         // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
@@ -167,9 +189,13 @@ fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32
         *subject = na::Vector3::zeros();
     }
 
-    apply_normals_internal(normals, subject, subject.magnitude() * 1e-4);
+    // Corrective term to ensure that normals face away from any potential collision surfaces
+    const RELATIVE_EPSILON: f32 = 1e-4;
+    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
 }
 
+/// Modifies the `subject` by a linear combination of the `normals` so that the dot product with each normal is
+/// `distance`. The `normals` must be linearly independent for this function to work as expected.
 fn apply_normals_internal(
     normals: &[na::UnitVector3<f32>],
     subject: &mut na::Vector3<f32>,
