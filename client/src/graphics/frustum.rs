@@ -37,7 +37,7 @@ impl Frustum {
         let sx = right + left;
         let sy = down + up;
         // For an infinite far plane instead, za = 0 and zb = znear
-        let za = -zfar / (znear - zfar) - 1.0;
+        let za = -znear / (znear - zfar);
         let zb = -(znear * zfar) / (znear - zfar);
         na::Projective3::from_matrix_unchecked(
             na::Matrix4::new(
