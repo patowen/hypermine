@@ -99,7 +99,7 @@ pub fn sphere_cast(
                     > dodeca::BOUNDING_SPHERE_RADIUS as f32
                 {
                     // Ray cannot intersect node
-                    continue;
+                    //continue;
                 }
                 // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
                 let neighbor = graph.ensure_neighbor3(chunk.node, side);

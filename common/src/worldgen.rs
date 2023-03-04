@@ -894,34 +894,35 @@ mod test {
         populate_fresh_nodes(&mut graph);
         graph.ensure_node3(NodeId::ROOT);
 
-        let mut image_data: Vec<u8> = vec![];
-        let width = 64;
-        let height = 64;
-        for i in 0..width {
-            for j in 0..height {
-                let terrain_height = get_height(
-                    &mut graph,
-                    [
-                        (i as f32 / width as f32 - 0.5) * 2.0,
-                        (j as f32 / height as f32 - 0.5) * 2.0,
-                    ],
-                );
-                let color = ((terrain_height * 100.0).floor() as i32).min(255).max(0) as u8;
-                image_data.append(&mut vec![color, color, color, 255]);
+        if true {
+            let mut image_data: Vec<u8> = vec![];
+            let width = 128;
+            let height = 128;
+            for i in 0..width {
+                println!("{i}");
+                for j in 0..height {
+                    let terrain_height = get_height(
+                        &mut graph,
+                        [
+                            (i as f32 / width as f32 - 0.5) * 2.0,
+                            (j as f32 / height as f32 - 0.5) * 2.0,
+                        ],
+                    );
+                    let color = ((terrain_height * 100.0).floor() as i32).min(255).max(0) as u8;
+                    image_data.append(&mut vec![color, color, color, 255]);
+                }
             }
+
+            let path = Path::new("horohill_visualization.png");
+            let file = File::create(path).unwrap();
+            let mut w = BufWriter::new(file);
+
+            let mut encoder = png::Encoder::new(&mut w, width, height);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer.write_image_data(&image_data).unwrap();
         }
-
-        println!("{}", get_height(&mut graph, [0.0, 0.0]));
-
-        let path = Path::new("horohill_visualization.png");
-        let file = File::create(path).unwrap();
-        let mut w = BufWriter::new(file);
-
-        let mut encoder = png::Encoder::new(&mut w, width, height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        let mut writer = encoder.write_header().unwrap();
-        writer.write_image_data(&image_data).unwrap();
     }
 
     fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) -> f32 {
@@ -935,7 +936,15 @@ mod test {
             * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
         let mut node = NodeId::ROOT;
 
-        for i in 0..1000 {
+        for _ in 0..100 {
+            for side in Side::iter() {
+                if side.is_facing(&position) {
+                    position = side.reflection().cast() * position;
+                    node = graph.ensure_neighbor3(node, side);
+                    break;
+                }
+            }
+
             let state = &graph.get(node).as_ref().unwrap().state;
             let direction = state.surface.normal().cast();
             let direction =
@@ -954,24 +963,28 @@ mod test {
                     local: na::Matrix4::identity(),
                 },
                 &Ray::new(position, direction),
-                0.2,
+                0.1,
             )
             .unwrap()
             .is_none()
             {
+                let collision = graph_collision::sphere_cast(
+                    0.02,
+                    graph,
+                    &ChunkLayout::new(12),
+                    &Position {
+                        node,
+                        local: na::Matrix4::identity(),
+                    },
+                    &Ray::new(position, -direction),
+                    0.2,
+                ).unwrap();
+                height -= collision.map_or(0.2, |c| c.tanh_distance).atanh();
                 break;
             }
 
             position = math::lorentz_normalize(&(position + direction * 0.1));
             height += 0.1f32.atanh();
-
-            for side in Side::iter() {
-                if side.is_facing(&position) {
-                    position = side.reflection().cast() * position;
-                    node = graph.ensure_neighbor3(node, side);
-                    break;
-                }
-            }
         }
 
         height
