@@ -195,10 +195,8 @@ impl ChunkParams {
             chunk: chunk.vertex,
             env: chunk_incident_enviro_factors(graph, chunk)?,
             surface: state.surface,
-            is_road: state.kind == Sky
-                && ((state.road_state == East) || (state.road_state == West)),
-            is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
-                && ((state.road_state == East) || (state.road_state == West)),
+            is_road: false,
+            is_road_support: false,
             node_spice: state.spice,
         })
     }
@@ -211,10 +209,8 @@ impl ChunkParams {
             chunk: chunk.vertex,
             env,
             surface: state.surface,
-            is_road: state.kind == Sky
-                && ((state.road_state == East) || (state.road_state == West)),
-            is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
-                && ((state.road_state == East) || (state.road_state == West)),
+            is_road: false,
+            is_road_support: false,
             node_spice: state.spice,
         }
     }
@@ -921,8 +917,9 @@ mod test {
         for i in 0..1000 {
             let state = &graph.get(node).as_ref().unwrap().state;
             let direction = state.surface.normal().cast();
-            let direction = direction + position * math::mip(&direction, &position);
+            let direction = math::lorentz_normalize(&(direction + position * math::mip(&direction, &position)));
 
+            println!("{}, {}, {}", math::mip(&position, &direction), math::mip(&position, &position), math::mip(&direction, &direction));
             println!("{position:?}, {i}, {node:?}");
 
             if graph_collision::sphere_cast(
@@ -939,6 +936,7 @@ mod test {
             .unwrap()
             .is_none()
             {
+                println!("Found break in terrain");
                 break;
             }
 
