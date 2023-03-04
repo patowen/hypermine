@@ -76,7 +76,7 @@ impl NodeState {
             road_state: NodeStateRoad::ROOT,
             spice: 0,
             enviro: EnviroFactors {
-                max_elevation: 30.0,
+                max_elevation: 70.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
@@ -904,8 +904,8 @@ mod test {
                     let terrain_height = get_height(
                         &mut graph,
                         [
-                            (i as f32 / width as f32 - 0.5) * 2.0,
-                            (j as f32 / height as f32 - 0.5) * 2.0,
+                            (i as f32 / width as f32 - 0.5) * 2.0 * 0.1,
+                            (j as f32 / height as f32 - 0.5) * 2.0 * 0.1,
                         ],
                     );
                     let color = ((terrain_height * 20.0).floor() as i32).min(255).max(0) as u8;
@@ -963,7 +963,7 @@ mod test {
                     local: na::Matrix4::identity(),
                 },
                 &Ray::new(position, direction),
-                0.1,
+                0.12,
             )
             .unwrap()
             .is_none()
