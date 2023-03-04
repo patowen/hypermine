@@ -76,7 +76,7 @@ impl NodeState {
             road_state: NodeStateRoad::ROOT,
             spice: 0,
             enviro: EnviroFactors {
-                max_elevation: 0.0,
+                max_elevation: 30.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
@@ -619,10 +619,15 @@ fn hash(a: u64, b: u64) -> u64 {
 
 #[cfg(test)]
 mod test {
+    use std::fs::File;
+    use std::io::BufWriter;
+    use std::path::Path;
+
     use super::*;
-    use crate::node::{DualGraph, Node};
+    use crate::node::{populate_fresh_nodes, DualGraph, Node};
     use crate::Chunks;
     use approx::*;
+    use ordered_float::NotNan;
 
     const CHUNK_SIZE: u8 = 12;
 
@@ -833,5 +838,69 @@ mod test {
             let index = z as usize + y as usize * dimension + x as usize * dimension.pow(2);
             assert!(counter == index);
         }
+    }
+
+    #[test]
+    fn visualize_horohills() {
+        let mut graph = DualGraph::new();
+        *graph.get_mut(NodeId::ROOT) = Some(Node {
+            state: NodeState::root(),
+            chunks: Chunks::default(),
+        });
+        let a = ensure_node(&mut graph, NodeId::ROOT, Side::A);
+        ensure_node(&mut graph, a, Side::C);
+
+        println!("{:?}", Vertex::A.canonical_sides());
+        get_height(&mut graph, [0.0, 0.0]);
+
+        let path = Path::new("horohill_visualization.png");
+        let file = File::create(path).unwrap();
+        let mut w = BufWriter::new(file);
+
+        let mut encoder = png::Encoder::new(&mut w, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer
+            .write_image_data(&[
+                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
+            ])
+            .unwrap();
+    }
+
+    fn get_height(graph: &mut DualGraph, klein_start: [f64; 2]) {
+        let position: na::Vector4<f64> = Vertex::A.dual_to_node()
+            * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
+    }
+
+    /*fn get_height(graph: &mut DualGraph, klein_start: [f64; 2]) {
+        let mut node = NodeId::ROOT;
+        let position: na::Vector4<f64> = Vertex::A.dual_to_node()
+            * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
+        let mut target = Vertex::A.dual_to_node()
+            * math::translate(&math::origin(), &position)
+            * na::Vector4::new(-1.0, 0.0, 0.0, 1.0);
+
+        for _ in 0..20 {
+            let state = &graph.get(node).as_ref().unwrap().state;
+            let altitude = state.surface.distance_to(&math::origin());
+            let max_elevation = state.enviro.max_elevation;
+            if altitude > max_elevation {
+                break;
+            }
+            let side = Side::iter()
+                .max_by_key(|&side| NotNan::new(math::mip(&target, side.normal())).unwrap())
+                .unwrap();
+            node = ensure_node(graph, node, side);
+            target = side.reflection() * target;
+            println!("{:?}, {:?}", side, target);
+            println!("{:?}, {:?}", altitude, max_elevation);
+        }
+    }*/
+
+    fn ensure_node(graph: &mut DualGraph, parent: NodeId, side: Side) -> NodeId {
+        let node = graph.ensure_neighbor(parent, side);
+        populate_fresh_nodes(graph);
+        node
     }
 }
