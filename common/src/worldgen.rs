@@ -238,6 +238,7 @@ impl ChunkParams {
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
         {
+            //println!("Void chunk generated!");
             // The whole chunk is above ground and not part of the road
             return VoxelData::Solid(Material::Void);
         }
@@ -248,6 +249,7 @@ impl ChunkParams {
             return VoxelData::Solid(Material::Dirt);
         }
 
+        //println!("Non-solid chunk generated!");
         let mut voxels = VoxelData::Solid(Material::Void);
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(self.node_spice, self.chunk as u64));
 
@@ -892,24 +894,41 @@ mod test {
         populate_fresh_nodes(&mut graph);
         graph.ensure_node3(NodeId::ROOT);
 
-        get_height(&mut graph, [0.0, 0.0]);
+        let mut image_data: Vec<u8> = vec![];
+        let width = 64;
+        let height = 64;
+        for i in 0..width {
+            for j in 0..height {
+                let terrain_height = get_height(
+                    &mut graph,
+                    [
+                        (i as f32 / width as f32 - 0.5) * 2.0,
+                        (j as f32 / height as f32 - 0.5) * 2.0,
+                    ],
+                );
+                let color = ((terrain_height * 100.0).floor() as i32).min(255).max(0) as u8;
+                image_data.append(&mut vec![color, color, color, 255]);
+            }
+        }
 
         let path = Path::new("horohill_visualization.png");
         let file = File::create(path).unwrap();
         let mut w = BufWriter::new(file);
 
-        let mut encoder = png::Encoder::new(&mut w, 2, 2);
+        let mut encoder = png::Encoder::new(&mut w, width, height);
         encoder.set_color(png::ColorType::Rgba);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
-        writer
-            .write_image_data(&[
-                255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 0, 255,
-            ])
-            .unwrap();
+        writer.write_image_data(&image_data).unwrap();
     }
 
-    fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) {
+    fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) -> f32 {
+        let mut height = 0.0;
+
+        if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.9999 {
+            return 0.0;
+        }
+
         let mut position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
             * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
         let mut node = NodeId::ROOT;
@@ -917,9 +936,12 @@ mod test {
         for i in 0..1000 {
             let state = &graph.get(node).as_ref().unwrap().state;
             let direction = state.surface.normal().cast();
-            let direction = math::lorentz_normalize(&(direction + position * math::mip(&direction, &position)));
+            let direction =
+                math::lorentz_normalize(&(direction + position * math::mip(&direction, &position)));
 
-            println!("{}, {}", state.surface.distance_to(&position.cast()), state.enviro.max_elevation);
+            //println!("{i}, {:?}, {:?}, {:?}", node, position, direction);
+            //println!("{:?}, {:?}, {:?}", math::mip(&position, &position), math::mip(&direction, &direction), math::mip(&position, &direction));
+            //println!("{}, {}", state.surface.distance_to(&position.cast()), state.enviro.max_elevation);
 
             if graph_collision::sphere_cast(
                 0.02,
@@ -939,6 +961,7 @@ mod test {
             }
 
             position = math::lorentz_normalize(&(position + direction * 0.1));
+            height += 0.1f32.atanh();
 
             for side in Side::iter() {
                 if side.is_facing(&position) {
@@ -948,5 +971,7 @@ mod test {
                 }
             }
         }
+
+        height
     }
 }
