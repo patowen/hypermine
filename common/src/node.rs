@@ -33,13 +33,18 @@ impl DualGraph {
     }
 
     pub fn ensure_neighbor2(&mut self, node: NodeId, side: Side) -> NodeId {
-        let node = self.ensure_neighbor(node, side);
+        let new_node = self.ensure_neighbor(node, side);
         populate_fresh_nodes(self);
-        node
+        new_node
     }
 
     pub fn ensure_neighbor3(&mut self, node: NodeId, side: Side) -> NodeId {
-        let node = self.ensure_neighbor2(node, side);
+        let new_node = self.ensure_neighbor2(node, side);
+        self.ensure_node3(new_node);
+        new_node
+    }
+
+    pub fn ensure_node3(&mut self, node: NodeId) {
         for vertex in Vertex::iter() {
             let chunk = ChunkId::new(node, vertex);
             if let Chunk::Fresh = self.get_chunk(chunk).unwrap() {
@@ -50,7 +55,6 @@ impl DualGraph {
                 };
             }
         }
-        node
     }
 }
 

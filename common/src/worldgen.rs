@@ -571,15 +571,15 @@ fn chunk_incident_enviro_factors2(
     graph: &mut DualGraph,
     chunk: ChunkId,
 ) -> ChunkIncidentEnviroFactors {
-    chunk.vertex.dual_vertices().map(|(_, path)| {
-        path.fold(chunk.node, |node, side| graph.ensure_neighbor2(node, side))
-    });
+    for (_, path) in chunk.vertex.dual_vertices() {
+        path.fold(chunk.node, |node, side| graph.ensure_neighbor2(node, side));
+    }
 
     let mut i = chunk
         .vertex
         .dual_vertices()
         .map(|(_, path)| path.fold(chunk.node, |node, side| graph.neighbor(node, side).unwrap()))
-        .filter_map(|node| Some(graph.get(node).as_ref().unwrap().state.enviro));
+        .map(|node| graph.get(node).as_ref().unwrap().state.enviro);
 
     // this is a bit cursed, but I don't want to collect into a vec because perf,
     // and I can't just return an iterator because then something still references graph.
@@ -674,7 +674,7 @@ mod test {
 
     use super::*;
     use crate::graph_collision::Ray;
-    use crate::node::{ChunkLayout, DualGraph, Node, populate_fresh_nodes};
+    use crate::node::{populate_fresh_nodes, ChunkLayout, DualGraph, Node};
     use crate::proto::Position;
     use crate::{graph_collision, Chunks};
     use approx::*;
@@ -894,6 +894,7 @@ mod test {
     fn visualize_horohills() {
         let mut graph = DualGraph::new();
         populate_fresh_nodes(&mut graph);
+        graph.ensure_node3(NodeId::ROOT);
 
         get_height(&mut graph, [0.0, 0.0]);
 
@@ -936,6 +937,9 @@ mod test {
             .unwrap()
             .is_none()
             {
+                break;
+            }
+            if 3 > 2 {
                 break;
             }
         }
