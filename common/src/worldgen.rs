@@ -899,16 +899,19 @@ mod test {
             let width = 1024;
             let height = 1024;
             for i in 0..height {
-                /*graph = DualGraph::new();
-                populate_fresh_nodes(&mut graph);
-                graph.ensure_node3(NodeId::ROOT);*/
+                if graph.len() > 1000000 {
+                    // Avoid out-of-memory errors.
+                    graph = DualGraph::new();
+                    populate_fresh_nodes(&mut graph);
+                    graph.ensure_node3(NodeId::ROOT);
+                }
                 println!("{i}");
                 for j in 0..width {
-                    let terrain_height = get_height(
+                    let terrain_height = get_height_poincare(
                         &mut graph,
                         [
-                            (j as f32 / width as f32 - 0.5) * 2.0 * 0.1,
-                            (i as f32 / height as f32 - 0.5) * 2.0 * 0.1,
+                            (j as f32 / width as f32 - 0.5) * 2.0 * 1.0,
+                            (i as f32 / height as f32 - 0.5) * 2.0 * 1.0,
                         ],
                     );
                     let color = ((terrain_height * 20.0).floor() as i32).min(255).max(0) as u8;
@@ -928,10 +931,21 @@ mod test {
         }
     }
 
+    fn get_height_poincare(graph: &mut DualGraph, poincare_start: [f32; 2]) -> f32 {
+        let factor = 2.0 / (1.0 + (poincare_start[0].powi(2) + poincare_start[1].powi(2)));
+        if factor < 1.0 {
+            return 0.0;
+        }
+        get_height(
+            graph,
+            [poincare_start[0] * factor, poincare_start[1] * factor],
+        )
+    }
+
     fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) -> f32 {
         let mut height = 0.0;
 
-        if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.999 {
+        if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.9999 {
             return 0.0;
         }
 
@@ -981,7 +995,8 @@ mod test {
                     },
                     &Ray::new(position, -direction),
                     0.2,
-                ).unwrap();
+                )
+                .unwrap();
                 height -= collision.map_or(0.2, |c| c.tanh_distance).atanh();
                 break;
             }
