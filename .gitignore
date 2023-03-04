@@ -10,3 +10,5 @@ Cargo.lock
 /.vscode/tasks.json
 
 /tarpaulin-report.html
+
+common/horohill_visualization.png

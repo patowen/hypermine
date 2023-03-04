@@ -624,8 +624,10 @@ mod test {
     use std::path::Path;
 
     use super::*;
-    use crate::node::{populate_fresh_nodes, DualGraph, Node};
-    use crate::Chunks;
+    use crate::graph_collision::Ray;
+    use crate::node::{populate_fresh_nodes, ChunkLayout, DualGraph, Node};
+    use crate::proto::Position;
+    use crate::{graph_collision, Chunks};
     use approx::*;
     use ordered_float::NotNan;
 
@@ -868,9 +870,30 @@ mod test {
             .unwrap();
     }
 
-    fn get_height(graph: &mut DualGraph, klein_start: [f64; 2]) {
-        let position: na::Vector4<f64> = Vertex::A.dual_to_node()
+    fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) {
+        let position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
             * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
+        let node = NodeId::ROOT;
+
+        let state = &graph.get(node).as_ref().unwrap().state;
+        let direction = state.surface.normal().cast();
+        let direction = direction + position * math::mip(&direction, &position);
+
+        loop {
+            if graph_collision::sphere_cast(
+                0.02,
+                graph,
+                &ChunkLayout::new(12),
+                &Position {
+                    node,
+                    local: na::Matrix4::identity(),
+                },
+                &Ray::new(position, direction),
+                0.1,
+            ).unwrap().is_none() {
+                break;
+            }
+        }
     }
 
     /*fn get_height(graph: &mut DualGraph, klein_start: [f64; 2]) {
