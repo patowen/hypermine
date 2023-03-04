@@ -914,15 +914,17 @@ mod test {
     }
 
     fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) {
-        let position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
+        let mut position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
             * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
-        let node = NodeId::ROOT;
+        let mut node = NodeId::ROOT;
 
-        let state = &graph.get(node).as_ref().unwrap().state;
-        let direction = state.surface.normal().cast();
-        let direction = direction + position * math::mip(&direction, &position);
+        for i in 0..1000 {
+            let state = &graph.get(node).as_ref().unwrap().state;
+            let direction = state.surface.normal().cast();
+            let direction = direction + position * math::mip(&direction, &position);
 
-        loop {
+            println!("{position:?}, {i}, {node:?}");
+
             if graph_collision::sphere_cast(
                 0.02,
                 graph,
@@ -939,8 +941,15 @@ mod test {
             {
                 break;
             }
-            if 3 > 2 {
-                break;
+
+            position = math::lorentz_normalize(&(position + direction * 0.1));
+
+            for side in Side::iter() {
+                if side.is_facing(&position) {
+                    position = side.reflection().cast() * position;
+                    node = graph.ensure_neighbor3(node, side);
+                    break;
+                }
             }
         }
     }
