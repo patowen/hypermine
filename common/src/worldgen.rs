@@ -908,7 +908,7 @@ mod test {
                             (j as f32 / height as f32 - 0.5) * 2.0,
                         ],
                     );
-                    let color = ((terrain_height * 100.0).floor() as i32).min(255).max(0) as u8;
+                    let color = ((terrain_height * 20.0).floor() as i32).min(255).max(0) as u8;
                     image_data.append(&mut vec![color, color, color, 255]);
                 }
             }
