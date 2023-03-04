@@ -63,7 +63,7 @@ impl NodeStateRoad {
 
 pub struct NodeState {
     kind: NodeStateKind,
-    surface: Plane<f64>,
+    pub surface: Plane<f64>,
     road_state: NodeStateRoad,
     spice: u64,
     enviro: EnviroFactors,
@@ -911,6 +911,8 @@ mod test {
             }
         }
 
+        println!("{}", get_height(&mut graph, [0.0, 0.0]));
+
         let path = Path::new("horohill_visualization.png");
         let file = File::create(path).unwrap();
         let mut w = BufWriter::new(file);
@@ -926,7 +928,7 @@ mod test {
         let mut height = 0.0;
 
         if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.9999 {
-            return 0.0;
+            return 0.1;
         }
 
         let mut position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
@@ -952,7 +954,7 @@ mod test {
                     local: na::Matrix4::identity(),
                 },
                 &Ray::new(position, direction),
-                0.1,
+                0.2,
             )
             .unwrap()
             .is_none()

@@ -8,6 +8,7 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
     graph::{Graph, NodeId},
+    math,
     node::{populate_fresh_nodes, DualGraph},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
@@ -304,9 +305,23 @@ impl Sim {
         });
     }
 
-    pub fn view(&self) -> Position {
+    pub fn view(&mut self) -> Position {
         let mut result = *self.prediction.predicted_position();
         let mut predicted_velocity = *self.prediction.predicted_velocity();
+
+        let surface = self.graph.get(result.node).as_ref().unwrap().state.surface;
+        let relative_normal = self.orientation.conjugate().to_homogeneous()
+            * math::mtranspose(&result.local)
+            * surface.normal().cast();
+        let total_height = surface.distance_to(&(result.local * math::origin()).cast::<f64>());
+        println!("{}", total_height);
+
+        self.orientation *= na::UnitQuaternion::rotation_between(
+            &-na::Vector3::z(),
+            &relative_normal.xyz().normalize(),
+        )
+        .unwrap_or(na::UnitQuaternion::identity());
+
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
