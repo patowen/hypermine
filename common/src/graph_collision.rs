@@ -21,7 +21,7 @@ use crate::{
 /// the closest node with ungenerated chunks is greater than `cast_distance + collider_radius + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn sphere_cast(
     collider_radius: f32,
-    graph: &DualGraph,
+    graph: &mut DualGraph,
     layout: &ChunkLayout,
     position: &Position,
     ray: &Ray,
@@ -102,10 +102,8 @@ pub fn sphere_cast(
                     continue;
                 }
                 // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
-                let Some(neighbor) = graph.neighbor(chunk.node, side) else {
-                    // Collision checking on nonexistent node
-                    return Err(SphereCastError::OutOfBounds);
-                };
+                let neighbor = graph.ensure_neighbor3(chunk.node, side);
+
                 // Assuming everything goes well, add the new chunk to the queue.
                 let next_chunk = ChunkId::new(neighbor, chunk.vertex);
                 if visited_chunks.insert(next_chunk) {
@@ -305,7 +303,7 @@ mod tests {
 
             let hit = sphere_cast(
                 self.collider_radius,
-                &graph,
+                &mut graph,
                 &layout,
                 &Position::origin(),
                 &ray,
@@ -547,7 +545,7 @@ mod tests {
 
         let hit = sphere_cast(
             sphere_radius,
-            &graph,
+            &mut graph,
             &layout,
             &Position::origin(),
             &ray,

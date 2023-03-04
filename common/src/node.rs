@@ -2,11 +2,11 @@
 
 use std::ops::{Index, IndexMut};
 
-use crate::dodeca::Vertex;
+use crate::dodeca::{Side, Vertex};
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::world::Material;
-use crate::worldgen::NodeState;
+use crate::worldgen::{ChunkParams, NodeState};
 use crate::Chunks;
 
 pub type DualGraph = Graph<Node>;
@@ -30,6 +30,27 @@ impl DualGraph {
 
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
+    }
+
+    pub fn ensure_neighbor2(&mut self, node: NodeId, side: Side) -> NodeId {
+        let node = self.ensure_neighbor(node, side);
+        populate_fresh_nodes(self);
+        node
+    }
+
+    pub fn ensure_neighbor3(&mut self, node: NodeId, side: Side) -> NodeId {
+        let node = self.ensure_neighbor2(node, side);
+        for vertex in Vertex::iter() {
+            let chunk = ChunkId::new(node, vertex);
+            if let Chunk::Fresh = self.get_chunk(chunk).unwrap() {
+                let params = ChunkParams::new2(12, self, chunk);
+                self[chunk] = Chunk::Populated {
+                    voxels: params.generate_voxels(),
+                    surface: None,
+                };
+            }
+        }
+        node
     }
 }
 

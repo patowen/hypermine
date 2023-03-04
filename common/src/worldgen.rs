@@ -203,6 +203,22 @@ impl ChunkParams {
         })
     }
 
+    pub fn new2(dimension: u8, graph: &mut DualGraph, chunk: ChunkId) -> Self {
+        let env = chunk_incident_enviro_factors2(graph, chunk);
+        let state = &graph.get(chunk.node).as_ref().unwrap().state;
+        Self {
+            dimension,
+            chunk: chunk.vertex,
+            env,
+            surface: state.surface,
+            is_road: state.kind == Sky
+                && ((state.road_state == East) || (state.road_state == West)),
+            is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
+                && ((state.road_state == East) || (state.road_state == West)),
+            node_spice: state.spice,
+        }
+    }
+
     pub fn chunk(&self) -> Vertex {
         self.chunk
     }
@@ -551,6 +567,39 @@ fn chunk_incident_enviro_factors(
     })
 }
 
+fn chunk_incident_enviro_factors2(
+    graph: &mut DualGraph,
+    chunk: ChunkId,
+) -> ChunkIncidentEnviroFactors {
+    chunk.vertex.dual_vertices().map(|(_, path)| {
+        path.fold(chunk.node, |node, side| graph.ensure_neighbor2(node, side))
+    });
+
+    let mut i = chunk
+        .vertex
+        .dual_vertices()
+        .map(|(_, path)| path.fold(chunk.node, |node, side| graph.neighbor(node, side).unwrap()))
+        .filter_map(|node| Some(graph.get(node).as_ref().unwrap().state.enviro));
+
+    // this is a bit cursed, but I don't want to collect into a vec because perf,
+    // and I can't just return an iterator because then something still references graph.
+    let (e1, t1, r1, b1) = i.next().unwrap().into();
+    let (e2, t2, r2, b2) = i.next().unwrap().into();
+    let (e3, t3, r3, b3) = i.next().unwrap().into();
+    let (e4, t4, r4, b4) = i.next().unwrap().into();
+    let (e5, t5, r5, b5) = i.next().unwrap().into();
+    let (e6, t6, r6, b6) = i.next().unwrap().into();
+    let (e7, t7, r7, b7) = i.next().unwrap().into();
+    let (e8, t8, r8, b8) = i.next().unwrap().into();
+
+    ChunkIncidentEnviroFactors {
+        max_elevations: [e1, e2, e3, e4, e5, e6, e7, e8],
+        temperatures: [t1, t2, t3, t4, t5, t6, t7, t8],
+        rainfalls: [r1, r2, r3, r4, r5, r6, r7, r8],
+        blockinesses: [b1, b2, b3, b4, b5, b6, b7, b8],
+    }
+}
+
 /// Linearly interpolate at interior and boundary of a cube given values at the eight corners.
 fn trilerp<N: na::RealField + Copy>(
     &[v000, v001, v010, v011, v100, v101, v110, v111]: &[N; 8],
@@ -625,11 +674,10 @@ mod test {
 
     use super::*;
     use crate::graph_collision::Ray;
-    use crate::node::{populate_fresh_nodes, ChunkLayout, DualGraph, Node};
+    use crate::node::{ChunkLayout, DualGraph, Node, populate_fresh_nodes};
     use crate::proto::Position;
     use crate::{graph_collision, Chunks};
     use approx::*;
-    use ordered_float::NotNan;
 
     const CHUNK_SIZE: u8 = 12;
 
@@ -845,14 +893,8 @@ mod test {
     #[test]
     fn visualize_horohills() {
         let mut graph = DualGraph::new();
-        *graph.get_mut(NodeId::ROOT) = Some(Node {
-            state: NodeState::root(),
-            chunks: Chunks::default(),
-        });
-        let a = ensure_node(&mut graph, NodeId::ROOT, Side::A);
-        ensure_node(&mut graph, a, Side::C);
+        populate_fresh_nodes(&mut graph);
 
-        println!("{:?}", Vertex::A.canonical_sides());
         get_height(&mut graph, [0.0, 0.0]);
 
         let path = Path::new("horohill_visualization.png");
@@ -890,40 +932,12 @@ mod test {
                 },
                 &Ray::new(position, direction),
                 0.1,
-            ).unwrap().is_none() {
+            )
+            .unwrap()
+            .is_none()
+            {
                 break;
             }
         }
-    }
-
-    /*fn get_height(graph: &mut DualGraph, klein_start: [f64; 2]) {
-        let mut node = NodeId::ROOT;
-        let position: na::Vector4<f64> = Vertex::A.dual_to_node()
-            * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
-        let mut target = Vertex::A.dual_to_node()
-            * math::translate(&math::origin(), &position)
-            * na::Vector4::new(-1.0, 0.0, 0.0, 1.0);
-
-        for _ in 0..20 {
-            let state = &graph.get(node).as_ref().unwrap().state;
-            let altitude = state.surface.distance_to(&math::origin());
-            let max_elevation = state.enviro.max_elevation;
-            if altitude > max_elevation {
-                break;
-            }
-            let side = Side::iter()
-                .max_by_key(|&side| NotNan::new(math::mip(&target, side.normal())).unwrap())
-                .unwrap();
-            node = ensure_node(graph, node, side);
-            target = side.reflection() * target;
-            println!("{:?}, {:?}", side, target);
-            println!("{:?}, {:?}", altitude, max_elevation);
-        }
-    }*/
-
-    fn ensure_node(graph: &mut DualGraph, parent: NodeId, side: Side) -> NodeId {
-        let node = graph.ensure_neighbor(parent, side);
-        populate_fresh_nodes(graph);
-        node
     }
 }
