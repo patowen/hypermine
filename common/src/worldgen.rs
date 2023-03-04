@@ -896,16 +896,19 @@ mod test {
 
         if true {
             let mut image_data: Vec<u8> = vec![];
-            let width = 128;
-            let height = 128;
-            for i in 0..width {
+            let width = 1024;
+            let height = 1024;
+            for i in 0..height {
+                /*graph = DualGraph::new();
+                populate_fresh_nodes(&mut graph);
+                graph.ensure_node3(NodeId::ROOT);*/
                 println!("{i}");
-                for j in 0..height {
+                for j in 0..width {
                     let terrain_height = get_height(
                         &mut graph,
                         [
-                            (i as f32 / width as f32 - 0.5) * 2.0 * 0.1,
-                            (j as f32 / height as f32 - 0.5) * 2.0 * 0.1,
+                            (j as f32 / width as f32 - 0.5) * 2.0 * 0.1,
+                            (i as f32 / height as f32 - 0.5) * 2.0 * 0.1,
                         ],
                     );
                     let color = ((terrain_height * 20.0).floor() as i32).min(255).max(0) as u8;
@@ -928,15 +931,15 @@ mod test {
     fn get_height(graph: &mut DualGraph, klein_start: [f32; 2]) -> f32 {
         let mut height = 0.0;
 
-        if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.9999 {
-            return 0.1;
+        if (klein_start[0].powi(2) + klein_start[1].powi(2)) > 0.999 {
+            return 0.0;
         }
 
         let mut position: na::Vector4<f32> = Vertex::A.dual_to_node().cast::<f32>()
             * math::lorentz_normalize(&na::Vector4::new(0.0, klein_start[0], klein_start[1], 1.0));
         let mut node = NodeId::ROOT;
 
-        for _ in 0..100 {
+        for _ in 0..128 {
             for side in Side::iter() {
                 if side.is_facing(&position) {
                     position = side.reflection().cast() * position;
