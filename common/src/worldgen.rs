@@ -919,8 +919,7 @@ mod test {
             let direction = state.surface.normal().cast();
             let direction = math::lorentz_normalize(&(direction + position * math::mip(&direction, &position)));
 
-            println!("{}, {}, {}", math::mip(&position, &direction), math::mip(&position, &position), math::mip(&direction, &direction));
-            println!("{position:?}, {i}, {node:?}");
+            println!("{}, {}", state.surface.distance_to(&position.cast()), state.enviro.max_elevation);
 
             if graph_collision::sphere_cast(
                 0.02,
@@ -936,7 +935,6 @@ mod test {
             .unwrap()
             .is_none()
             {
-                println!("Found break in terrain");
                 break;
             }
 
