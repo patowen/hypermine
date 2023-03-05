@@ -162,14 +162,8 @@ impl Window {
                 Event::DeviceEvent { event, .. } => match event {
                     DeviceEvent::MouseMotion { delta } if mouse_captured => {
                         const SENSITIVITY: f32 = 2e-3;
-                        let rot = na::UnitQuaternion::from_axis_angle(
-                            &na::Vector3::y_axis(),
-                            -delta.0 as f32 * SENSITIVITY,
-                        ) * na::UnitQuaternion::from_axis_angle(
-                            &na::Vector3::x_axis(),
-                            -delta.1 as f32 * SENSITIVITY,
-                        );
-                        self.sim.rotate(&rot);
+                        self.sim
+                            .look(-delta.0 as f32 * SENSITIVITY, -delta.1 as f32 * SENSITIVITY);
                     }
                     _ => {}
                 },
