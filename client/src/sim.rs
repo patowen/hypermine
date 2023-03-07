@@ -24,8 +24,7 @@ pub struct Sim {
     pub world: hecs::World,
     pub params: Option<Parameters>,
     pub local_character: Option<Entity>,
-    base_orientation: na::UnitQuaternion<f32>,
-    pitch: f32,
+    orientation: na::UnitQuaternion<f32>,
     step: Option<Step>,
 
     // Input state
@@ -56,8 +55,7 @@ impl Sim {
             world: hecs::World::new(),
             params: None,
             local_character: None,
-            base_orientation: na::one(),
-            pitch: 0.0,
+            orientation: na::one(),
             step: None,
 
             since_input_sent: Duration::new(0, 0),
@@ -73,26 +71,18 @@ impl Sim {
     }
 
     pub fn rotate(&mut self, delta: &na::UnitQuaternion<f32>) {
-        self.base_orientation *= delta;
+        self.orientation *= delta;
     }
 
     pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32) {
         if self.no_clip {
-            self.base_orientation *=
+            self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw)
                     * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
         } else {
-            self.base_orientation *=
+            self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
-            self.pitch = (self.pitch + delta_pitch)
-                .max(-std::f32::consts::FRAC_PI_2)
-                .min(std::f32::consts::FRAC_PI_2);
         }
-    }
-
-    fn orientation(&self) -> na::UnitQuaternion<f32> {
-        self.base_orientation
-            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), self.pitch)
     }
 
     pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
@@ -111,7 +101,7 @@ impl Sim {
     }
 
     pub fn step(&mut self, dt: Duration) {
-        self.base_orientation.renormalize_fast();
+        self.orientation.renormalize_fast();
 
         while let Ok(msg) = self.net.incoming.try_recv() {
             self.handle_net(msg);
@@ -136,10 +126,6 @@ impl Sim {
                 if self.toggle_no_clip {
                     self.no_clip = !self.no_clip;
                     self.toggle_no_clip = false;
-                    if self.no_clip {
-                        self.base_orientation = self.orientation();
-                        self.pitch = 0.0;
-                    }
                 }
 
                 // Reset state for the next step
@@ -314,7 +300,7 @@ impl Sim {
     fn send_input(&mut self) {
         let params = self.params.as_ref().unwrap();
         let character_input = CharacterInput {
-            movement: sanitize_motion_input(self.orientation() * self.average_movement_input),
+            movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
         };
         let generation = self
@@ -325,7 +311,7 @@ impl Sim {
         let _ = self.net.outgoing.send(Command {
             generation,
             character_input,
-            orientation: self.orientation(),
+            orientation: self.orientation,
         });
     }
 
@@ -339,7 +325,7 @@ impl Sim {
                 // is always over the entire timestep, filling in zeroes for the future, and we
                 // want to use the average over what we have so far. Dividing by zero is handled
                 // by the character_controller sanitizing this input.
-                movement: self.orientation() * self.average_movement_input
+                movement: self.orientation * self.average_movement_input
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.step_interval.as_secs_f32()),
                 no_clip: self.no_clip,
@@ -353,7 +339,7 @@ impl Sim {
                 self.since_input_sent.as_secs_f32(),
             );
         }
-        result.local *= self.orientation().to_homogeneous();
+        result.local *= self.orientation.to_homogeneous();
         result
     }
 
