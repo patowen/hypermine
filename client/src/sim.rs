@@ -42,6 +42,9 @@ pub struct Sim {
     /// Whether no_clip will be toggled next step
     toggle_no_clip: bool,
     prediction: PredictedMotion,
+    /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
+    /// orientation computations
+    view_position: Position,
 }
 
 impl Sim {
@@ -67,6 +70,7 @@ impl Sim {
                 node: NodeId::ROOT,
                 local: na::one(),
             }),
+            view_position: Position::origin(),
         }
     }
 
@@ -145,6 +149,33 @@ impl Sim {
                 self.average_movement_input +=
                     self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
             }
+            self.update_view_position();
+            if !self.no_clip {
+                self.align_to_gravity();
+            }
+        }
+    }
+
+    fn align_to_gravity(&mut self) {
+        if let Some(up) = self
+            .graph
+            .get(self.view_position.node)
+            .as_ref()
+            .map(|node| node.state.up_direction())
+        {
+            let local_up = (common::math::mtranspose(&self.view_position.local) * up)
+                .xyz()
+                .normalize();
+            let local_local_up = self.orientation.conjugate() * local_up;
+            let mut perp_up = local_local_up;
+            perp_up.z = 0.0;
+            perp_up.normalize_mut();
+            // TODO: Should keep things 2D, since this could be ambiguous otherwise. Also, get rid of
+            // unwrap.
+            let correction =
+                na::UnitQuaternion::rotation_between(&na::Vector3::y(), &perp_up).unwrap();
+            println!("{:?}", perp_up);
+            self.orientation *= correction;
         }
     }
 
@@ -315,9 +346,9 @@ impl Sim {
         });
     }
 
-    pub fn view(&self) -> Position {
-        let mut result = *self.prediction.predicted_position();
-        let mut predicted_velocity = *self.prediction.predicted_velocity();
+    fn update_view_position(&mut self) {
+        let mut view_position = *self.prediction.predicted_position();
+        let mut view_velocity = *self.prediction.predicted_velocity();
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
@@ -333,14 +364,20 @@ impl Sim {
             character_controller::run_character_step(
                 &params.cfg,
                 &self.graph,
-                &mut result,
-                &mut predicted_velocity,
+                &mut view_position,
+                &mut view_velocity,
                 &predicted_input,
                 self.since_input_sent.as_secs_f32(),
             );
         }
-        result.local *= self.orientation.to_homogeneous();
-        result
+        self.view_position = view_position;
+    }
+
+    pub fn view(&self) -> Position {
+        Position {
+            node: self.view_position.node,
+            local: self.view_position.local * self.orientation.to_homogeneous(),
+        }
     }
 
     /// Destroy all aspects of an entity

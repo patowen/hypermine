@@ -31,6 +31,12 @@ impl DualGraph {
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
+
+    /// Returns a vector in node coordinates that, if projected to be tangent to the hyperboloid at a point,
+    /// faces the "up" direction, opposite gravity. This vector is not necessarily normalized.
+    pub fn up_direction(&self, node: NodeId) -> Option<na::Vector4<f32>> {
+        Some(self.get(node).as_ref()?.state.up_direction())
+    }
 }
 
 impl Index<ChunkId> for DualGraph {
