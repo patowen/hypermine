@@ -186,11 +186,20 @@ impl Sim {
             .map(|node| node.state.up_direction())
         {
             let local_up = self.orientation.conjugate()
-                * (common::math::mtranspose(&self.view_position.local) * up).xyz();
-            let tilt_angle = -local_up.x.atan2(local_up.y);
-            let correction =
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), tilt_angle);
-            self.orientation *= correction;
+                * (common::math::mtranspose(&self.view_position.local) * up)
+                    .xyz()
+                    .normalize();
+            if local_up.z.abs() < 0.9 {
+                // If facing not too vertically, roll the camera to make it vertical.
+                let delta_roll = -local_up.x.atan2(local_up.y);
+                self.orientation *=
+                    na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
+            } else {
+                // Otherwise, pan the camera to make it vertical.
+                let delta_yaw = (local_up.x / local_up.z).atan();
+                self.orientation *=
+                    na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
+            }
         }
     }
 
