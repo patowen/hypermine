@@ -167,14 +167,10 @@ impl Sim {
                 .xyz()
                 .normalize();
             let local_local_up = self.orientation.conjugate() * local_up;
-            let mut perp_up = local_local_up;
-            perp_up.z = 0.0;
-            perp_up.normalize_mut();
-            // TODO: Should keep things 2D, since this could be ambiguous otherwise. Also, get rid of
-            // unwrap.
+            let perp_up = local_local_up.xy();
+            let perp_up_angle = -perp_up.x.atan2(perp_up.y);
             let correction =
-                na::UnitQuaternion::rotation_between(&na::Vector3::y(), &perp_up).unwrap();
-            println!("{:?}", perp_up);
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), perp_up_angle);
             self.orientation *= correction;
         }
     }
