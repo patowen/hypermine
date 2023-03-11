@@ -80,12 +80,34 @@ impl Sim {
 
     pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32) {
         if self.no_clip {
-            self.orientation *=
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw)
-                    * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+            self.look_free(delta_yaw, delta_pitch);
         } else {
+            self.look_with_gravity(delta_yaw, delta_pitch);
+        }
+    }
+
+    fn look_free(&mut self, delta_yaw: f32, delta_pitch: f32) {
+        self.orientation *= na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw)
+            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+    }
+
+    fn look_with_gravity(&mut self, delta_yaw: f32, delta_pitch: f32) {
+        if let Some(up) = self
+            .graph
+            .get(self.view_position.node)
+            .as_ref()
+            .map(|node| node.state.up_direction())
+        {
+            let local_up = self.orientation.conjugate()
+                * (common::math::mtranspose(&self.view_position.local) * up).xyz();
+
+            self.orientation *= na::UnitQuaternion::from_axis_angle(
+                &na::UnitVector3::new_normalize(local_up),
+                delta_yaw,
+            );
+
             self.orientation *=
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
         }
     }
 
@@ -163,14 +185,11 @@ impl Sim {
             .as_ref()
             .map(|node| node.state.up_direction())
         {
-            let local_up = (common::math::mtranspose(&self.view_position.local) * up)
-                .xyz()
-                .normalize();
-            let local_local_up = self.orientation.conjugate() * local_up;
-            let perp_up = local_local_up.xy();
-            let perp_up_angle = -perp_up.x.atan2(perp_up.y);
+            let local_up = self.orientation.conjugate()
+                * (common::math::mtranspose(&self.view_position.local) * up).xyz();
+            let tilt_angle = -local_up.x.atan2(local_up.y);
             let correction =
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), perp_up_angle);
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), tilt_angle);
             self.orientation *= correction;
         }
     }
