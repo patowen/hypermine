@@ -92,71 +92,66 @@ impl Sim {
     }
 
     fn look_with_gravity(&mut self, delta_yaw: f32, delta_pitch: f32) {
-        if let Some(up) = self
-            .graph
-            .get(self.view_position.node)
-            .as_ref()
-            .map(|node| node.state.up_direction())
-        {
-            let local_up = na::UnitVector3::new_normalize(
-                self.orientation.conjugate()
-                    * (common::math::mtranspose(&self.view_position.local) * up).xyz(),
-            );
+        let Some(up) = self
+            .get_relative_up(&self.view_position)
+            .map(|up| self.orientation.conjugate() * up)
+        else {
+            return;
+        };
 
-            self.orientation *= na::UnitQuaternion::from_axis_angle(&local_up, delta_yaw);
+        self.orientation *= na::UnitQuaternion::from_axis_angle(&up, delta_yaw);
 
-            if local_up.x.abs() < 0.9 {
-                // Full pitch implementation with logic to prevent turning upside-down
-                let pitch_local_up = local_up.yz().normalize();
-                let current_pitch = -pitch_local_up.y.atan2(pitch_local_up.x);
-                let mut target_pitch = current_pitch + delta_pitch;
-                if delta_pitch > 0.0 {
-                    target_pitch = target_pitch
-                        .min(std::f32::consts::FRAC_PI_2)
-                        .max(current_pitch);
-                } else {
-                    target_pitch = target_pitch
-                        .max(-std::f32::consts::FRAC_PI_2)
-                        .min(current_pitch);
-                }
-
-                self.orientation *= na::UnitQuaternion::from_axis_angle(
-                    &na::Vector3::x_axis(),
-                    target_pitch - current_pitch,
-                );
+        if up.x.abs() < 0.9 {
+            // Full pitch implementation with logic to prevent turning upside-down
+            let current_pitch = -up.z.atan2(up.y);
+            let mut target_pitch = current_pitch + delta_pitch;
+            if delta_pitch > 0.0 {
+                target_pitch = target_pitch
+                    .min(std::f32::consts::FRAC_PI_2) // Don't allow pitching up far enough to be upside-down
+                    .max(current_pitch); // But if already upside-down, don't make any corrections.
             } else {
-                // Player is rolled about 90 degrees. Since player view is sideways, we just
-                // allow them to pitch as far as they want.
-                self.orientation *=
-                    na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+                target_pitch = target_pitch
+                    .max(-std::f32::consts::FRAC_PI_2) // Don't allow pitching down far enough to be upside-down
+                    .min(current_pitch); // But if already upside-down, don't make any corrections.
             }
+
+            self.orientation *= na::UnitQuaternion::from_axis_angle(
+                &na::Vector3::x_axis(),
+                target_pitch - current_pitch,
+            );
+        } else {
+            // Player is rolled about 90 degrees. Since player view is sideways, we just
+            // allow them to pitch as far as they want.
+            self.orientation *=
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
         }
     }
 
     fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
-        if let Some(up) = self
-            .graph
-            .get(self.view_position.node)
-            .as_ref()
-            .map(|node| node.state.up_direction())
-        {
-            let local_up = na::UnitVector3::new_normalize(
-                self.orientation.conjugate()
-                    * (common::math::mtranspose(&self.view_position.local) * up).xyz(),
-            );
+        let Some(up) = self
+            .get_relative_up(&self.view_position)
+            .map(|up| self.orientation.conjugate() * up)
+        else {
+            return self.orientation;
+        };
 
-            if local_up.x.abs() < 0.9 {
-                let pitch_local_up = local_up.yz().normalize();
-                let current_pitch = -pitch_local_up.y.atan2(pitch_local_up.x);
-
-                self.orientation
-                    * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), -current_pitch)
-            } else {
-                self.orientation
-            }
+        if up.x.abs() < 0.9 {
+            let current_pitch = -up.z.atan2(up.y);
+            self.orientation
+                * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), -current_pitch)
         } else {
             self.orientation
         }
+    }
+
+    /// Returns the up-direction relative to the given position
+    fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
+        self.graph.get(position.node).as_ref().map(|node| {
+            na::UnitVector3::new_normalize(
+                (common::math::mtranspose(&self.view_position.local) * node.state.up_direction())
+                    .xyz(),
+            )
+        })
     }
 
     pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
@@ -227,34 +222,28 @@ impl Sim {
     }
 
     fn align_to_gravity(&mut self) {
-        if let Some(up) = self
-            .graph
-            .get(self.view_position.node)
-            .as_ref()
-            .map(|node| node.state.up_direction())
-        {
-            let local_up = self.orientation.conjugate()
-                * (common::math::mtranspose(&self.view_position.local) * up)
-                    .xyz()
-                    .normalize();
-            if local_up.z.abs() < 0.9 {
-                // If facing not too vertically, roll the camera to make it vertical.
-                let delta_roll = -local_up.x.atan2(local_up.y);
-                self.orientation *=
-                    na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
-            } else if local_up.y > 0.0 {
-                // Otherwise, if not upside-down, pan the camera to make it vertical.
-                let delta_yaw = (local_up.x / local_up.z).atan();
-                self.orientation *=
-                    na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
-            } else {
-                // Otherwise, rotate the camera to look straight up or down.
-                self.orientation *= na::UnitQuaternion::rotation_between(
-                    &(na::Vector3::z() * local_up.z.signum()),
-                    &local_up,
-                )
-                .unwrap();
-            }
+        let Some(up) = self
+            .get_relative_up(&self.view_position)
+            .map(|up| self.orientation.conjugate() * up)
+        else {
+            return;
+        };
+
+        if up.z.abs() < 0.9 {
+            // If facing not too vertically, roll the camera to make it vertical.
+            let delta_roll = -up.x.atan2(up.y);
+            self.orientation *=
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
+        } else if up.y > 0.0 {
+            // Otherwise, if not upside-down, pan the camera to make it vertical.
+            let delta_yaw = (up.x / up.z).atan();
+            self.orientation *=
+                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
+        } else {
+            // Otherwise, rotate the camera to look straight up or down.
+            self.orientation *=
+                na::UnitQuaternion::rotation_between(&(na::Vector3::z() * up.z.signum()), &up)
+                    .unwrap();
         }
     }
 
