@@ -133,6 +133,32 @@ impl Sim {
         }
     }
 
+    fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
+        if let Some(up) = self
+            .graph
+            .get(self.view_position.node)
+            .as_ref()
+            .map(|node| node.state.up_direction())
+        {
+            let local_up = na::UnitVector3::new_normalize(
+                self.orientation.conjugate()
+                    * (common::math::mtranspose(&self.view_position.local) * up).xyz(),
+            );
+
+            if local_up.x.abs() < 0.9 {
+                let pitch_local_up = local_up.yz().normalize();
+                let current_pitch = -pitch_local_up.y.atan2(pitch_local_up.x);
+
+                self.orientation
+                    * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), -current_pitch)
+            } else {
+                self.orientation
+            }
+        } else {
+            self.orientation
+        }
+    }
+
     pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
         self.movement_input = movement_input;
     }
@@ -383,8 +409,13 @@ impl Sim {
 
     fn send_input(&mut self) {
         let params = self.params.as_ref().unwrap();
+        let orientation = if self.no_clip {
+            self.orientation
+        } else {
+            self.get_horizontal_orientation()
+        };
         let character_input = CharacterInput {
-            movement: sanitize_motion_input(self.orientation * self.average_movement_input),
+            movement: sanitize_motion_input(orientation * self.average_movement_input),
             no_clip: self.no_clip,
         };
         let generation = self
@@ -402,6 +433,11 @@ impl Sim {
     fn update_view_position(&mut self) {
         let mut view_position = *self.prediction.predicted_position();
         let mut view_velocity = *self.prediction.predicted_velocity();
+        let orientation = if self.no_clip {
+            self.orientation
+        } else {
+            self.get_horizontal_orientation()
+        };
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
             let predicted_input = CharacterInput {
@@ -409,7 +445,7 @@ impl Sim {
                 // is always over the entire timestep, filling in zeroes for the future, and we
                 // want to use the average over what we have so far. Dividing by zero is handled
                 // by the character_controller sanitizing this input.
-                movement: self.orientation * self.average_movement_input
+                movement: orientation * self.average_movement_input
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.step_interval.as_secs_f32()),
                 no_clip: self.no_clip,
