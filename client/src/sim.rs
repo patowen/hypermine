@@ -148,8 +148,7 @@ impl Sim {
     fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
         self.graph.get(position.node).as_ref().map(|node| {
             na::UnitVector3::new_normalize(
-                (common::math::mtranspose(&self.view_position.local) * node.state.up_direction())
-                    .xyz(),
+                (common::math::mtranspose(&position.local) * node.state.up_direction()).xyz(),
             )
         })
     }
@@ -448,6 +447,19 @@ impl Sim {
                 self.since_input_sent.as_secs_f32(),
             );
         }
+
+        // Rotate the player orientation to stay consistent with changes in gravity
+        if !self.no_clip {
+            if let (Some(old_up), Some(new_up)) = (
+                self.get_relative_up(&self.view_position),
+                self.get_relative_up(&view_position),
+            ) {
+                self.orientation = na::UnitQuaternion::rotation_between_axis(&old_up, &new_up)
+                    .unwrap_or(na::UnitQuaternion::identity())
+                    * self.orientation;
+            }
+        }
+
         self.view_position = view_position;
     }
 
