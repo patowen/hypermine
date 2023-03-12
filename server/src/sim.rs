@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use common::node::ChunkId;
+use common::{node::ChunkId, GraphEntities};
 use fxhash::FxHashMap;
 use hecs::Entity;
 use rand::rngs::SmallRng;
@@ -30,6 +30,7 @@ pub struct Sim {
     graph: DualGraph,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
+    graph_entities: GraphEntities,
 }
 
 impl Sim {
@@ -43,6 +44,7 @@ impl Sim {
             graph: Graph::new(),
             spawns: Vec::new(),
             despawns: Vec::new(),
+            graph_entities: GraphEntities::new(),
         };
 
         ensure_nearby(
@@ -53,12 +55,38 @@ impl Sim {
         result
     }
 
+    pub fn save(&self, save: &mut save::Save) -> Result<(), save::DbError> {
+        fn path_from_origin(graph: &DualGraph, mut node: NodeId) -> Vec<u32> {
+            let mut result = Vec::new();
+            while let Some(parent) = graph.parent(node) {
+                result.push(parent as u32);
+                node = graph.neighbor(node, parent).unwrap();
+            }
+            result.reverse();
+            result
+        }
+
+        let mut tx = save.write()?;
+        let mut writer = tx.get()?;
+        for (_, (pos, ch)) in self.world.query::<(&Position, &Character)>().iter() {
+            writer.put_character(
+                &ch.name,
+                &save::Character {
+                    path: path_from_origin(&self.graph, pos.node),
+                },
+            )?;
+        }
+        drop(writer);
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
         let position = Position {
             node: NodeId::ROOT,
-            local: math::translate_along(&(na::Vector3::y() * 1.1)),
+            local: math::translate_along(&(na::Vector3::y() * 1.4)),
         };
         let character = Character {
             name: hello.name,
@@ -72,6 +100,7 @@ impl Sim {
             no_clip: true,
         };
         let entity = self.world.spawn((id, position, character, initial_input));
+        self.graph_entities.insert(position.node, entity);
         self.entity_ids.insert(id, entity);
         self.spawns.push(entity);
         (id, entity)
@@ -117,11 +146,12 @@ impl Sim {
         let _guard = span.enter();
 
         // Simulate
-        for (_, (position, character, input)) in self
+        for (entity, (position, character, input)) in self
             .world
             .query::<(&mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
+            let prev_node = position.node;
             character_controller::run_character_step(
                 &self.cfg,
                 &self.graph,
@@ -130,6 +160,10 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
+            if prev_node != position.node {
+                self.graph_entities.remove(prev_node, entity);
+                self.graph_entities.insert(position.node, entity);
+            }
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }
 
