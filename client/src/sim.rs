@@ -98,16 +98,38 @@ impl Sim {
             .as_ref()
             .map(|node| node.state.up_direction())
         {
-            let local_up = self.orientation.conjugate()
-                * (common::math::mtranspose(&self.view_position.local) * up).xyz();
-
-            self.orientation *= na::UnitQuaternion::from_axis_angle(
-                &na::UnitVector3::new_normalize(local_up),
-                delta_yaw,
+            let local_up = na::UnitVector3::new_normalize(
+                self.orientation.conjugate()
+                    * (common::math::mtranspose(&self.view_position.local) * up).xyz(),
             );
 
-            self.orientation *=
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+            self.orientation *= na::UnitQuaternion::from_axis_angle(&local_up, delta_yaw);
+
+            if local_up.x.abs() < 0.9 {
+                // Full pitch implementation with logic to prevent turning upside-down
+                let pitch_local_up = local_up.yz().normalize();
+                let current_pitch = -pitch_local_up.y.atan2(pitch_local_up.x);
+                let mut target_pitch = current_pitch + delta_pitch;
+                if delta_pitch > 0.0 {
+                    target_pitch = target_pitch
+                        .min(std::f32::consts::FRAC_PI_2)
+                        .max(current_pitch);
+                } else {
+                    target_pitch = target_pitch
+                        .max(-std::f32::consts::FRAC_PI_2)
+                        .min(current_pitch);
+                }
+
+                self.orientation *= na::UnitQuaternion::from_axis_angle(
+                    &na::Vector3::x_axis(),
+                    target_pitch - current_pitch,
+                );
+            } else {
+                // Player is rolled about 90 degrees. Since player view is sideways, we just
+                // allow them to pitch as far as they want.
+                self.orientation *=
+                    na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+            }
         }
     }
 
