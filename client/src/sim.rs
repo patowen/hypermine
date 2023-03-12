@@ -216,11 +216,18 @@ impl Sim {
                 let delta_roll = -local_up.x.atan2(local_up.y);
                 self.orientation *=
                     na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
-            } else {
-                // Otherwise, pan the camera to make it vertical.
+            } else if local_up.y > 0.0 {
+                // Otherwise, if not upside-down, pan the camera to make it vertical.
                 let delta_yaw = (local_up.x / local_up.z).atan();
                 self.orientation *=
                     na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
+            } else {
+                // Otherwise, rotate the camera to look straight up or down.
+                self.orientation *= na::UnitQuaternion::rotation_between(
+                    &(na::Vector3::z() * local_up.z.signum()),
+                    &local_up,
+                )
+                .unwrap();
             }
         }
     }
