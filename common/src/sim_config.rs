@@ -73,13 +73,13 @@ impl SimConfig {
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             chunk_size,
             no_clip_movement_speed: x.no_clip_movement_speed.unwrap_or(12.0) * meters_to_absolute,
-            max_ground_speed: x.max_ground_speed.unwrap_or(6.0) * meters_to_absolute,
+            max_ground_speed: x.max_ground_speed.unwrap_or(4.0) * meters_to_absolute,
             max_floor_slope_angle: x.max_floor_slope_angle.unwrap_or(60.0)
                 * (std::f32::consts::TAU / 360.0),
-            ground_acceleration: x.ground_acceleration.unwrap_or(30.0) * meters_to_absolute,
-            air_acceleration: x.air_acceleration.unwrap_or(6.0) * meters_to_absolute,
-            gravity_acceleration: x.gravity_acceleration.unwrap_or(10.0) * meters_to_absolute,
-            jump_speed: x.jump_speed.unwrap_or(7.0) * meters_to_absolute,
+            ground_acceleration: x.ground_acceleration.unwrap_or(20.0) * meters_to_absolute,
+            air_acceleration: x.air_acceleration.unwrap_or(4.0) * meters_to_absolute,
+            gravity_acceleration: x.gravity_acceleration.unwrap_or(20.0) * meters_to_absolute,
+            jump_speed: x.jump_speed.unwrap_or(8.0) * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
             meters_to_absolute,
         }
