@@ -72,7 +72,7 @@ impl CharacterControllerPass<'_> {
 
             // Update velocity
             if let Some(ground_normal) = self.ground_normal {
-                self.apply_ground_controls(&movement);
+                self.apply_ground_controls(&movement, &ground_normal);
             } else {
                 self.apply_air_controls(&movement);
 
@@ -104,8 +104,24 @@ impl CharacterControllerPass<'_> {
         }
     }
 
-    fn apply_ground_controls(&mut self, movement: &na::Vector3<f32>) {
-        let current_to_target_velocity = movement * self.cfg.max_ground_speed - *self.velocity;
+    fn apply_ground_controls(
+        &mut self,
+        movement: &na::Vector3<f32>,
+        ground_normal: &na::Vector3<f32>,
+    ) {
+        let movement_norm = movement.norm();
+        let target_velocity = if movement_norm < 1e-16 {
+            na::Vector3::zeros()
+        } else {
+            let up = self.get_relative_up();
+            let mut unit_movement = movement / movement_norm;
+            let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
+            unit_movement += *up * upward_correction;
+            unit_movement /= (upward_correction.powi(2) + 1.0).sqrt();
+            unit_movement * movement_norm
+        };
+        let current_to_target_velocity =
+            target_velocity * self.cfg.max_ground_speed - *self.velocity;
         let max_delta_velocity = self.cfg.ground_acceleration * self.dt_seconds;
         if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
             *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
