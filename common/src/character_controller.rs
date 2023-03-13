@@ -20,6 +20,7 @@ pub fn run_character_step(
         graph,
         position,
         velocity,
+        ground_normal: None,
         input,
         dt_seconds,
     }
@@ -31,6 +32,7 @@ struct CharacterControllerPass<'a> {
     graph: &'a DualGraph,
     position: &'a mut Position,
     velocity: &'a mut na::Vector3<f32>,
+    ground_normal: Option<na::UnitVector3<f32>>,
     input: &'a CharacterInput,
     dt_seconds: f32,
 }
@@ -49,12 +51,27 @@ impl CharacterControllerPass<'_> {
         } else {
             let old_velocity = *self.velocity;
 
-            // Update velocity
-            self.apply_air_controls(&movement);
+            // Initialize ground_normal
+            self.ground_normal = self
+                .get_ground_transform_and_normal(0.01)
+                .and_then(|(_, n)| {
+                    if self.velocity.dot(&n) > 0.1 {
+                        None
+                    } else {
+                        Some(n)
+                    }
+                });
 
-            // Apply gravity
-            *self.velocity -=
-                *self.get_relative_up() * self.cfg.gravity_acceleration * self.dt_seconds;
+            // Update velocity
+            if let Some(ground_normal) = self.ground_normal {
+                self.apply_ground_controls(&movement);
+            } else {
+                self.apply_air_controls(&movement);
+
+                // Apply gravity
+                *self.velocity -=
+                    *self.get_relative_up() * self.cfg.gravity_acceleration * self.dt_seconds;
+            }
 
             // Estimate the average velocity by using the average of the old velocity and new velocity,
             // which has the effect of modeling a velocity that changes linearly over the timestep.
