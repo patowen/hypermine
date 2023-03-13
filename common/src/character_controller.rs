@@ -133,6 +133,32 @@ impl CharacterControllerPass<'_> {
         }
     }
 
+    fn get_ground_transform_and_normal(
+        &self,
+        allowed_distance: f32,
+    ) -> Option<(na::Matrix4<f32>, na::UnitVector3<f32>)> {
+        const MAX_COLLISION_ITERATIONS: u32 = 5;
+        let cos_max_slope = self.cfg.max_floor_slope_angle.cos();
+
+        let mut allowed_displacement = -self.get_relative_up().into_inner() * allowed_distance;
+        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
+
+        for _ in 0..MAX_COLLISION_ITERATIONS {
+            let collision_result = self.check_collision(&allowed_displacement);
+            if let Some(collision) = collision_result.collision {
+                if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
+                    return Some((collision_result.displacement_transform, collision.normal));
+                }
+                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals.push(collision.normal);
+                apply_normals(&active_normals, &mut allowed_displacement);
+            } else {
+                return None;
+            }
+        }
+        None
+    }
+
     /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
     fn check_collision(&self, relative_displacement: &na::Vector3<f32>) -> CollisionCheckingResult {
         // Split relative_displacement into its norm and a unit vector
