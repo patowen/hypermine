@@ -52,7 +52,8 @@ impl CharacterControllerPass<'_> {
             // Initialize ground_normal
             self.ground_normal = self
                 .get_ground_transform_and_normal(0.01)
-                .and_then(|(_, n)| {
+                .1
+                .and_then(|n| {
                     if self.velocity.dot(&n) > 0.1 {
                         None
                     } else {
@@ -94,9 +95,8 @@ impl CharacterControllerPass<'_> {
 
             // Clamp to ground
             if self.ground_normal.is_some() {
-                if let Some((t, _)) = self.get_ground_transform_and_normal(0.01) {
-                    self.position.local *= t;
-                }
+                let (t, _) = self.get_ground_transform_and_normal(0.01);
+                self.position.local *= t;
             }
         }
 
@@ -184,7 +184,7 @@ impl CharacterControllerPass<'_> {
     fn get_ground_transform_and_normal(
         &self,
         allowed_distance: f32,
-    ) -> Option<(na::Matrix4<f32>, na::UnitVector3<f32>)> {
+    ) -> (na::Matrix4<f32>, Option<na::UnitVector3<f32>>) {
         const MAX_COLLISION_ITERATIONS: u32 = 5;
         let cos_max_slope = self.cfg.max_floor_slope_angle.cos();
 
@@ -195,16 +195,16 @@ impl CharacterControllerPass<'_> {
             let collision_result = self.check_collision(&allowed_displacement);
             if let Some(collision) = collision_result.collision {
                 if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
-                    return Some((collision_result.displacement_transform, collision.normal));
+                    return (collision_result.displacement_transform, Some(collision.normal));
                 }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
                 apply_normals(&active_normals, &mut allowed_displacement);
             } else {
-                return None;
+                return (collision_result.displacement_transform, None);
             }
         }
-        None
+        (na::Matrix4::identity(), None)
     }
 
     /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
