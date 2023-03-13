@@ -30,6 +30,10 @@ pub struct SimConfigRaw {
     pub max_ground_speed: Option<f32>,
     /// Character acceleration while on the ground in m/s^2
     pub ground_acceleration: Option<f32>,
+    /// Character acceleration while in the air in m/s^2
+    pub air_acceleration: Option<f32>,
+    /// Acceleration of gravity in m/s^2
+    pub gravity_acceleration: Option<f32>,
     /// Radius of the character in meters
     pub character_radius: Option<f32>,
 }
@@ -45,6 +49,8 @@ pub struct SimConfig {
     pub no_clip_movement_speed: f32,
     pub max_ground_speed: f32,
     pub ground_acceleration: f32,
+    pub air_acceleration: f32,
+    pub gravity_acceleration: f32,
     pub character_radius: f32,
     /// Scaling factor converting meters to absolute units
     pub meters_to_absolute: f32,
@@ -63,6 +69,8 @@ impl SimConfig {
             no_clip_movement_speed: x.no_clip_movement_speed.unwrap_or(12.0) * meters_to_absolute,
             max_ground_speed: x.max_ground_speed.unwrap_or(6.0) * meters_to_absolute,
             ground_acceleration: x.ground_acceleration.unwrap_or(30.0) * meters_to_absolute,
+            air_acceleration: x.air_acceleration.unwrap_or(6.0) * meters_to_absolute,
+            gravity_acceleration: x.gravity_acceleration.unwrap_or(10.0) * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
             meters_to_absolute,
         }

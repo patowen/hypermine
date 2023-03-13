@@ -50,13 +50,7 @@ impl CharacterControllerPass<'_> {
             let old_velocity = *self.velocity;
 
             // Update velocity
-            let current_to_target_velocity = movement * self.cfg.max_ground_speed - *self.velocity;
-            let max_delta_velocity = self.cfg.ground_acceleration * self.dt_seconds;
-            if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
-                *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
-            } else {
-                *self.velocity += current_to_target_velocity;
-            }
+            self.apply_air_controls(&movement);
 
             // Estimate the average velocity by using the average of the old velocity and new velocity,
             // which has the effect of modeling a velocity that changes linearly over the timestep.
@@ -79,6 +73,20 @@ impl CharacterControllerPass<'_> {
             self.position.node = next_node;
             self.position.local = transition_xf * self.position.local;
         }
+    }
+
+    fn apply_ground_controls(&mut self, movement: &na::Vector3<f32>) {
+        let current_to_target_velocity = movement * self.cfg.max_ground_speed - *self.velocity;
+        let max_delta_velocity = self.cfg.ground_acceleration * self.dt_seconds;
+        if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
+            *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
+        } else {
+            *self.velocity += current_to_target_velocity;
+        }
+    }
+
+    fn apply_air_controls(&mut self, movement: &na::Vector3<f32>) {
+        *self.velocity += movement * self.cfg.air_acceleration * self.dt_seconds;
     }
 
     /// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
