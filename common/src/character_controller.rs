@@ -52,6 +52,10 @@ impl CharacterControllerPass<'_> {
             // Update velocity
             self.apply_air_controls(&movement);
 
+            // Apply gravity
+            *self.velocity -=
+                *self.get_relative_up() * self.cfg.gravity_acceleration * self.dt_seconds;
+
             // Estimate the average velocity by using the average of the old velocity and new velocity,
             // which has the effect of modeling a velocity that changes linearly over the timestep.
             // This is necessary to avoid the following two issues:
@@ -184,6 +188,21 @@ impl CharacterControllerPass<'_> {
                 ),
             }),
         }
+    }
+
+    /// Returns the up-direction relative to the given position
+    fn get_relative_up(&self) -> na::UnitVector3<f32> {
+        na::UnitVector3::new_normalize(
+            (math::mtranspose(&self.position.local)
+                * self
+                    .graph
+                    .get(self.position.node)
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .up_direction())
+            .xyz(),
+        )
     }
 }
 
