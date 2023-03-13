@@ -50,16 +50,13 @@ impl CharacterControllerPass<'_> {
             );
         } else {
             // Initialize ground_normal
-            self.ground_normal = self
-                .get_ground_transform_and_normal(0.01)
-                .1
-                .and_then(|n| {
-                    if self.velocity.dot(&n) > 0.1 {
-                        None
-                    } else {
-                        Some(n)
-                    }
-                });
+            self.ground_normal = self.get_ground_transform_and_normal(0.01).1.and_then(|n| {
+                if self.velocity.dot(&n) > 0.1 {
+                    None
+                } else {
+                    Some(n)
+                }
+            });
 
             // Jump if appropriate
             if self.input.jump && self.ground_normal.is_some() {
@@ -95,7 +92,10 @@ impl CharacterControllerPass<'_> {
 
             // Clamp to ground
             if self.ground_normal.is_some() {
-                let (t, _) = self.get_ground_transform_and_normal(0.01);
+                let (t, _) = self.get_ground_transform_and_normal(
+                    // Use a single timestep of gravity as the drop distance
+                    self.cfg.gravity_acceleration * self.dt_seconds.powi(2) * 0.5,
+                );
                 self.position.local *= t;
             }
         }
@@ -195,7 +195,10 @@ impl CharacterControllerPass<'_> {
             let collision_result = self.check_collision(&allowed_displacement);
             if let Some(collision) = collision_result.collision {
                 if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
-                    return (collision_result.displacement_transform, Some(collision.normal));
+                    return (
+                        collision_result.displacement_transform,
+                        Some(collision.normal),
+                    );
                 }
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_normals.push(collision.normal);
