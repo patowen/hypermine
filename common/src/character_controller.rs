@@ -49,8 +49,6 @@ impl CharacterControllerPass<'_> {
                 &(movement * self.cfg.no_clip_movement_speed * self.dt_seconds),
             );
         } else {
-            let old_velocity = *self.velocity;
-
             // Initialize ground_normal
             self.ground_normal = self
                 .get_ground_transform_and_normal(0.01)
@@ -69,6 +67,8 @@ impl CharacterControllerPass<'_> {
                 *self.velocity = horizontal_velocity + *up * self.cfg.jump_speed;
                 self.ground_normal = None;
             }
+
+            let old_velocity = *self.velocity;
 
             // Update velocity
             if let Some(ground_normal) = self.ground_normal {

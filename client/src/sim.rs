@@ -42,6 +42,7 @@ pub struct Sim {
     /// Whether no_clip will be toggled next step
     toggle_no_clip: bool,
     jump: bool,
+    jump_next_step: bool,
     prediction: PredictedMotion,
     /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
     /// orientation computations
@@ -68,6 +69,7 @@ impl Sim {
             no_clip: true,
             toggle_no_clip: false,
             jump: false,
+            jump_next_step: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -167,7 +169,7 @@ impl Sim {
     }
 
     pub fn set_jump(&mut self, jump: bool) {
-        self.jump = jump;
+        self.jump_next_step = jump;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -201,6 +203,8 @@ impl Sim {
                     self.no_clip = !self.no_clip;
                     self.toggle_no_clip = false;
                 }
+
+                self.jump = self.jump_next_step;
 
                 // Reset state for the next step
                 if overflow > step_interval {
