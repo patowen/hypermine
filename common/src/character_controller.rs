@@ -91,6 +91,13 @@ impl CharacterControllerPass<'_> {
             let estimated_average_velocity = (*self.velocity + old_velocity) * 0.5;
 
             self.apply_velocity(&estimated_average_velocity);
+
+            // Clamp to ground
+            if self.ground_normal.is_some() {
+                if let Some((t, _)) = self.get_ground_transform_and_normal(0.01) {
+                    self.position.local *= t;
+                }
+            }
         }
 
         // Renormalize
