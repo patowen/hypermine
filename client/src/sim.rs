@@ -41,6 +41,7 @@ pub struct Sim {
     no_clip: bool,
     /// Whether no_clip will be toggled next step
     toggle_no_clip: bool,
+    jump: bool,
     prediction: PredictedMotion,
     /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
     /// orientation computations
@@ -66,6 +67,7 @@ impl Sim {
             average_movement_input: na::zero(),
             no_clip: true,
             toggle_no_clip: false,
+            jump: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -162,6 +164,10 @@ impl Sim {
         // there would be a discontinuity when predicting the player's position within a given step,
         // causing an undesirable jolt.
         self.toggle_no_clip = true;
+    }
+
+    pub fn set_jump(&mut self, jump: bool) {
+        self.jump = jump;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -404,6 +410,7 @@ impl Sim {
         };
         let character_input = CharacterInput {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
+            jump: self.jump,
             no_clip: self.no_clip,
         };
         let generation = self
@@ -436,6 +443,7 @@ impl Sim {
                 movement: orientation * self.average_movement_input
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.step_interval.as_secs_f32()),
+                jump: self.jump,
                 no_clip: self.no_clip,
             };
             character_controller::run_character_step(

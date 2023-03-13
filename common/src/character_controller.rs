@@ -62,6 +62,14 @@ impl CharacterControllerPass<'_> {
                     }
                 });
 
+            // Jump if appropriate
+            if self.input.jump && self.ground_normal.is_some() {
+                let up = self.get_relative_up();
+                let horizontal_velocity = *self.velocity - *up * up.dot(self.velocity);
+                *self.velocity = horizontal_velocity + *up * self.cfg.jump_speed;
+                self.ground_normal = None;
+            }
+
             // Update velocity
             if let Some(ground_normal) = self.ground_normal {
                 self.apply_ground_controls(&movement);

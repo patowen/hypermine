@@ -62,6 +62,7 @@ pub struct Command {
 pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
     pub movement: na::Vector3<f32>,
+    pub jump: bool,
     pub no_clip: bool,
 }
 

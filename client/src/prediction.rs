@@ -106,6 +106,7 @@ mod tests {
         let mock_graph = DualGraph::new();
         let mock_character_input = CharacterInput {
             movement: na::Vector3::x(),
+            jump: false,
             no_clip: true,
         };
 
