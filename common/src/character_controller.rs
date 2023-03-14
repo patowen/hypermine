@@ -87,7 +87,13 @@ impl CharacterControllerPass<'_> {
                 // Apply gravity
                 *self.velocity -=
                     *self.get_relative_up() * self.cfg.gravity_acceleration * self.dt_seconds;
+
+                // Apply air resistance
+                *self.velocity *= (-self.cfg.air_resistance * self.dt_seconds).exp();
             }
+
+            // Apply speed cap
+            *self.velocity = self.velocity.cap_magnitude(self.cfg.speed_cap);
 
             // Estimate the average velocity by using the average of the old velocity and new velocity,
             // which has the effect of modeling a velocity that changes linearly over the timestep.

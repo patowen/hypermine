@@ -28,6 +28,8 @@ pub struct SimConfigRaw {
     pub no_clip_movement_speed: Option<f32>,
     /// Character maximumum movement speed while on the ground in m/s
     pub max_ground_speed: Option<f32>,
+    /// Character artificial speed cap to avoid overloading the server in m/s
+    pub speed_cap: Option<f32>,
     /// Maximum floor slope angle in degrees
     pub max_floor_slope_angle: Option<f32>,
     /// Character acceleration while on the ground in m/s^2
@@ -36,6 +38,8 @@ pub struct SimConfigRaw {
     pub air_acceleration: Option<f32>,
     /// Acceleration of gravity in m/s^2
     pub gravity_acceleration: Option<f32>,
+    /// Linear air resistance in (1/e)-lives per second
+    pub air_resistance: Option<f32>,
     /// How fast the player jumps off the ground in m/s
     pub jump_speed: Option<f32>,
     /// Radius of the character in meters
@@ -52,10 +56,12 @@ pub struct SimConfig {
     pub chunk_size: u8,
     pub no_clip_movement_speed: f32,
     pub max_ground_speed: f32,
+    pub speed_cap: f32,
     pub max_floor_slope_angle: f32,
     pub ground_acceleration: f32,
     pub air_acceleration: f32,
     pub gravity_acceleration: f32,
+    pub air_resistance: f32,
     pub jump_speed: f32,
     pub character_radius: f32,
     /// Scaling factor converting meters to absolute units
@@ -74,11 +80,13 @@ impl SimConfig {
             chunk_size,
             no_clip_movement_speed: x.no_clip_movement_speed.unwrap_or(12.0) * meters_to_absolute,
             max_ground_speed: x.max_ground_speed.unwrap_or(4.0) * meters_to_absolute,
+            speed_cap: x.speed_cap.unwrap_or(30.0) * meters_to_absolute,
             max_floor_slope_angle: x.max_floor_slope_angle.unwrap_or(60.0)
                 * (std::f32::consts::TAU / 360.0),
             ground_acceleration: x.ground_acceleration.unwrap_or(20.0) * meters_to_absolute,
-            air_acceleration: x.air_acceleration.unwrap_or(4.0) * meters_to_absolute,
+            air_acceleration: x.air_acceleration.unwrap_or(2.0) * meters_to_absolute,
             gravity_acceleration: x.gravity_acceleration.unwrap_or(20.0) * meters_to_absolute,
+            air_resistance: x.air_resistance.unwrap_or(0.2),
             jump_speed: x.jump_speed.unwrap_or(8.0) * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
             meters_to_absolute,
