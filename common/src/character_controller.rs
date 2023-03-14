@@ -152,6 +152,7 @@ impl CharacterControllerPass<'_> {
         // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
         // in which case further movement processing is delayed until the next time step.
         const MAX_COLLISION_ITERATIONS: u32 = 5;
+        let cos_max_slope = self.cfg.max_floor_slope_angle.cos();
 
         let mut expected_displacement = estimated_average_velocity * self.dt_seconds;
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
@@ -163,17 +164,27 @@ impl CharacterControllerPass<'_> {
             self.position.local *= collision_result.displacement_transform;
 
             if let Some(collision) = collision_result.collision {
-                // We maintain a list of surface normals that should restrict player movement. We remove normals for
-                // surfaces the player is pushed away from and add the surface normal of the latest collision.
-                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_normals.push(collision.normal);
+                if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
+                    self.update_ground_normal(&collision.normal);
+                    active_normals.retain(|n| n.dot(self.velocity) < 0.0);
+                } else {
+                    // We maintain a list of surface normals that should restrict player movement. We remove normals for
+                    // surfaces the player is pushed away from and add the surface normal of the latest collision.
+                    active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                    active_normals.push(collision.normal);
+                }
 
                 // Update the expected displacement to whatever is remaining.
                 expected_displacement -= collision_result.displacement_vector;
-                apply_normals(&active_normals, &mut expected_displacement);
+                let active_normals2: Vec<_> = active_normals
+                    .clone()
+                    .into_iter()
+                    .chain(self.ground_normal)
+                    .collect();
+                apply_normals(&active_normals2, &mut expected_displacement);
 
                 // Also update the velocity to ensure that walls kill momentum.
-                apply_normals(&active_normals, self.velocity);
+                apply_normals(&active_normals2, self.velocity);
             } else {
                 all_collisions_resolved = true;
                 break;
@@ -198,6 +209,7 @@ impl CharacterControllerPass<'_> {
                 *self.velocity = unit_velocity * velocity_norm;
             }
         } else {
+            // TODO: Don't go too quickly uphill
             let up = self.get_relative_up();
             let upward_correction =
                 -self.velocity.dot(new_ground_normal) / up.dot(new_ground_normal);
