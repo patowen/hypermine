@@ -375,9 +375,16 @@ fn apply_new_ground_normal(
             *subject = unit_subject * subject_norm;
         }
     } else {
-        // TODO: Don't go too quickly uphill
-        let upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-        *subject += *up * upward_correction;
+        // TODO: Consider using fancier formula for max_upward_correction, one that makes
+        // new_ground_normal and subject as collinear as possible.
+        let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+        let max_upward_correction = -subject.dot(up);
+        if upward_correction > max_upward_correction {
+            upward_correction = max_upward_correction;
+        }
+        if upward_correction >= 0.0 {
+            *subject += *up * upward_correction;
+        }
     }
 }
 
