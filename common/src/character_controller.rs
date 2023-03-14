@@ -59,7 +59,13 @@ impl CharacterControllerPass<'_> {
                     }
                 })
             {
-                self.update_ground_normal(&ground_normal);
+                apply_new_ground_normal(
+                    &self.get_relative_up(),
+                    false,
+                    &ground_normal,
+                    self.velocity,
+                );
+                self.ground_normal = Some(ground_normal);
             };
 
             // Jump if appropriate
@@ -164,8 +170,23 @@ impl CharacterControllerPass<'_> {
             self.position.local *= collision_result.displacement_transform;
 
             if let Some(collision) = collision_result.collision {
+                // Update the expected displacement to whatever is remaining.
+                expected_displacement -= collision_result.displacement_vector;
+
                 if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
-                    self.update_ground_normal(&collision.normal);
+                    apply_new_ground_normal(
+                        &self.get_relative_up(),
+                        self.ground_normal.is_some(),
+                        &collision.normal,
+                        &mut expected_displacement,
+                    );
+                    apply_new_ground_normal(
+                        &self.get_relative_up(),
+                        self.ground_normal.is_some(),
+                        &collision.normal,
+                        self.velocity,
+                    );
+                    self.ground_normal = Some(collision.normal);
                     active_normals.retain(|n| n.dot(self.velocity) < 0.0);
                 } else {
                     // We maintain a list of surface normals that should restrict player movement. We remove normals for
@@ -174,13 +195,12 @@ impl CharacterControllerPass<'_> {
                     active_normals.push(collision.normal);
                 }
 
-                // Update the expected displacement to whatever is remaining.
-                expected_displacement -= collision_result.displacement_vector;
                 let active_normals2: Vec<_> = active_normals
                     .clone()
                     .into_iter()
                     .chain(self.ground_normal)
                     .collect();
+
                 apply_normals(&active_normals2, &mut expected_displacement);
 
                 // Also update the velocity to ensure that walls kill momentum.
@@ -194,28 +214,6 @@ impl CharacterControllerPass<'_> {
         if !all_collisions_resolved {
             warn!("A character entity processed too many collisions and collision resolution was cut short.");
         }
-    }
-
-    fn update_ground_normal(&mut self, new_ground_normal: &na::UnitVector3<f32>) {
-        if self.ground_normal.is_some() {
-            let velocity_norm = self.velocity.norm();
-            if velocity_norm > 1e-16 {
-                let up = self.get_relative_up();
-                let mut unit_velocity = *self.velocity / velocity_norm;
-                let upward_correction =
-                    -unit_velocity.dot(new_ground_normal) / up.dot(new_ground_normal);
-                unit_velocity += *up * upward_correction;
-                unit_velocity.try_normalize_mut(1e-16);
-                *self.velocity = unit_velocity * velocity_norm;
-            }
-        } else {
-            // TODO: Don't go too quickly uphill
-            let up = self.get_relative_up();
-            let upward_correction =
-                -self.velocity.dot(new_ground_normal) / up.dot(new_ground_normal);
-            *self.velocity += *up * upward_correction;
-        }
-        self.ground_normal = Some(*new_ground_normal);
     }
 
     fn get_ground_transform_and_normal(
@@ -357,6 +355,29 @@ fn apply_normals_internal(
         // subject's dot product with any earlier normals.
         *subject += ortho_normals[i]
             * ((distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]));
+    }
+}
+
+fn apply_new_ground_normal(
+    up: &na::Vector3<f32>,
+    ground_to_ground: bool,
+    new_ground_normal: &na::UnitVector3<f32>,
+    subject: &mut na::Vector3<f32>,
+) {
+    if ground_to_ground {
+        let subject_norm = subject.norm();
+        if subject_norm > 1e-16 {
+            let mut unit_subject = *subject / subject_norm;
+            let upward_correction =
+                -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+            unit_subject += *up * upward_correction;
+            unit_subject.try_normalize_mut(1e-16);
+            *subject = unit_subject * subject_norm;
+        }
+    } else {
+        // TODO: Don't go too quickly uphill
+        let upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+        *subject += *up * upward_correction;
     }
 }
 
