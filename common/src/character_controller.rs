@@ -50,13 +50,17 @@ impl CharacterControllerPass<'_> {
             );
         } else {
             // Initialize ground_normal
-            self.ground_normal = self.get_ground_transform_and_normal(0.01).1.and_then(|n| {
-                if self.velocity.dot(&n) > 0.1 {
-                    None
-                } else {
-                    Some(n)
-                }
-            });
+            if let Some(ground_normal) =
+                self.get_ground_transform_and_normal(1e-4).1.and_then(|n| {
+                    if self.velocity.dot(&n) > 0.1 {
+                        None
+                    } else {
+                        Some(n)
+                    }
+                })
+            {
+                self.update_ground_normal(&ground_normal);
+            };
 
             // Jump if appropriate
             if self.input.jump && self.ground_normal.is_some() {
@@ -124,7 +128,7 @@ impl CharacterControllerPass<'_> {
             let mut unit_movement = movement / movement_norm;
             let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
             unit_movement += *up * upward_correction;
-            unit_movement /= (upward_correction.powi(2) + 1.0).sqrt();
+            unit_movement.try_normalize_mut(1e-16);
             unit_movement * movement_norm
         };
         let current_to_target_velocity =
@@ -179,6 +183,27 @@ impl CharacterControllerPass<'_> {
         if !all_collisions_resolved {
             warn!("A character entity processed too many collisions and collision resolution was cut short.");
         }
+    }
+
+    fn update_ground_normal(&mut self, new_ground_normal: &na::UnitVector3<f32>) {
+        if self.ground_normal.is_some() {
+            let velocity_norm = self.velocity.norm();
+            if velocity_norm > 1e-16 {
+                let up = self.get_relative_up();
+                let mut unit_velocity = *self.velocity / velocity_norm;
+                let upward_correction =
+                    -unit_velocity.dot(new_ground_normal) / up.dot(new_ground_normal);
+                unit_velocity += *up * upward_correction;
+                unit_velocity.try_normalize_mut(1e-16);
+                *self.velocity = unit_velocity * velocity_norm;
+            }
+        } else {
+            let up = self.get_relative_up();
+            let upward_correction =
+                -self.velocity.dot(new_ground_normal) / up.dot(new_ground_normal);
+            *self.velocity += *up * upward_correction;
+        }
+        self.ground_normal = Some(*new_ground_normal);
     }
 
     fn get_ground_transform_and_normal(
@@ -396,7 +421,7 @@ mod tests {
 
         apply_normals_internal(&normals, &mut subject, distance);
         for normal in normals {
-            assert_abs_diff_eq!(subject.dot(&normal), distance, epsilon = 1.0e-5);
+            assert_abs_diff_eq!(subject.dot(&normal), distance, epsilon = 1e-5);
         }
     }
 }

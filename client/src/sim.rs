@@ -43,6 +43,7 @@ pub struct Sim {
     toggle_no_clip: bool,
     jump: bool,
     jump_next_step: bool,
+    jump_next_step_sticky: bool,
     prediction: PredictedMotion,
     /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
     /// orientation computations
@@ -70,6 +71,7 @@ impl Sim {
             toggle_no_clip: false,
             jump: false,
             jump_next_step: false,
+            jump_next_step_sticky: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -170,6 +172,7 @@ impl Sim {
 
     pub fn set_jump(&mut self, jump: bool) {
         self.jump_next_step = jump;
+        self.jump_next_step_sticky = jump || self.jump_next_step_sticky;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -204,7 +207,8 @@ impl Sim {
                     self.toggle_no_clip = false;
                 }
 
-                self.jump = self.jump_next_step;
+                self.jump = self.jump_next_step || self.jump_next_step_sticky;
+                self.jump_next_step_sticky = false;
 
                 // Reset state for the next step
                 if overflow > step_interval {
