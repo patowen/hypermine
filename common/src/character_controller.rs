@@ -15,371 +15,329 @@ pub fn run_character_step(
     input: &CharacterInput,
     dt_seconds: f32,
 ) {
-    CharacterControllerPass {
-        cfg,
-        graph,
-        position,
-        velocity,
-        ground_normal: None,
-        input,
-        dt_seconds,
-    }
-    .step();
-}
+    let movement = sanitize_motion_input(input.movement);
 
-struct CharacterControllerPass<'a> {
-    cfg: &'a SimConfig,
-    graph: &'a DualGraph,
-    position: &'a mut Position,
-    velocity: &'a mut na::Vector3<f32>,
-    ground_normal: Option<na::UnitVector3<f32>>,
-    input: &'a CharacterInput,
-    dt_seconds: f32,
-}
-
-impl CharacterControllerPass<'_> {
-    fn step(&mut self) {
-        let movement = sanitize_motion_input(self.input.movement);
-
-        if self.input.no_clip {
-            // If no-clip is on, the velocity field is useless, and we don't want to accidentally
-            // save velocity from when no-clip was off.
-            *self.velocity = na::Vector3::zeros();
-            self.position.local *= math::translate_along(
-                &(movement * self.cfg.no_clip_movement_speed * self.dt_seconds),
-            );
-        } else {
-            let collision_context = CollisionContext {
-                graph: self.graph,
-                chunk_layout: ChunkLayout::new(self.cfg.chunk_size as usize),
-                radius: self.cfg.character_radius,
-            };
-
-            let up = Self::get_relative_up(self.graph, self.position);
-            let max_slope_angle = self.cfg.max_floor_slope_angle;
-
-            // Initialize ground_normal
-            if let Some(ground_normal) = Self::get_ground_transform_and_normal(
-                &collision_context,
-                &up,
-                max_slope_angle,
-                1e-4,
-                self.position,
-            )
-            .1
-            .and_then(|n| {
-                if self.velocity.dot(&n) > 0.1 {
-                    None
-                } else {
-                    Some(n)
-                }
-            }) {
-                apply_new_ground_normal(&up, false, &ground_normal, self.velocity);
-                self.ground_normal = Some(ground_normal);
-            };
-
-            // Jump if appropriate
-            if self.input.jump && self.ground_normal.is_some() {
-                let horizontal_velocity = *self.velocity - *up * up.dot(self.velocity);
-                *self.velocity = horizontal_velocity + *up * self.cfg.jump_speed;
-                self.ground_normal = None;
-            }
-
-            let old_velocity = *self.velocity;
-
-            // Update velocity
-            if let Some(ground_normal) = self.ground_normal {
-                Self::apply_ground_controls(
-                    self.cfg.ground_acceleration,
-                    self.cfg.max_ground_speed,
-                    self.dt_seconds,
-                    &movement,
-                    &up,
-                    &ground_normal,
-                    self.velocity,
-                );
-            } else {
-                Self::apply_air_controls(
-                    self.cfg.air_acceleration,
-                    self.dt_seconds,
-                    &movement,
-                    self.velocity,
-                );
-
-                // Apply gravity
-                *self.velocity -= *up * self.cfg.gravity_acceleration * self.dt_seconds;
-
-                // Apply air resistance
-                *self.velocity *= (-self.cfg.air_resistance * self.dt_seconds).exp();
-            }
-
-            // Apply speed cap
-            *self.velocity = self.velocity.cap_magnitude(self.cfg.speed_cap);
-
-            // Estimate the average velocity by using the average of the old velocity and new velocity,
-            // which has the effect of modeling a velocity that changes linearly over the timestep.
-            // This is necessary to avoid the following two issues:
-            // 1. Input lag, which would occur if only the old velocity was used
-            // 2. Movement artifacts, which would occur if only the new velocity was used. One
-            //    example of such an artifact is the character moving backwards slightly when they
-            //    stop moving after releasing a direction key.
-            let estimated_average_velocity = (*self.velocity + old_velocity) * 0.5;
-
-            Self::apply_velocity(
-                &collision_context,
-                &up,
-                max_slope_angle,
-                estimated_average_velocity * self.dt_seconds,
-                self.position,
-                self.velocity,
-                &mut self.ground_normal,
-            );
-
-            // Clamp to ground
-            if self.ground_normal.is_some() {
-                let (t, _) = Self::get_ground_transform_and_normal(
-                    &collision_context,
-                    &up,
-                    max_slope_angle,
-                    // Use a single timestep of gravity as the drop distance
-                    self.cfg.gravity_acceleration
-                        * self.cfg.step_interval.as_secs_f32()
-                        * self.dt_seconds
-                        * 0.5,
-                    self.position,
-                );
-                self.position.local *= t;
-            }
-        }
-
-        // Renormalize
-        self.position.local = math::renormalize_isometry(&self.position.local);
-        let (next_node, transition_xf) = self
-            .graph
-            .normalize_transform(self.position.node, &self.position.local);
-        if next_node != self.position.node {
-            self.position.node = next_node;
-            self.position.local = transition_xf * self.position.local;
-        }
-    }
-
-    fn apply_ground_controls(
-        ground_acceleration: f32,
-        max_ground_speed: f32,
-        dt_seconds: f32,
-        movement: &na::Vector3<f32>,
-        up: &na::UnitVector3<f32>,
-        ground_normal: &na::Vector3<f32>,
-        velocity: &mut na::Vector3<f32>,
-    ) {
-        let movement_norm = movement.norm();
-        let target_velocity = if movement_norm < 1e-16 {
-            na::Vector3::zeros()
-        } else {
-            let mut unit_movement = movement / movement_norm;
-            let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
-            unit_movement += **up * upward_correction;
-            unit_movement.try_normalize_mut(1e-16);
-            unit_movement * movement_norm
+    if input.no_clip {
+        // If no-clip is on, the velocity field is useless, and we don't want to accidentally
+        // save velocity from when no-clip was off.
+        *velocity = na::Vector3::zeros();
+        position.local *=
+            math::translate_along(&(movement * cfg.no_clip_movement_speed * dt_seconds));
+    } else {
+        let collision_context = CollisionContext {
+            graph,
+            chunk_layout: ChunkLayout::new(cfg.chunk_size as usize),
+            radius: cfg.character_radius,
         };
-        let current_to_target_velocity = target_velocity * max_ground_speed - *velocity;
-        let max_delta_velocity = ground_acceleration * dt_seconds;
-        if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
-            *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
-        } else {
-            *velocity += current_to_target_velocity;
-        }
-    }
 
-    fn apply_air_controls(
-        air_acceleration: f32,
-        dt_seconds: f32,
-        movement: &na::Vector3<f32>,
-        velocity: &mut na::Vector3<f32>,
-    ) {
-        *velocity += movement * air_acceleration * dt_seconds;
-    }
+        let up = get_relative_up(graph, position);
+        let max_slope_angle = cfg.max_floor_slope_angle;
 
-    /// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
-    /// based on collisions that occur.
-    fn apply_velocity(
-        collision_context: &CollisionContext,
-        up: &na::UnitVector3<f32>,
-        max_slope_angle: f32,
-        mut expected_displacement: na::Vector3<f32>,
-        position: &mut Position,
-        velocity: &mut na::Vector3<f32>,
-        ground_normal: &mut Option<na::UnitVector3<f32>>,
-    ) {
-        // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
-        // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
-        // in which case further movement processing is delayed until the next time step.
-        const MAX_COLLISION_ITERATIONS: u32 = 5;
-        let cos_max_slope = max_slope_angle.cos();
-
-        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
-
-        let mut all_collisions_resolved = false;
-
-        for _ in 0..MAX_COLLISION_ITERATIONS {
-            let collision_result =
-                Self::check_collision(collision_context, position, &expected_displacement);
-            position.local *= collision_result.displacement_transform;
-
-            if let Some(collision) = collision_result.collision {
-                // Update the expected displacement to whatever is remaining.
-                expected_displacement -= collision_result.displacement_vector;
-
-                if collision.normal.dot(up) > cos_max_slope {
-                    apply_new_ground_normal(
-                        up,
-                        ground_normal.is_some(),
-                        &collision.normal,
-                        &mut expected_displacement,
-                    );
-                    apply_new_ground_normal(
-                        up,
-                        ground_normal.is_some(),
-                        &collision.normal,
-                        velocity,
-                    );
-                    *ground_normal = Some(collision.normal);
-                    active_normals.retain(|n| n.dot(velocity) < 0.0);
-                } else {
-                    // We maintain a list of surface normals that should restrict player movement. We remove normals for
-                    // surfaces the player is pushed away from and add the surface normal of the latest collision.
-                    active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                    active_normals.push(collision.normal);
-                }
-
-                let active_normals2: Vec<_> = active_normals
-                    .clone()
-                    .into_iter()
-                    .chain(*ground_normal)
-                    .collect();
-
-                apply_normals(&active_normals2, &mut expected_displacement);
-
-                // Also update the velocity to ensure that walls kill momentum.
-                apply_normals(&active_normals2, velocity);
-            } else {
-                all_collisions_resolved = true;
-                break;
-            }
-        }
-
-        if !all_collisions_resolved {
-            warn!("A character entity processed too many collisions and collision resolution was cut short.");
-        }
-    }
-
-    fn get_ground_transform_and_normal(
-        collision_context: &CollisionContext,
-        up: &na::UnitVector3<f32>,
-        max_slope_angle: f32,
-        allowed_distance: f32,
-        position: &Position,
-    ) -> (na::Matrix4<f32>, Option<na::UnitVector3<f32>>) {
-        const MAX_COLLISION_ITERATIONS: u32 = 5;
-        let cos_max_slope = max_slope_angle.cos();
-
-        let mut allowed_displacement = -up.into_inner() * allowed_distance;
-        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
-
-        for _ in 0..MAX_COLLISION_ITERATIONS {
-            let collision_result =
-                Self::check_collision(collision_context, position, &allowed_displacement);
-            if let Some(collision) = collision_result.collision {
-                if collision.normal.dot(up) > cos_max_slope {
-                    return (
-                        collision_result.displacement_transform,
-                        Some(collision.normal),
-                    );
-                }
-                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_normals.push(collision.normal);
-                apply_normals(&active_normals, &mut allowed_displacement);
-            } else {
-                return (collision_result.displacement_transform, None);
-            }
-        }
-        (na::Matrix4::identity(), None)
-    }
-
-    /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
-    fn check_collision(
-        collision_context: &CollisionContext,
-        position: &Position,
-        relative_displacement: &na::Vector3<f32>,
-    ) -> CollisionCheckingResult {
-        // Split relative_displacement into its norm and a unit vector
-        let relative_displacement = relative_displacement.to_homogeneous();
-        let displacement_sqr = relative_displacement.norm_squared();
-        if displacement_sqr < 1e-16 {
-            // Fallback for if the displacement vector isn't large enough to reliably be normalized.
-            // Any value that is sufficiently large compared to f32::MIN_POSITIVE should work as the cutoff.
-            return CollisionCheckingResult::stationary();
-        }
-
-        let displacement_norm = displacement_sqr.sqrt();
-        let displacement_normalized = relative_displacement / displacement_norm;
-
-        let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
-        let tanh_distance = displacement_norm.tanh();
-
-        let cast_hit = graph_collision::sphere_cast(
-            collision_context.radius,
-            collision_context.graph,
-            &collision_context.chunk_layout,
+        // Initialize ground_normal
+        let mut ground_normal = None;
+        if let Some(new_ground_normal) = get_ground_transform_and_normal(
+            &collision_context,
+            &up,
+            max_slope_angle,
+            1e-4,
             position,
-            &ray,
-            tanh_distance,
+        )
+        .1
+        .and_then(|n| {
+            if velocity.dot(&n) > 0.1 {
+                None
+            } else {
+                Some(n)
+            }
+        }) {
+            apply_new_ground_normal(&up, false, &new_ground_normal, velocity);
+            ground_normal = Some(new_ground_normal);
+        };
+
+        // Jump if appropriate
+        if input.jump && ground_normal.is_some() {
+            let horizontal_velocity = *velocity - *up * up.dot(velocity);
+            *velocity = horizontal_velocity + *up * cfg.jump_speed;
+            ground_normal = None;
+        }
+
+        let old_velocity = *velocity;
+
+        // Update velocity
+        if let Some(ground_normal) = ground_normal {
+            apply_ground_controls(
+                cfg.ground_acceleration,
+                cfg.max_ground_speed,
+                dt_seconds,
+                &movement,
+                &up,
+                &ground_normal,
+                velocity,
+            );
+        } else {
+            apply_air_controls(cfg.air_acceleration, dt_seconds, &movement, velocity);
+
+            // Apply gravity
+            *velocity -= *up * cfg.gravity_acceleration * dt_seconds;
+
+            // Apply air resistance
+            *velocity *= (-cfg.air_resistance * dt_seconds).exp();
+        }
+
+        // Apply speed cap
+        *velocity = velocity.cap_magnitude(cfg.speed_cap);
+
+        // Estimate the average velocity by using the average of the old velocity and new velocity,
+        // which has the effect of modeling a velocity that changes linearly over the timestep.
+        // This is necessary to avoid the following two issues:
+        // 1. Input lag, which would occur if only the old velocity was used
+        // 2. Movement artifacts, which would occur if only the new velocity was used. One
+        //    example of such an artifact is the character moving backwards slightly when they
+        //    stop moving after releasing a direction key.
+        let estimated_average_velocity = (*velocity + old_velocity) * 0.5;
+
+        apply_velocity(
+            &collision_context,
+            &up,
+            max_slope_angle,
+            estimated_average_velocity * dt_seconds,
+            position,
+            velocity,
+            &mut ground_normal,
         );
 
-        let cast_hit = match cast_hit {
-            Ok(r) => r,
-            Err(e) => {
-                error!("Collision checking returned {:?}", e);
-                return CollisionCheckingResult::stationary();
-            }
-        };
-
-        let distance = cast_hit
-            .as_ref()
-            .map_or(tanh_distance, |hit| hit.tanh_distance)
-            .atanh();
-
-        let displacement_vector = displacement_normalized.xyz() * distance;
-        let displacement_transform = math::translate_along(&displacement_vector);
-
-        CollisionCheckingResult {
-            displacement_vector,
-            displacement_transform,
-            collision: cast_hit.map(|hit| Collision {
-                // `CastEndpoint` has its `normal` given relative to the character's original position,
-                // but we want the normal relative to the character after the character moves to meet the wall.
-                // This normal now represents a contact point at the origin, so we omit the w-coordinate
-                // to ensure that it's orthogonal to the origin.
-                normal: na::UnitVector3::new_normalize(
-                    (math::mtranspose(&displacement_transform) * hit.normal).xyz(),
-                ),
-            }),
+        // Clamp to ground
+        if ground_normal.is_some() {
+            let (t, _) = get_ground_transform_and_normal(
+                &collision_context,
+                &up,
+                max_slope_angle,
+                // Use a single timestep of gravity as the drop distance
+                cfg.gravity_acceleration * cfg.step_interval.as_secs_f32() * dt_seconds * 0.5,
+                position,
+            );
+            position.local *= t;
         }
     }
 
-    /// Returns the up-direction relative to the given position
-    fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f32> {
-        na::UnitVector3::new_normalize(
-            (math::mtranspose(&position.local)
-                * graph
-                    .get(position.node)
-                    .as_ref()
-                    .unwrap()
-                    .state
-                    .up_direction())
-            .xyz(),
-        )
+    // Renormalize
+    position.local = math::renormalize_isometry(&position.local);
+    let (next_node, transition_xf) = graph.normalize_transform(position.node, &position.local);
+    if next_node != position.node {
+        position.node = next_node;
+        position.local = transition_xf * position.local;
     }
+}
+
+fn apply_ground_controls(
+    ground_acceleration: f32,
+    max_ground_speed: f32,
+    dt_seconds: f32,
+    movement: &na::Vector3<f32>,
+    up: &na::UnitVector3<f32>,
+    ground_normal: &na::Vector3<f32>,
+    velocity: &mut na::Vector3<f32>,
+) {
+    let movement_norm = movement.norm();
+    let target_velocity = if movement_norm < 1e-16 {
+        na::Vector3::zeros()
+    } else {
+        let mut unit_movement = movement / movement_norm;
+        let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
+        unit_movement += **up * upward_correction;
+        unit_movement.try_normalize_mut(1e-16);
+        unit_movement * movement_norm
+    };
+    let current_to_target_velocity = target_velocity * max_ground_speed - *velocity;
+    let max_delta_velocity = ground_acceleration * dt_seconds;
+    if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
+        *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
+    } else {
+        *velocity += current_to_target_velocity;
+    }
+}
+
+fn apply_air_controls(
+    air_acceleration: f32,
+    dt_seconds: f32,
+    movement: &na::Vector3<f32>,
+    velocity: &mut na::Vector3<f32>,
+) {
+    *velocity += movement * air_acceleration * dt_seconds;
+}
+
+/// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
+/// based on collisions that occur.
+fn apply_velocity(
+    collision_context: &CollisionContext,
+    up: &na::UnitVector3<f32>,
+    max_slope_angle: f32,
+    mut expected_displacement: na::Vector3<f32>,
+    position: &mut Position,
+    velocity: &mut na::Vector3<f32>,
+    ground_normal: &mut Option<na::UnitVector3<f32>>,
+) {
+    // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
+    // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
+    // in which case further movement processing is delayed until the next time step.
+    const MAX_COLLISION_ITERATIONS: u32 = 5;
+    let cos_max_slope = max_slope_angle.cos();
+
+    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+
+    let mut all_collisions_resolved = false;
+
+    for _ in 0..MAX_COLLISION_ITERATIONS {
+        let collision_result = check_collision(collision_context, position, &expected_displacement);
+        position.local *= collision_result.displacement_transform;
+
+        if let Some(collision) = collision_result.collision {
+            // Update the expected displacement to whatever is remaining.
+            expected_displacement -= collision_result.displacement_vector;
+
+            if collision.normal.dot(up) > cos_max_slope {
+                apply_new_ground_normal(
+                    up,
+                    ground_normal.is_some(),
+                    &collision.normal,
+                    &mut expected_displacement,
+                );
+                apply_new_ground_normal(up, ground_normal.is_some(), &collision.normal, velocity);
+                *ground_normal = Some(collision.normal);
+                active_normals.retain(|n| n.dot(velocity) < 0.0);
+            } else {
+                // We maintain a list of surface normals that should restrict player movement. We remove normals for
+                // surfaces the player is pushed away from and add the surface normal of the latest collision.
+                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals.push(collision.normal);
+            }
+
+            let active_normals2: Vec<_> = active_normals
+                .clone()
+                .into_iter()
+                .chain(*ground_normal)
+                .collect();
+
+            apply_normals(&active_normals2, &mut expected_displacement);
+
+            // Also update the velocity to ensure that walls kill momentum.
+            apply_normals(&active_normals2, velocity);
+        } else {
+            all_collisions_resolved = true;
+            break;
+        }
+    }
+
+    if !all_collisions_resolved {
+        warn!("A character entity processed too many collisions and collision resolution was cut short.");
+    }
+}
+
+fn get_ground_transform_and_normal(
+    collision_context: &CollisionContext,
+    up: &na::UnitVector3<f32>,
+    max_slope_angle: f32,
+    allowed_distance: f32,
+    position: &Position,
+) -> (na::Matrix4<f32>, Option<na::UnitVector3<f32>>) {
+    const MAX_COLLISION_ITERATIONS: u32 = 5;
+    let cos_max_slope = max_slope_angle.cos();
+
+    let mut allowed_displacement = -up.into_inner() * allowed_distance;
+    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
+
+    for _ in 0..MAX_COLLISION_ITERATIONS {
+        let collision_result = check_collision(collision_context, position, &allowed_displacement);
+        if let Some(collision) = collision_result.collision {
+            if collision.normal.dot(up) > cos_max_slope {
+                return (
+                    collision_result.displacement_transform,
+                    Some(collision.normal),
+                );
+            }
+            active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+            active_normals.push(collision.normal);
+            apply_normals(&active_normals, &mut allowed_displacement);
+        } else {
+            return (collision_result.displacement_transform, None);
+        }
+    }
+    (na::Matrix4::identity(), None)
+}
+
+/// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
+fn check_collision(
+    collision_context: &CollisionContext,
+    position: &Position,
+    relative_displacement: &na::Vector3<f32>,
+) -> CollisionCheckingResult {
+    // Split relative_displacement into its norm and a unit vector
+    let relative_displacement = relative_displacement.to_homogeneous();
+    let displacement_sqr = relative_displacement.norm_squared();
+    if displacement_sqr < 1e-16 {
+        // Fallback for if the displacement vector isn't large enough to reliably be normalized.
+        // Any value that is sufficiently large compared to f32::MIN_POSITIVE should work as the cutoff.
+        return CollisionCheckingResult::stationary();
+    }
+
+    let displacement_norm = displacement_sqr.sqrt();
+    let displacement_normalized = relative_displacement / displacement_norm;
+
+    let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
+    let tanh_distance = displacement_norm.tanh();
+
+    let cast_hit = graph_collision::sphere_cast(
+        collision_context.radius,
+        collision_context.graph,
+        &collision_context.chunk_layout,
+        position,
+        &ray,
+        tanh_distance,
+    );
+
+    let cast_hit = match cast_hit {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Collision checking returned {:?}", e);
+            return CollisionCheckingResult::stationary();
+        }
+    };
+
+    let distance = cast_hit
+        .as_ref()
+        .map_or(tanh_distance, |hit| hit.tanh_distance)
+        .atanh();
+
+    let displacement_vector = displacement_normalized.xyz() * distance;
+    let displacement_transform = math::translate_along(&displacement_vector);
+
+    CollisionCheckingResult {
+        displacement_vector,
+        displacement_transform,
+        collision: cast_hit.map(|hit| Collision {
+            // `CastEndpoint` has its `normal` given relative to the character's original position,
+            // but we want the normal relative to the character after the character moves to meet the wall.
+            // This normal now represents a contact point at the origin, so we omit the w-coordinate
+            // to ensure that it's orthogonal to the origin.
+            normal: na::UnitVector3::new_normalize(
+                (math::mtranspose(&displacement_transform) * hit.normal).xyz(),
+            ),
+        }),
+    }
+}
+
+/// Returns the up-direction relative to the given position
+fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f32> {
+    na::UnitVector3::new_normalize(
+        (math::mtranspose(&position.local)
+            * graph
+                .get(position.node)
+                .as_ref()
+                .unwrap()
+                .state
+                .up_direction())
+        .xyz(),
+    )
 }
 
 /// Modifies the `subject` by a linear combination of the `normals` to ensure that it is approximately
