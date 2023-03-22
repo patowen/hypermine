@@ -49,28 +49,37 @@ impl CharacterControllerPass<'_> {
                 &(movement * self.cfg.no_clip_movement_speed * self.dt_seconds),
             );
         } else {
+            let collision_context = CollisionContext {
+                graph: self.graph,
+                chunk_layout: ChunkLayout::new(self.cfg.chunk_size as usize),
+                radius: self.cfg.character_radius,
+            };
+
+            let up = Self::get_relative_up(self.graph, self.position);
+            let max_slope_angle = self.cfg.max_floor_slope_angle;
+
             // Initialize ground_normal
-            if let Some(ground_normal) =
-                self.get_ground_transform_and_normal(1e-4).1.and_then(|n| {
-                    if self.velocity.dot(&n) > 0.1 {
-                        None
-                    } else {
-                        Some(n)
-                    }
-                })
-            {
-                apply_new_ground_normal(
-                    &self.get_relative_up(),
-                    false,
-                    &ground_normal,
-                    self.velocity,
-                );
+            if let Some(ground_normal) = Self::get_ground_transform_and_normal(
+                &collision_context,
+                &up,
+                max_slope_angle,
+                1e-4,
+                self.position,
+            )
+            .1
+            .and_then(|n| {
+                if self.velocity.dot(&n) > 0.1 {
+                    None
+                } else {
+                    Some(n)
+                }
+            }) {
+                apply_new_ground_normal(&up, false, &ground_normal, self.velocity);
                 self.ground_normal = Some(ground_normal);
             };
 
             // Jump if appropriate
             if self.input.jump && self.ground_normal.is_some() {
-                let up = self.get_relative_up();
                 let horizontal_velocity = *self.velocity - *up * up.dot(self.velocity);
                 *self.velocity = horizontal_velocity + *up * self.cfg.jump_speed;
                 self.ground_normal = None;
@@ -80,13 +89,25 @@ impl CharacterControllerPass<'_> {
 
             // Update velocity
             if let Some(ground_normal) = self.ground_normal {
-                self.apply_ground_controls(&movement, &ground_normal);
+                Self::apply_ground_controls(
+                    self.cfg.ground_acceleration,
+                    self.cfg.max_ground_speed,
+                    self.dt_seconds,
+                    &movement,
+                    &up,
+                    &ground_normal,
+                    self.velocity,
+                );
             } else {
-                self.apply_air_controls(&movement);
+                Self::apply_air_controls(
+                    self.cfg.air_acceleration,
+                    self.dt_seconds,
+                    &movement,
+                    self.velocity,
+                );
 
                 // Apply gravity
-                *self.velocity -=
-                    *self.get_relative_up() * self.cfg.gravity_acceleration * self.dt_seconds;
+                *self.velocity -= *up * self.cfg.gravity_acceleration * self.dt_seconds;
 
                 // Apply air resistance
                 *self.velocity *= (-self.cfg.air_resistance * self.dt_seconds).exp();
@@ -104,13 +125,25 @@ impl CharacterControllerPass<'_> {
             //    stop moving after releasing a direction key.
             let estimated_average_velocity = (*self.velocity + old_velocity) * 0.5;
 
-            self.apply_velocity(&estimated_average_velocity);
+            Self::apply_velocity(
+                &collision_context,
+                &up,
+                max_slope_angle,
+                estimated_average_velocity * self.dt_seconds,
+                self.position,
+                self.velocity,
+                &mut self.ground_normal,
+            );
 
             // Clamp to ground
             if self.ground_normal.is_some() {
-                let (t, _) = self.get_ground_transform_and_normal(
+                let (t, _) = Self::get_ground_transform_and_normal(
+                    &collision_context,
+                    &up,
+                    max_slope_angle,
                     // Use a single timestep of gravity as the drop distance
                     self.cfg.gravity_acceleration * self.dt_seconds.powi(2) * 0.5,
+                    self.position,
                 );
                 self.position.local *= t;
             }
@@ -128,72 +161,87 @@ impl CharacterControllerPass<'_> {
     }
 
     fn apply_ground_controls(
-        &mut self,
+        ground_acceleration: f32,
+        max_ground_speed: f32,
+        dt_seconds: f32,
         movement: &na::Vector3<f32>,
+        up: &na::UnitVector3<f32>,
         ground_normal: &na::Vector3<f32>,
+        velocity: &mut na::Vector3<f32>,
     ) {
         let movement_norm = movement.norm();
         let target_velocity = if movement_norm < 1e-16 {
             na::Vector3::zeros()
         } else {
-            let up = self.get_relative_up();
             let mut unit_movement = movement / movement_norm;
             let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
-            unit_movement += *up * upward_correction;
+            unit_movement += **up * upward_correction;
             unit_movement.try_normalize_mut(1e-16);
             unit_movement * movement_norm
         };
-        let current_to_target_velocity =
-            target_velocity * self.cfg.max_ground_speed - *self.velocity;
-        let max_delta_velocity = self.cfg.ground_acceleration * self.dt_seconds;
+        let current_to_target_velocity = target_velocity * max_ground_speed - *velocity;
+        let max_delta_velocity = ground_acceleration * dt_seconds;
         if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
-            *self.velocity += current_to_target_velocity.normalize() * max_delta_velocity;
+            *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
         } else {
-            *self.velocity += current_to_target_velocity;
+            *velocity += current_to_target_velocity;
         }
     }
 
-    fn apply_air_controls(&mut self, movement: &na::Vector3<f32>) {
-        *self.velocity += movement * self.cfg.air_acceleration * self.dt_seconds;
+    fn apply_air_controls(
+        air_acceleration: f32,
+        dt_seconds: f32,
+        movement: &na::Vector3<f32>,
+        velocity: &mut na::Vector3<f32>,
+    ) {
+        *velocity += movement * air_acceleration * dt_seconds;
     }
 
     /// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
     /// based on collisions that occur.
-    fn apply_velocity(&mut self, estimated_average_velocity: &na::Vector3<f32>) {
+    fn apply_velocity(
+        collision_context: &CollisionContext,
+        up: &na::UnitVector3<f32>,
+        max_slope_angle: f32,
+        mut expected_displacement: na::Vector3<f32>,
+        position: &mut Position,
+        velocity: &mut na::Vector3<f32>,
+        ground_normal: &mut Option<na::UnitVector3<f32>>,
+    ) {
         // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
         // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
         // in which case further movement processing is delayed until the next time step.
         const MAX_COLLISION_ITERATIONS: u32 = 5;
-        let cos_max_slope = self.cfg.max_floor_slope_angle.cos();
+        let cos_max_slope = max_slope_angle.cos();
 
-        let mut expected_displacement = estimated_average_velocity * self.dt_seconds;
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
 
         let mut all_collisions_resolved = false;
 
         for _ in 0..MAX_COLLISION_ITERATIONS {
-            let collision_result = self.check_collision(&expected_displacement);
-            self.position.local *= collision_result.displacement_transform;
+            let collision_result =
+                Self::check_collision(collision_context, position, &expected_displacement);
+            position.local *= collision_result.displacement_transform;
 
             if let Some(collision) = collision_result.collision {
                 // Update the expected displacement to whatever is remaining.
                 expected_displacement -= collision_result.displacement_vector;
 
-                if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
+                if collision.normal.dot(up) > cos_max_slope {
                     apply_new_ground_normal(
-                        &self.get_relative_up(),
-                        self.ground_normal.is_some(),
+                        up,
+                        ground_normal.is_some(),
                         &collision.normal,
                         &mut expected_displacement,
                     );
                     apply_new_ground_normal(
-                        &self.get_relative_up(),
-                        self.ground_normal.is_some(),
+                        up,
+                        ground_normal.is_some(),
                         &collision.normal,
-                        self.velocity,
+                        velocity,
                     );
-                    self.ground_normal = Some(collision.normal);
-                    active_normals.retain(|n| n.dot(self.velocity) < 0.0);
+                    *ground_normal = Some(collision.normal);
+                    active_normals.retain(|n| n.dot(velocity) < 0.0);
                 } else {
                     // We maintain a list of surface normals that should restrict player movement. We remove normals for
                     // surfaces the player is pushed away from and add the surface normal of the latest collision.
@@ -204,13 +252,13 @@ impl CharacterControllerPass<'_> {
                 let active_normals2: Vec<_> = active_normals
                     .clone()
                     .into_iter()
-                    .chain(self.ground_normal)
+                    .chain(*ground_normal)
                     .collect();
 
                 apply_normals(&active_normals2, &mut expected_displacement);
 
                 // Also update the velocity to ensure that walls kill momentum.
-                apply_normals(&active_normals2, self.velocity);
+                apply_normals(&active_normals2, velocity);
             } else {
                 all_collisions_resolved = true;
                 break;
@@ -223,19 +271,23 @@ impl CharacterControllerPass<'_> {
     }
 
     fn get_ground_transform_and_normal(
-        &self,
+        collision_context: &CollisionContext,
+        up: &na::UnitVector3<f32>,
+        max_slope_angle: f32,
         allowed_distance: f32,
+        position: &Position,
     ) -> (na::Matrix4<f32>, Option<na::UnitVector3<f32>>) {
         const MAX_COLLISION_ITERATIONS: u32 = 5;
-        let cos_max_slope = self.cfg.max_floor_slope_angle.cos();
+        let cos_max_slope = max_slope_angle.cos();
 
-        let mut allowed_displacement = -self.get_relative_up().into_inner() * allowed_distance;
+        let mut allowed_displacement = -up.into_inner() * allowed_distance;
         let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
 
         for _ in 0..MAX_COLLISION_ITERATIONS {
-            let collision_result = self.check_collision(&allowed_displacement);
+            let collision_result =
+                Self::check_collision(collision_context, position, &allowed_displacement);
             if let Some(collision) = collision_result.collision {
-                if collision.normal.dot(&self.get_relative_up()) > cos_max_slope {
+                if collision.normal.dot(up) > cos_max_slope {
                     return (
                         collision_result.displacement_transform,
                         Some(collision.normal),
@@ -252,7 +304,11 @@ impl CharacterControllerPass<'_> {
     }
 
     /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
-    fn check_collision(&self, relative_displacement: &na::Vector3<f32>) -> CollisionCheckingResult {
+    fn check_collision(
+        collision_context: &CollisionContext,
+        position: &Position,
+        relative_displacement: &na::Vector3<f32>,
+    ) -> CollisionCheckingResult {
         // Split relative_displacement into its norm and a unit vector
         let relative_displacement = relative_displacement.to_homogeneous();
         let displacement_sqr = relative_displacement.norm_squared();
@@ -269,10 +325,10 @@ impl CharacterControllerPass<'_> {
         let tanh_distance = displacement_norm.tanh();
 
         let cast_hit = graph_collision::sphere_cast(
-            self.cfg.character_radius,
-            self.graph,
-            &ChunkLayout::new(self.cfg.chunk_size as usize),
-            self.position,
+            collision_context.radius,
+            collision_context.graph,
+            &collision_context.chunk_layout,
+            position,
             &ray,
             tanh_distance,
         );
@@ -309,12 +365,11 @@ impl CharacterControllerPass<'_> {
     }
 
     /// Returns the up-direction relative to the given position
-    fn get_relative_up(&self) -> na::UnitVector3<f32> {
+    fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f32> {
         na::UnitVector3::new_normalize(
-            (math::mtranspose(&self.position.local)
-                * self
-                    .graph
-                    .get(self.position.node)
+            (math::mtranspose(&position.local)
+                * graph
+                    .get(position.node)
                     .as_ref()
                     .unwrap()
                     .state
@@ -392,6 +447,12 @@ fn apply_new_ground_normal(
             *subject += *up * upward_correction;
         }
     }
+}
+
+struct CollisionContext<'a> {
+    graph: &'a DualGraph,
+    chunk_layout: ChunkLayout,
+    radius: f32,
 }
 
 struct CollisionCheckingResult {
