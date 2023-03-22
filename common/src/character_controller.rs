@@ -142,7 +142,10 @@ impl CharacterControllerPass<'_> {
                     &up,
                     max_slope_angle,
                     // Use a single timestep of gravity as the drop distance
-                    self.cfg.gravity_acceleration * self.dt_seconds.powi(2) * 0.5,
+                    self.cfg.gravity_acceleration
+                        * self.cfg.step_interval.as_secs_f32()
+                        * self.dt_seconds
+                        * 0.5,
                     self.position,
                 );
                 self.position.local *= t;
