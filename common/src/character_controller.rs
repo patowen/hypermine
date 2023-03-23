@@ -35,21 +35,17 @@ pub fn run_character_step(
 
         // Initialize ground_normal
         let mut ground_normal = None;
-        if let Some(new_ground_normal) = get_ground_transform_and_normal(
-            &collision_context,
-            &up,
-            max_slope_angle,
-            1e-4,
-            position,
-        )
-        .1
-        .and_then(|n| {
-            if velocity.dot(&n) > 0.1 {
-                None
-            } else {
-                Some(n)
-            }
-        }) {
+        if let Some(new_ground_normal) =
+            get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position).and_then(
+                |n| {
+                    if velocity.dot(&n) > 0.1 {
+                        None
+                    } else {
+                        Some(n)
+                    }
+                },
+            )
+        {
             apply_new_ground_normal(&up, false, &new_ground_normal, velocity);
             ground_normal = Some(new_ground_normal);
         };
@@ -105,19 +101,6 @@ pub fn run_character_step(
             velocity,
             &mut ground_normal,
         );
-
-        // Clamp to ground
-        if ground_normal.is_some() {
-            let (t, _) = get_ground_transform_and_normal(
-                &collision_context,
-                &up,
-                max_slope_angle,
-                // Use a single timestep of gravity as the drop distance
-                cfg.gravity_acceleration * cfg.step_interval.as_secs_f32() * dt_seconds * 0.5,
-                position,
-            );
-            position.local *= t;
-        }
     }
 
     // Renormalize
@@ -233,13 +216,13 @@ fn apply_velocity(
     }
 }
 
-fn get_ground_transform_and_normal(
+fn get_ground_normal(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
     max_slope_angle: f32,
     allowed_distance: f32,
     position: &Position,
-) -> (na::Matrix4<f32>, Option<na::UnitVector3<f32>>) {
+) -> Option<na::UnitVector3<f32>> {
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
@@ -250,19 +233,16 @@ fn get_ground_transform_and_normal(
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision {
             if collision.normal.dot(up) > cos_max_slope {
-                return (
-                    collision_result.displacement_transform,
-                    Some(collision.normal),
-                );
+                return Some(collision.normal);
             }
             active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             active_normals.push(collision.normal);
             apply_normals(&active_normals, &mut allowed_displacement);
         } else {
-            return (collision_result.displacement_transform, None);
+            return None;
         }
     }
-    (na::Matrix4::identity(), None)
+    None
 }
 
 /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.
