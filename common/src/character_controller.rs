@@ -36,15 +36,7 @@ pub fn run_character_step(
         // Initialize ground_normal
         let mut ground_normal = None;
         if let Some(new_ground_normal) =
-            get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position).and_then(
-                |n| {
-                    if velocity.dot(&n) > 0.1 {
-                        None
-                    } else {
-                        Some(n)
-                    }
-                },
-            )
+            get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position)
         {
             apply_new_ground_normal(&up, false, &new_ground_normal, velocity);
             ground_normal = Some(new_ground_normal);
