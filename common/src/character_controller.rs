@@ -12,6 +12,7 @@ pub fn run_character_step(
     graph: &DualGraph,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
+    on_ground: &mut bool,
     input: &CharacterInput,
     dt_seconds: f32,
 ) {
@@ -35,12 +36,15 @@ pub fn run_character_step(
 
         // Initialize ground_normal
         let mut ground_normal = None;
-        if let Some(new_ground_normal) =
-            get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position)
-        {
-            apply_new_ground_normal(&up, false, &new_ground_normal, velocity);
-            ground_normal = Some(new_ground_normal);
-        };
+        if *on_ground {
+            let ground_result =
+                get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position);
+            if let Some(ground_collision) = ground_result.collision {
+                apply_new_ground_normal(&up, false, &ground_collision.normal, velocity);
+                ground_normal = Some(ground_collision.normal);
+                position.local *= ground_result.displacement_transform;
+            }
+        }
 
         // Jump if appropriate
         if input.jump && ground_normal.is_some() {
@@ -93,6 +97,8 @@ pub fn run_character_step(
             velocity,
             &mut ground_normal,
         );
+
+        *on_ground = ground_normal.is_some();
     }
 
     // Renormalize
@@ -214,7 +220,7 @@ fn get_ground_normal(
     max_slope_angle: f32,
     allowed_distance: f32,
     position: &Position,
-) -> Option<na::UnitVector3<f32>> {
+) -> CollisionCheckingResult {
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
@@ -223,18 +229,18 @@ fn get_ground_normal(
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
-        if let Some(collision) = collision_result.collision {
+        if let Some(collision) = collision_result.collision.as_ref() {
             if collision.normal.dot(up) > cos_max_slope {
-                return Some(collision.normal);
+                return collision_result;
             }
             active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             active_normals.push(collision.normal);
             apply_normals(&active_normals, &mut allowed_displacement);
         } else {
-            return None;
+            return CollisionCheckingResult::stationary();
         }
     }
-    None
+    CollisionCheckingResult::stationary()
 }
 
 /// Checks for collisions when a character moves with a character-relative displacement vector of `relative_displacement`.

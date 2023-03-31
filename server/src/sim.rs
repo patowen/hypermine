@@ -134,6 +134,7 @@ impl Sim {
             state: CharacterState {
                 orientation: na::one(),
                 velocity: na::Vector3::zeros(),
+                on_ground: false,
             },
         };
         let initial_input = CharacterInput {
@@ -200,6 +201,7 @@ impl Sim {
                 &self.graph,
                 position,
                 &mut character.state.velocity,
+                &mut character.state.on_ground,
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );

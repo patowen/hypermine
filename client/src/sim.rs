@@ -351,6 +351,7 @@ impl Sim {
             latest_input,
             *pos,
             ch.state.velocity,
+            ch.state.on_ground,
         );
     }
 
@@ -436,6 +437,7 @@ impl Sim {
     fn update_view_position(&mut self) {
         let mut view_position = *self.prediction.predicted_position();
         let mut view_velocity = *self.prediction.predicted_velocity();
+        let mut view_on_ground = *self.prediction.predicted_on_ground();
         let orientation = if self.no_clip {
             self.orientation
         } else {
@@ -459,6 +461,7 @@ impl Sim {
                 &self.graph,
                 &mut view_position,
                 &mut view_velocity,
+                &mut view_on_ground,
                 &predicted_input,
                 self.since_input_sent.as_secs_f32(),
             );
