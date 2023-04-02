@@ -38,11 +38,11 @@ pub fn run_character_step(
         let mut ground_normal = None;
         if *on_ground {
             let ground_result =
-                get_ground_normal(&collision_context, &up, max_slope_angle, 1e-4, position);
+                get_ground_normal(&collision_context, &up, max_slope_angle, 1e-0, position); // TODO: Don't use 1e-0
             if let Some(ground_collision) = ground_result.collision {
-                apply_new_ground_normal(&up, false, &ground_collision.normal, velocity);
+                //apply_new_ground_normal(&up, false, &ground_collision.normal, velocity);
                 ground_normal = Some(ground_collision.normal);
-                position.local *= ground_result.displacement_transform;
+                //position.local *= ground_result.displacement_transform;
             }
         }
 
@@ -69,12 +69,12 @@ pub fn run_character_step(
         } else {
             apply_air_controls(cfg.air_acceleration, dt_seconds, &movement, velocity);
 
-            // Apply gravity
-            *velocity -= *up * cfg.gravity_acceleration * dt_seconds;
-
             // Apply air resistance
             *velocity *= (-cfg.air_resistance * dt_seconds).exp();
         }
+
+        // Apply gravity
+        *velocity -= *up * cfg.gravity_acceleration * dt_seconds;
 
         // Apply speed cap
         *velocity = velocity.cap_magnitude(cfg.speed_cap);
@@ -129,7 +129,9 @@ fn apply_ground_controls(
         unit_movement.try_normalize_mut(1e-16);
         unit_movement * movement_norm
     };
-    let current_to_target_velocity = target_velocity * max_ground_speed - *velocity;
+    let vertical_component = velocity.dot(ground_normal) / up.dot(ground_normal);
+    let current_to_target_velocity =
+        target_velocity * max_ground_speed - (*velocity - **up * vertical_component);
     let max_delta_velocity = ground_acceleration * dt_seconds;
     if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
         *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
@@ -179,11 +181,11 @@ fn apply_velocity(
             if collision.normal.dot(up) > cos_max_slope {
                 apply_new_ground_normal(
                     up,
-                    ground_normal.is_some(),
+                    ground_normal.as_ref(),
                     &collision.normal,
                     &mut expected_displacement,
                 );
-                apply_new_ground_normal(up, ground_normal.is_some(), &collision.normal, velocity);
+                apply_new_ground_normal(up, ground_normal.as_ref(), &collision.normal, velocity);
                 *ground_normal = Some(collision.normal);
                 active_normals.retain(|n| n.dot(velocity) < 0.0);
             } else {
@@ -359,20 +361,23 @@ fn apply_normals_internal(
 }
 
 fn apply_new_ground_normal(
-    up: &na::Vector3<f32>,
-    ground_to_ground: bool,
+    up: &na::UnitVector3<f32>,
+    old_ground_normal: Option<&na::UnitVector3<f32>>,
     new_ground_normal: &na::UnitVector3<f32>,
     subject: &mut na::Vector3<f32>,
 ) {
-    if ground_to_ground {
+    if let Some(old_ground_normal) = old_ground_normal {
+        let vertical_component = subject.dot(old_ground_normal) / up.dot(old_ground_normal);
+        *subject -= **up * vertical_component;
         let subject_norm = subject.norm();
         if subject_norm > 1e-16 {
             let mut unit_subject = *subject / subject_norm;
             let upward_correction =
                 -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-            unit_subject += *up * upward_correction;
+            unit_subject += **up * upward_correction;
             unit_subject.try_normalize_mut(1e-16);
             *subject = unit_subject * subject_norm;
+            // No need to add the vertical component back at the end because the player just collided with the ground
         }
     } else {
         // TODO: Consider using fancier formula for max_upward_correction, one that makes
@@ -383,7 +388,7 @@ fn apply_new_ground_normal(
             upward_correction = max_upward_correction;
         }
         if upward_correction >= 0.0 {
-            *subject += *up * upward_correction;
+            *subject += **up * upward_correction;
         }
     }
 }
