@@ -42,6 +42,8 @@ pub struct SimConfigRaw {
     pub air_resistance: Option<f32>,
     /// How fast the player jumps off the ground in m/s
     pub jump_speed: Option<f32>,
+    /// How far away the player needs to be from the ground in meters to be considered in the air
+    pub ground_distance_tolerance: Option<f32>,
     /// Radius of the character in meters
     pub character_radius: Option<f32>,
 }
@@ -63,6 +65,7 @@ pub struct SimConfig {
     pub gravity_acceleration: f32,
     pub air_resistance: f32,
     pub jump_speed: f32,
+    pub ground_distance_tolerance: f32,
     pub character_radius: f32,
     /// Scaling factor converting meters to absolute units
     pub meters_to_absolute: f32,
@@ -88,6 +91,7 @@ impl SimConfig {
             gravity_acceleration: x.gravity_acceleration.unwrap_or(20.0) * meters_to_absolute,
             air_resistance: x.air_resistance.unwrap_or(0.2),
             jump_speed: x.jump_speed.unwrap_or(8.0) * meters_to_absolute,
+            ground_distance_tolerance: x.ground_distance_tolerance.unwrap_or(0.2) * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
             meters_to_absolute,
         }

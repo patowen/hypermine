@@ -38,11 +38,9 @@ pub fn run_character_step(
         let mut ground_normal = None;
         if *on_ground {
             let ground_result =
-                get_ground_normal(&collision_context, &up, max_slope_angle, 1e-0, position); // TODO: Don't use 1e-0
+                get_ground_normal(&collision_context, &up, max_slope_angle, cfg.ground_distance_tolerance, position); // TODO: Don't use 1e-0
             if let Some(ground_collision) = ground_result.collision {
-                //apply_new_ground_normal(&up, false, &ground_collision.normal, velocity);
                 ground_normal = Some(ground_collision.normal);
-                //position.local *= ground_result.displacement_transform;
             }
         }
 

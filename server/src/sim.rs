@@ -247,6 +247,7 @@ impl Sim {
         let chunk_generation_distance = dodeca::BOUNDING_SPHERE_RADIUS
             + self.cfg.character_radius as f64
             + self.cfg.speed_cap as f64 * self.cfg.step_interval.as_secs_f64()
+            + self.cfg.ground_distance_tolerance as f64
             + 0.001;
 
         // Load all chunks around entities corresponding to clients, which correspond to entities
