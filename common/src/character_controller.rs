@@ -191,6 +191,10 @@ fn apply_velocity(
                 apply_ground_normal_change(up, ground_normal, &collision.normal, velocity);
                 *ground_normal = Some(collision.normal);
                 // TODO: Retain wall normals needed to prevent being pushed too hard away from walls
+                // (Possibility: Keep horizontal and vertical velocity components separate when applying normals.
+                // The vertical component may shift horizontally, but apply_ground_normal_change should kill that component.
+                // As in, maintain the horizontal velocity as a separate variable always staying orthogonal to ground_normal.
+                // Only use that variable when a collision occurs with the ground or if total velocity points away from the ground.)
                 active_wall_normals.retain(|n| n.dot(velocity) < 0.0);
                 ground_normal_active = true;
             } else {
