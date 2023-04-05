@@ -169,8 +169,8 @@ fn apply_velocity(
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
-    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
-
+    let mut active_wall_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+    let mut ground_normal_active = false;
     let mut all_collisions_resolved = false;
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -190,14 +190,28 @@ fn apply_velocity(
                 );
                 apply_ground_normal_change(up, ground_normal, &collision.normal, velocity);
                 *ground_normal = Some(collision.normal);
-                active_normals.retain(|n| n.dot(velocity) < 0.0);
+                // TODO: Retain wall normals needed to prevent being pushed too hard away from walls
+                active_wall_normals.retain(|n| n.dot(velocity) < 0.0);
+                ground_normal_active = true;
             } else {
                 // We maintain a list of surface normals that should restrict player movement. We remove normals for
                 // surfaces the player is pushed away from and add the surface normal of the latest collision.
-                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_wall_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_wall_normals.push(collision.normal);
             }
 
-            active_normals.push(collision.normal);
+            if !ground_normal_active {
+                if let Some(ground_normal) = ground_normal.as_ref() {
+                    if apply_normals(&active_wall_normals, velocity).dot(ground_normal) > 0.0 {
+                        ground_normal_active = true;
+                    }
+                }
+            }
+
+            let mut active_normals = active_wall_normals.clone();
+            if ground_normal_active {
+                active_normals.push(ground_normal.unwrap());
+            }
 
             expected_displacement = apply_normals(&active_normals, &expected_displacement);
 
