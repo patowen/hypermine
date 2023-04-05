@@ -37,8 +37,13 @@ pub fn run_character_step(
         // Initialize ground_normal
         let mut ground_normal = None;
         if *on_ground {
-            let ground_result =
-                get_ground_normal(&collision_context, &up, max_slope_angle, cfg.ground_distance_tolerance, position); // TODO: Don't use 1e-0
+            let ground_result = get_ground_normal(
+                &collision_context,
+                &up,
+                max_slope_angle,
+                cfg.ground_distance_tolerance,
+                position,
+            );
             if let Some(ground_collision) = ground_result.collision {
                 ground_normal = Some(ground_collision.normal);
             }
@@ -177,32 +182,27 @@ fn apply_velocity(
             expected_displacement -= collision_result.displacement_vector;
 
             if collision.normal.dot(up) > cos_max_slope {
-                apply_new_ground_normal(
+                apply_ground_normal_change(
                     up,
-                    ground_normal.as_ref(),
+                    ground_normal,
                     &collision.normal,
                     &mut expected_displacement,
                 );
-                apply_new_ground_normal(up, ground_normal.as_ref(), &collision.normal, velocity);
+                apply_ground_normal_change(up, ground_normal, &collision.normal, velocity);
                 *ground_normal = Some(collision.normal);
                 active_normals.retain(|n| n.dot(velocity) < 0.0);
             } else {
                 // We maintain a list of surface normals that should restrict player movement. We remove normals for
                 // surfaces the player is pushed away from and add the surface normal of the latest collision.
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_normals.push(collision.normal);
             }
 
-            let active_normals2: Vec<_> = active_normals
-                .clone()
-                .into_iter()
-                .chain(*ground_normal)
-                .collect();
+            active_normals.push(collision.normal);
 
-            apply_normals(&active_normals2, &mut expected_displacement);
+            apply_normals(&active_normals, &mut expected_displacement);
 
             // Also update the velocity to ensure that walls kill momentum.
-            apply_normals(&active_normals2, velocity);
+            apply_normals(&active_normals, velocity);
         } else {
             all_collisions_resolved = true;
             break;
@@ -225,7 +225,7 @@ fn get_ground_normal(
     let cos_max_slope = max_slope_angle.cos();
 
     let mut allowed_displacement = -up.into_inner() * allowed_distance;
-    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(2);
+    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
@@ -358,9 +358,9 @@ fn apply_normals_internal(
     }
 }
 
-fn apply_new_ground_normal(
+fn apply_ground_normal_change(
     up: &na::UnitVector3<f32>,
-    old_ground_normal: Option<&na::UnitVector3<f32>>,
+    old_ground_normal: &Option<na::UnitVector3<f32>>,
     new_ground_normal: &na::UnitVector3<f32>,
     subject: &mut na::Vector3<f32>,
 ) {
