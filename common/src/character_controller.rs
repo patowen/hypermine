@@ -170,6 +170,7 @@ fn apply_velocity(
     let cos_max_slope = max_slope_angle.cos();
 
     let mut active_wall_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+    let mut ground_active_wall_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
     let mut ground_normal_active = false;
     let mut all_collisions_resolved = false;
 
@@ -221,6 +222,10 @@ fn apply_velocity(
                 // surfaces the player is pushed away from and add the surface normal of the latest collision.
                 active_wall_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 active_wall_normals.push(collision.normal);
+                ground_active_wall_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                if collision.normal.dot(&expected_displacement_horizontal) < 0.0 {
+                    ground_active_wall_normals.push(collision.normal);
+                }
             }
 
             if !ground_normal_active {
@@ -232,7 +237,7 @@ fn apply_velocity(
             }
 
             let mut active_normals = active_wall_normals.clone();
-            let mut active_normals_with_ground = active_wall_normals.clone();
+            let mut active_normals_with_ground = ground_active_wall_normals.clone();
             if ground_normal_active {
                 active_normals.push(ground_normal.unwrap());
             }
