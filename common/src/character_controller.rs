@@ -197,7 +197,7 @@ fn apply_velocity(
             }
 
             if collision.normal.dot(up) > cos_max_slope {
-                if ground_normal.is_some() {
+                if ground_normal.is_some() && !ground_normal_active {
                     expected_displacement = expected_displacement_horizontal;
                     *velocity = velocity_horizontal;
                 }
@@ -238,6 +238,9 @@ fn apply_velocity(
             }
             if let Some(ground_normal) = ground_normal {
                 active_normals_with_ground.push(*ground_normal);
+                // Problem: On the ground, gravity can cause you to collide with the wall behind you, locking
+                // you to the plane of that wall if horizontal velocity is measured naively. This edge case needs
+                // to be dealt with.
                 expected_displacement_horizontal = apply_normals(
                     &active_normals_with_ground,
                     &expected_displacement_horizontal,
@@ -413,9 +416,7 @@ fn apply_ground_normal_change(
     new_ground_normal: &na::UnitVector3<f32>,
     subject: &mut na::Vector3<f32>,
 ) {
-    if let Some(old_ground_normal) = old_ground_normal {
-        let vertical_component = subject.dot(old_ground_normal) / up.dot(old_ground_normal);
-        *subject -= **up * vertical_component;
+    if let Some(_) = old_ground_normal {
         let subject_norm = subject.norm();
         if subject_norm > 1e-16 {
             let mut unit_subject = *subject / subject_norm;
