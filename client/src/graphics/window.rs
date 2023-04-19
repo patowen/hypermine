@@ -188,12 +188,24 @@ impl Window {
                         state: ElementState::Pressed,
                         ..
                     } => {
+                        if mouse_captured {
+                            self.sim.break_block();
+                        }
                         let _ = self
                             .window
                             .set_cursor_grab(CursorGrabMode::Confined)
                             .or_else(|_e| self.window.set_cursor_grab(CursorGrabMode::Locked));
                         self.window.set_cursor_visible(false);
                         mouse_captured = true;
+                    }
+                    WindowEvent::MouseInput {
+                        button: MouseButton::Right,
+                        state: ElementState::Pressed,
+                        ..
+                    } => {
+                        if mouse_captured {
+                            self.sim.place_block();
+                        }
                     }
                     WindowEvent::KeyboardInput {
                         input:

@@ -8,9 +8,9 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
     graph::{Graph, NodeId},
-    node::{populate_fresh_nodes, DualGraph},
+    node::{populate_fresh_nodes, DualGraph, Chunk, VoxelData},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
-    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
+    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step, block_placing_temp::{chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle}, graph_ray_tracer}, world::Material, dodeca::Vertex,
 };
 
 /// Game state
@@ -48,6 +48,9 @@ pub struct Sim {
     /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
     /// orientation computations
     view_position: Position,
+
+    place_block: bool,
+    break_block: bool,
 }
 
 impl Sim {
@@ -77,6 +80,9 @@ impl Sim {
                 local: na::one(),
             }),
             view_position: Position::origin(),
+
+            place_block: false,
+            break_block: false,
         }
     }
 
@@ -170,6 +176,14 @@ impl Sim {
         self.toggle_no_clip = true;
     }
 
+    pub fn place_block(&mut self) {
+        self.place_block = true;
+    }
+
+    pub fn break_block(&mut self) {
+        self.break_block = true;
+    }
+
     pub fn set_jump(&mut self, jump: bool) {
         self.jump_next_step = jump;
         self.jump_next_step_sticky = jump || self.jump_next_step_sticky;
@@ -206,6 +220,9 @@ impl Sim {
                     self.no_clip = !self.no_clip;
                     self.toggle_no_clip = false;
                 }
+
+                self.handle_breaking_or_placing_blocks(true);
+                self.handle_breaking_or_placing_blocks(false);
 
                 self.jump = self.jump_next_step || self.jump_next_step_sticky;
                 self.jump_next_step_sticky = false;
@@ -507,6 +524,172 @@ impl Sim {
         self.world
             .despawn(entity)
             .expect("destroyed nonexistent entity");
+    }
+
+    fn handle_breaking_or_placing_blocks(&mut self, placing: bool) {
+        if placing {
+            if self.place_block {
+                self.place_block = false;
+            } else {
+                return;
+            }
+        } else if !placing {
+            if self.break_block {
+                self.break_block = false;
+            } else {
+                return;
+            }
+        }
+
+        let dimension = self.params.as_ref().unwrap().cfg.chunk_size;
+
+        let mut ray_tracing_result = RayTracingResult::new(0.5);
+        if !graph_ray_tracer::trace_ray(
+            &self.graph,
+            self.params.as_ref().unwrap().cfg.chunk_size as usize,
+            self.view_position.node,
+            &(self.view_position.local * na::Vector4::w()).cast(),
+            &(self.view_position.local * self.orientation.to_homogeneous() * -na::Vector4::z())
+                .cast(),
+            &mut RayTracingResultHandle::new(
+                &mut ray_tracing_result,
+                self.view_position.node,
+                common::dodeca::Vertex::A,
+                self.view_position.local.try_inverse().unwrap().cast(),
+            ),
+        ) {
+            return;
+        }
+
+        if let Some(intersection) = ray_tracing_result.intersection {
+            let Some(block_pos) = (if placing {
+                self.get_block_neighbor(
+                    intersection.node,
+                    intersection.vertex,
+                    intersection.voxel_coords,
+                    intersection.coord_axis,
+                    intersection.coord_direction,
+                )
+            } else {
+                Some((
+                    intersection.node,
+                    intersection.vertex,
+                    intersection.voxel_coords,
+                ))
+            }) else {
+                return;
+            };
+
+            let conflict =
+                false; //placing && self.placing_has_conflict(block_pos.0, block_pos.1, block_pos.2);
+
+            let mut must_fix_neighboring_chunks = false;
+
+            if let Some(node) = self.graph.get_mut(block_pos.0) {
+                if let Chunk::Populated {
+                    voxels,
+                    surface,
+                    old_surface,
+                } = &mut node.chunks[block_pos.1]
+                {
+                    let data = voxels.data_mut(dimension);
+                    let lwm = dimension as usize + 2;
+                    let array_entry = (block_pos.2[0] + 1)
+                        + (block_pos.2[1] + 1) * lwm
+                        + (block_pos.2[2] + 1) * lwm * lwm;
+                    if placing {
+                        if data[array_entry] == Material::Void && !conflict {
+                            data[array_entry] = Material::WoodPlanks;
+                            must_fix_neighboring_chunks = true;
+                        }
+                    } else {
+                        data[array_entry] = Material::Void;
+                        must_fix_neighboring_chunks = true;
+                    }
+
+                    *old_surface = *surface;
+                    *surface = None;
+                }
+            }
+
+            if must_fix_neighboring_chunks {
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 0, 1);
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 0, -1);
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 1, 1);
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 1, -1);
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 2, 1);
+                self.turn_neighboring_solid_to_dense(block_pos.0, block_pos.1, block_pos.2, 2, -1);
+            }
+        }
+    }
+
+    fn turn_neighboring_solid_to_dense(
+        &mut self,
+        node: NodeId,
+        vertex: Vertex,
+        coords: [usize; 3],
+        coord_axis: usize,
+        coord_direction: isize,
+    ) {
+        let dimension = self.params.as_ref().unwrap().cfg.chunk_size;
+
+        if let Some((neighbor_node, neighbor_vertex, _neighbor_coords)) =
+            self.get_block_neighbor(node, vertex, coords, coord_axis, coord_direction)
+        {
+            if let Some(neighbor_node_data) = self.graph.get_mut(neighbor_node) {
+                if let Chunk::Populated {
+                    voxels,
+                    surface,
+                    old_surface,
+                } = &mut neighbor_node_data.chunks[neighbor_vertex]
+                {
+                    if matches!(voxels, VoxelData::Solid(..)) {
+                        // This function has the side effect of turning solid chunks into dense chunks,
+                        // which is what we want for them to render properly.
+                        voxels.data_mut(dimension);
+                        *old_surface = *surface;
+                        *surface = None;
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_block_neighbor(
+        &self,
+        mut node: NodeId,
+        mut vertex: Vertex,
+        mut coords: [usize; 3],
+        coord_axis: usize,
+        coord_direction: isize,
+    ) -> Option<(NodeId, Vertex, [usize; 3])> {
+        let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
+        if coords[coord_axis] == dimension - 1 && coord_direction == 1 {
+            let new_vertex = vertex.adjacent_vertices()[coord_axis];
+            let coord_plane0 = (coord_axis + 1) % 3;
+            let coord_plane1 = (coord_axis + 2) % 3;
+            let mut new_coords: [usize; 3] = [0; 3];
+            for (i, new_coord) in new_coords.iter_mut().enumerate() {
+                if new_vertex.canonical_sides()[i] == vertex.canonical_sides()[coord_plane0] {
+                    *new_coord = coords[coord_plane0];
+                } else if new_vertex.canonical_sides()[i] == vertex.canonical_sides()[coord_plane1]
+                {
+                    *new_coord = coords[coord_plane1];
+                } else {
+                    *new_coord = coords[coord_axis];
+                }
+            }
+            coords = new_coords;
+            vertex = new_vertex;
+        } else if coords[coord_axis] == 0 && coord_direction == -1 {
+            node = self
+                .graph
+                .neighbor(node, vertex.canonical_sides()[coord_axis])?;
+        } else {
+            coords[coord_axis] = (coords[coord_axis] as isize + coord_direction) as usize;
+        }
+
+        Some((node, vertex, coords))
     }
 }
 

@@ -9,6 +9,7 @@ use rand::{
 mod id;
 
 extern crate nalgebra as na;
+pub mod block_placing_temp;
 pub mod character_controller;
 pub mod chunk_collision;
 mod chunks;
