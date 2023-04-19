@@ -189,13 +189,11 @@ fn apply_velocity(
 
         if let Some(collision) = collision_result.collision {
             // Update the expected displacement to whatever is remaining.
-            expected_displacement -= collision_result.displacement_vector;
-            expected_displacement_horizontal -= collision_result.displacement_vector;
-            if let Some(ground_normal) = ground_normal {
-                expected_displacement_horizontal += **up
-                    * (collision_result.displacement_vector.dot(ground_normal)
-                        / up.dot(ground_normal));
-            }
+            let displacement_factor = 1.0
+                - collision_result.displacement_vector.magnitude()
+                    / expected_displacement.magnitude();
+            expected_displacement *= displacement_factor;
+            expected_displacement_horizontal *= displacement_factor;
 
             if collision.normal.dot(up) > cos_max_slope {
                 if ground_normal.is_some() && !ground_normal_active {
