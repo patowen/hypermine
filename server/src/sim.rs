@@ -206,11 +206,11 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
-            for &(chunk, block, material) in input.block_changes.iter() {
-                let Chunk::Populated { voxels, .. } = self.graph.get_chunk_mut(chunk).unwrap() else {
+            for change in input.block_changes.iter() {
+                let Chunk::Populated { voxels, .. } = self.graph.get_chunk_mut(change.chunk).unwrap() else {
                     panic!();
                 };
-                voxels.data_mut(self.cfg.chunk_size)[block as usize] = material;
+                voxels.data_mut(self.cfg.chunk_size)[change.index as usize] = change.material;
             }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);

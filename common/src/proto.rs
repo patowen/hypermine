@@ -65,7 +65,14 @@ pub struct CharacterInput {
     pub movement: na::Vector3<f32>,
     pub jump: bool,
     pub no_clip: bool,
-    pub block_changes: Vec<(ChunkId, u32, Material)>,
+    pub block_changes: Vec<BlockChange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockChange {
+    pub chunk: ChunkId,
+    pub index: u32,
+    pub material: Material,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

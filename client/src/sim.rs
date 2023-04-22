@@ -14,7 +14,9 @@ use common::{
     dodeca::Vertex,
     graph::{Graph, NodeId},
     node::{populate_fresh_nodes, Chunk, ChunkId, DualGraph, VoxelData},
-    proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
+    proto::{
+        self, BlockChange, Character, CharacterInput, CharacterState, Command, Component, Position,
+    },
     sanitize_motion_input,
     world::Material,
     EntityId, GraphEntities, SimConfig, Step,
@@ -59,7 +61,7 @@ pub struct Sim {
     place_block: bool,
     break_block: bool,
 
-    block_changes: Vec<(ChunkId, u32, Material)>,
+    block_changes: Vec<BlockChange>,
 }
 
 impl Sim {
@@ -612,20 +614,20 @@ impl Sim {
                     if placing {
                         if data[array_entry] == Material::Void && !conflict {
                             data[array_entry] = Material::WoodPlanks;
-                            self.block_changes.push((
-                                ChunkId::new(block_pos.0, block_pos.1),
-                                array_entry as u32,
-                                Material::WoodPlanks,
-                            ));
+                            self.block_changes.push(BlockChange {
+                                chunk: ChunkId::new(block_pos.0, block_pos.1),
+                                index: array_entry as u32,
+                                material: Material::WoodPlanks,
+                            });
                             must_fix_neighboring_chunks = true;
                         }
                     } else {
                         data[array_entry] = Material::Void;
-                        self.block_changes.push((
-                            ChunkId::new(block_pos.0, block_pos.1),
-                            array_entry as u32,
-                            Material::Void,
-                        ));
+                        self.block_changes.push(BlockChange {
+                            chunk: ChunkId::new(block_pos.0, block_pos.1),
+                            index: array_entry as u32,
+                            material: Material::Void,
+                        });
                         must_fix_neighboring_chunks = true;
                     }
 
