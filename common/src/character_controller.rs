@@ -3,13 +3,15 @@ use tracing::{error, warn};
 use crate::{
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
-    proto::{CharacterInput, Position},
+    proto::{CharacterInput, Position, BlockChange},
     sanitize_motion_input, SimConfig,
 };
 
+#[allow(clippy::too_many_arguments)]
 pub fn run_character_step(
     cfg: &SimConfig,
     graph: &DualGraph,
+    block_changes: &[BlockChange],
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     on_ground: &mut bool,
@@ -27,6 +29,7 @@ pub fn run_character_step(
     } else {
         let collision_context = CollisionContext {
             graph,
+            block_changes,
             chunk_layout: ChunkLayout::new(cfg.chunk_size as usize),
             radius: cfg.character_radius,
         };
@@ -320,6 +323,7 @@ fn check_collision(
     let cast_hit = graph_collision::sphere_cast(
         collision_context.radius,
         collision_context.graph,
+        collision_context.block_changes,
         &collision_context.chunk_layout,
         position,
         &ray,
@@ -446,6 +450,7 @@ fn apply_ground_normal_change(
 
 struct CollisionContext<'a> {
     graph: &'a DualGraph,
+    block_changes: &'a [BlockChange],
     chunk_layout: ChunkLayout,
     radius: f32,
 }

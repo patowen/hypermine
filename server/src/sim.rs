@@ -200,6 +200,7 @@ impl Sim {
             character_controller::run_character_step(
                 &self.cfg,
                 &self.graph,
+                &[],
                 position,
                 &mut character.state.velocity,
                 &mut character.state.on_ground,

@@ -491,6 +491,7 @@ impl Sim {
             character_controller::run_character_step(
                 &params.cfg,
                 &self.graph,
+                &[],
                 &mut view_position,
                 &mut view_velocity,
                 &mut view_on_ground,

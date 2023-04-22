@@ -39,6 +39,7 @@ impl PredictedMotion {
         character_controller::run_character_step(
             cfg,
             graph,
+            &[],
             &mut self.predicted_position,
             &mut self.predicted_velocity,
             &mut self.predicted_on_ground,
@@ -75,6 +76,7 @@ impl PredictedMotion {
             character_controller::run_character_step(
                 cfg,
                 graph,
+                &[], // TODO
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
                 &mut self.predicted_on_ground,

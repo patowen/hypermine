@@ -7,7 +7,7 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph},
-    proto::Position,
+    proto::{Position, BlockChange},
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
@@ -22,6 +22,7 @@ use crate::{
 pub fn sphere_cast(
     collider_radius: f32,
     graph: &DualGraph,
+    block_changes: &[BlockChange],
     layout: &ChunkLayout,
     position: &Position,
     ray: &Ray,
@@ -72,6 +73,7 @@ pub fn sphere_cast(
         hit = chunk_sphere_cast(
             collider_radius,
             voxel_data,
+            block_changes.iter().filter(|b| b.chunk == chunk).collect(),
             layout,
             &local_ray,
             current_tanh_distance,
@@ -319,6 +321,7 @@ mod tests {
             let hit = sphere_cast(
                 self.collider_radius,
                 &graph,
+                &[],
                 &layout,
                 &Position::origin(),
                 &ray,
@@ -562,6 +565,7 @@ mod tests {
         let hit = sphere_cast(
             sphere_radius,
             &graph,
+            &[],
             &layout,
             &Position::origin(),
             &ray,

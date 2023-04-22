@@ -1,7 +1,10 @@
+#![allow(clippy::too_many_arguments)]
+
 use crate::{
     graph_collision::Ray,
     math,
     node::{ChunkLayout, VoxelData},
+    proto::BlockChange,
     world::Material,
 };
 
@@ -22,6 +25,7 @@ pub struct ChunkCastHit {
 pub fn chunk_sphere_cast(
     collider_radius: f32,
     voxel_data: &VoxelData,
+    block_changes: Vec<&BlockChange>,
     layout: &ChunkLayout,
     ray: &Ray,
     tanh_distance: f32,
@@ -41,6 +45,7 @@ pub fn chunk_sphere_cast(
         hit = find_face_collision(
             collider_radius,
             voxel_data,
+            &block_changes,
             layout,
             &bounding_box,
             t_axis,
@@ -54,6 +59,7 @@ pub fn chunk_sphere_cast(
         hit = find_edge_collision(
             collider_radius,
             voxel_data,
+            &block_changes,
             layout,
             &bounding_box,
             t_axis,
@@ -66,6 +72,7 @@ pub fn chunk_sphere_cast(
     hit = find_vertex_collision(
         collider_radius,
         voxel_data,
+        &block_changes,
         layout,
         &bounding_box,
         ray,
@@ -80,6 +87,7 @@ pub fn chunk_sphere_cast(
 fn find_face_collision(
     collider_radius: f32,
     voxel_data: &VoxelData,
+    block_changes: &[&BlockChange],
     layout: &ChunkLayout,
     bounding_box: &VoxelAABB,
     t_axis: usize,
@@ -131,6 +139,7 @@ fn find_face_collision(
         // Ensure that the relevant voxel is solid
         if !voxel_is_solid(
             voxel_data,
+            block_changes,
             layout,
             tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
         ) {
@@ -151,6 +160,7 @@ fn find_face_collision(
 fn find_edge_collision(
     collider_radius: f32,
     voxel_data: &VoxelData,
+    block_changes: &[&BlockChange],
     layout: &ChunkLayout,
     bounding_box: &VoxelAABB,
     t_axis: usize,
@@ -207,6 +217,7 @@ fn find_edge_collision(
             (0..2).all(|dv| {
                 !voxel_is_solid(
                     voxel_data,
+                    block_changes,
                     layout,
                     tuv_to_xyz(t_axis, [voxel_t, u + du, v + dv]),
                 )
@@ -229,6 +240,7 @@ fn find_edge_collision(
 fn find_vertex_collision(
     collider_radius: f32,
     voxel_data: &VoxelData,
+    block_changes: &[&BlockChange],
     layout: &ChunkLayout,
     bounding_box: &VoxelAABB,
     ray: &Ray,
@@ -241,7 +253,9 @@ fn find_vertex_collision(
         // Skip vertices that have no solid voxels adjacent to them
         if (0..2).all(|dx| {
             (0..2).all(|dy| {
-                (0..2).all(|dz| !voxel_is_solid(voxel_data, layout, [x + dx, y + dy, z + dz]))
+                (0..2).all(|dz| {
+                    !voxel_is_solid(voxel_data, block_changes, layout, [x + dx, y + dy, z + dz])
+                })
             })
         }) {
             continue;
@@ -404,14 +418,25 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 }
 
 /// Checks whether a voxel can be collided with. Any non-void voxel falls under this category.
-fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [usize; 3]) -> bool {
+fn voxel_is_solid(
+    voxel_data: &VoxelData,
+    block_changes: &[&BlockChange],
+    layout: &ChunkLayout,
+    coords: [usize; 3],
+) -> bool {
     let dimension_with_margin = layout.dimension() + 2;
     debug_assert!(coords[0] < dimension_with_margin);
     debug_assert!(coords[1] < dimension_with_margin);
     debug_assert!(coords[2] < dimension_with_margin);
-    voxel_data.get(
-        coords[0] + coords[1] * dimension_with_margin + coords[2] * dimension_with_margin.pow(2),
-    ) != Material::Void
+    let index =
+        coords[0] + coords[1] * dimension_with_margin + coords[2] * dimension_with_margin.pow(2);
+    let material = block_changes
+        .iter()
+        .filter(|c| c.index == index as u32)
+        .last()
+        .map(|c| c.material)
+        .unwrap_or_else(|| voxel_data.get(index));
+    material != Material::Void
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
@@ -575,6 +600,7 @@ mod tests {
         chunk_sphere_cast(
             ctx.collider_radius,
             &ctx.voxel_data,
+            vec![],
             &ctx.layout,
             ray,
             tanh_distance,
@@ -590,6 +616,7 @@ mod tests {
         find_face_collision(
             ctx.collider_radius,
             &ctx.voxel_data,
+            &[],
             &ctx.layout,
             &VoxelAABB::from_ray_segment_and_radius(
                 &ctx.layout,
@@ -613,6 +640,7 @@ mod tests {
         find_edge_collision(
             ctx.collider_radius,
             &ctx.voxel_data,
+            &[],
             &ctx.layout,
             &VoxelAABB::from_ray_segment_and_radius(
                 &ctx.layout,
@@ -635,6 +663,7 @@ mod tests {
         find_vertex_collision(
             ctx.collider_radius,
             &ctx.voxel_data,
+            &[],
             &ctx.layout,
             &VoxelAABB::from_ray_segment_and_radius(
                 &ctx.layout,
