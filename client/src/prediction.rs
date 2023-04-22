@@ -118,6 +118,7 @@ mod tests {
             movement: na::Vector3::x(),
             jump: false,
             no_clip: true,
+            block_changes: vec![],
         };
 
         let mut pred = PredictedMotion::new(pos());

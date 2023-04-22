@@ -141,6 +141,7 @@ impl Sim {
             movement: na::Vector3::zeros(),
             jump: false,
             no_clip: true,
+            block_changes: vec![],
         };
         let entity = self.world.spawn((id, position, character, initial_input));
         self.graph_entities.insert(position.node, entity);
@@ -205,6 +206,12 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
+            for &(chunk, block, material) in input.block_changes.iter() {
+                let Chunk::Populated { voxels, .. } = self.graph.get_chunk_mut(chunk).unwrap() else {
+                    panic!();
+                };
+                voxels.data_mut(self.cfg.chunk_size)[block as usize] = material;
+            }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
                 self.graph_entities.remove(prev_node, entity);
@@ -248,7 +255,7 @@ impl Sim {
             + self.cfg.character_radius as f64
             + self.cfg.speed_cap as f64 * self.cfg.step_interval.as_secs_f64()
             + self.cfg.ground_distance_tolerance as f64
-            + 0.001;
+            + 2.0; // Increased arbitrarily to allow block manipulation
 
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.

@@ -6,11 +6,18 @@ use tracing::{debug, error, trace};
 
 use crate::{net, prediction::PredictedMotion, Net};
 use common::{
+    block_placing_temp::{
+        chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle},
+        graph_ray_tracer,
+    },
     character_controller,
+    dodeca::Vertex,
     graph::{Graph, NodeId},
-    node::{populate_fresh_nodes, DualGraph, Chunk, VoxelData},
+    node::{populate_fresh_nodes, Chunk, ChunkId, DualGraph, VoxelData},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
-    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step, block_placing_temp::{chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle}, graph_ray_tracer}, world::Material, dodeca::Vertex,
+    sanitize_motion_input,
+    world::Material,
+    EntityId, GraphEntities, SimConfig, Step,
 };
 
 /// Game state
@@ -51,6 +58,8 @@ pub struct Sim {
 
     place_block: bool,
     break_block: bool,
+
+    block_changes: Vec<(ChunkId, u32, Material)>,
 }
 
 impl Sim {
@@ -83,6 +92,8 @@ impl Sim {
 
             place_block: false,
             break_block: false,
+
+            block_changes: vec![],
         }
     }
 
@@ -213,6 +224,9 @@ impl Sim {
                     / step_interval.as_secs_f32();
 
                 // Send fresh input
+                self.handle_breaking_or_placing_blocks(true);
+                self.handle_breaking_or_placing_blocks(false);
+
                 self.send_input();
 
                 // Toggle no clip at the start of a new step
@@ -220,9 +234,6 @@ impl Sim {
                     self.no_clip = !self.no_clip;
                     self.toggle_no_clip = false;
                 }
-
-                self.handle_breaking_or_placing_blocks(true);
-                self.handle_breaking_or_placing_blocks(false);
 
                 self.jump = self.jump_next_step || self.jump_next_step_sticky;
                 self.jump_next_step_sticky = false;
@@ -438,6 +449,7 @@ impl Sim {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
             jump: self.jump,
             no_clip: self.no_clip,
+            block_changes: self.block_changes.split_off(0),
         };
         let generation = self
             .prediction
@@ -472,6 +484,7 @@ impl Sim {
                         / params.cfg.step_interval.as_secs_f32()),
                 jump: self.jump,
                 no_clip: self.no_clip,
+                block_changes: vec![],
             };
             character_controller::run_character_step(
                 &params.cfg,
@@ -580,8 +593,7 @@ impl Sim {
                 return;
             };
 
-            let conflict =
-                false; //placing && self.placing_has_conflict(block_pos.0, block_pos.1, block_pos.2);
+            let conflict = false; //placing && self.placing_has_conflict(block_pos.0, block_pos.1, block_pos.2);
 
             let mut must_fix_neighboring_chunks = false;
 
@@ -600,10 +612,20 @@ impl Sim {
                     if placing {
                         if data[array_entry] == Material::Void && !conflict {
                             data[array_entry] = Material::WoodPlanks;
+                            self.block_changes.push((
+                                ChunkId::new(block_pos.0, block_pos.1),
+                                array_entry as u32,
+                                Material::WoodPlanks,
+                            ));
                             must_fix_neighboring_chunks = true;
                         }
                     } else {
                         data[array_entry] = Material::Void;
+                        self.block_changes.push((
+                            ChunkId::new(block_pos.0, block_pos.1),
+                            array_entry as u32,
+                            Material::Void,
+                        ));
                         must_fix_neighboring_chunks = true;
                     }
 
