@@ -36,10 +36,20 @@ impl PredictedMotion {
     /// Update for input about to be sent to the server, returning the generation it should be
     /// tagged with
     pub fn push(&mut self, cfg: &SimConfig, graph: &DualGraph, input: &CharacterInput) -> u16 {
+        let mut block_change_undo_sequence = vec![];
+        for change in input.block_changes.iter().rev() {
+            block_change_undo_sequence.push(BlockChange {
+                chunk: change.chunk,
+                index: change.index,
+                old_material: change.new_material,
+                new_material: change.old_material,
+            });
+        }
+
         character_controller::run_character_step(
             cfg,
             graph,
-            &[],
+            &block_change_undo_sequence,
             &mut self.predicted_position,
             &mut self.predicted_velocity,
             &mut self.predicted_on_ground,
@@ -96,8 +106,12 @@ impl PredictedMotion {
                 cfg.step_interval.as_secs_f32(),
             );
 
-            for _ in &input.block_changes {
-                block_change_undo_sequence.pop();
+            for change in &input.block_changes {
+                let removed = block_change_undo_sequence.pop().unwrap();
+                assert_eq!(change.chunk, removed.chunk);
+                assert_eq!(change.index, removed.index);
+                assert_eq!(change.old_material, removed.new_material);
+                assert_eq!(change.new_material, removed.old_material);
             }
         }
     }
