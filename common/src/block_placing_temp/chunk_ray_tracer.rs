@@ -31,6 +31,18 @@ impl VoxelDataWrapper<'_> {
     }
 }
 
+pub trait ChunkRayTracer {
+    fn trace_ray_in_chunk(
+        &self,
+        chunk_data: VoxelDataWrapper,
+        pos: &na::Vector4<f64>,
+        dir: &na::Vector4<f64>,
+        handle: &mut RayTracingResultHandle,
+    );
+
+    fn max_radius(&self) -> f64;
+}
+
 pub struct RayTracingResult {
     pub t: f64,
     pub intersection: Option<RayTracingIntersection>,

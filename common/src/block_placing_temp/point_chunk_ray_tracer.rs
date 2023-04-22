@@ -1,11 +1,11 @@
 use crate::{dodeca::Vertex, math, world::Material};
 
-use super::chunk_ray_tracer::{RayTracingResultHandle, VoxelDataWrapper};
+use crate::block_placing_temp::chunk_ray_tracer::{ChunkRayTracer, RayTracingResultHandle, VoxelDataWrapper};
 
 pub struct PointChunkRayTracer {}
 
-impl PointChunkRayTracer {
-    pub fn trace_ray_in_chunk(
+impl ChunkRayTracer for PointChunkRayTracer {
+    fn trace_ray_in_chunk(
         &self,
         voxel_data: VoxelDataWrapper,
         pos: &na::Vector4<f64>,
@@ -15,7 +15,7 @@ impl PointChunkRayTracer {
         PointChunkRayTracingPass::new(voxel_data, pos, dir, handle).trace_ray_in_chunk();
     }
 
-    pub fn max_radius(&self) -> f64 {
+    fn max_radius(&self) -> f64 {
         0.0
     }
 }

@@ -8,7 +8,7 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     block_placing_temp::{
         chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle},
-        graph_ray_tracer,
+        graph_ray_tracer, point_chunk_ray_tracer::PointChunkRayTracer,
     },
     character_controller,
     dodeca::Vertex,
@@ -563,6 +563,7 @@ impl Sim {
         if !graph_ray_tracer::trace_ray(
             &self.graph,
             self.params.as_ref().unwrap().cfg.chunk_size as usize,
+            &PointChunkRayTracer {},
             self.view_position.node,
             &(self.view_position.local * na::Vector4::w()).cast(),
             &(self.view_position.local * self.orientation.to_homogeneous() * -na::Vector4::z())

@@ -1,16 +1,17 @@
 use std::collections::{HashSet, VecDeque};
 
-use crate::block_placing_temp::point_chunk_ray_tracer::PointChunkRayTracer;
+use crate::block_placing_temp::chunk_ray_tracer::{
+    ChunkRayTracer, RayTracingResultHandle, VoxelDataWrapper,
+};
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::node::{Chunk, Node};
-
-use crate::block_placing_temp::chunk_ray_tracer::{RayTracingResultHandle, VoxelDataWrapper};
 
 // Returns whether a definitive answer was found
 pub fn trace_ray(
     graph: &Graph<Node>,
     dimension: usize,
+    chunk_ray_tracer: &impl ChunkRayTracer,
     node: NodeId,
     pos: &na::Vector4<f64>,
     dir: &na::Vector4<f64>,
@@ -24,8 +25,9 @@ pub fn trace_ray(
     chunk_queue.push_back((start_chunk, na::Matrix4::identity()));
 
     const EPSILON: f64 = 1e-5;
-    let klein_boundary0 = EPSILON.tanh();
-    let klein_boundary1 = (Vertex::chunk_to_dual_factor().atanh() - EPSILON).tanh();
+    let klein_boundary0 = (chunk_ray_tracer.max_radius() + EPSILON).tanh();
+    let klein_boundary1 =
+        (Vertex::chunk_to_dual_factor().atanh() - (chunk_ray_tracer.max_radius() + EPSILON)).tanh();
 
     while let Some((chunk, transform)) = chunk_queue.pop_front() {
         let node = graph.get(chunk.node).as_ref().unwrap();
@@ -38,8 +40,11 @@ pub fn trace_ray(
         };
         let square_pos = chunk.vertex.node_to_dual() * transform * pos;
         let square_dir = chunk.vertex.node_to_dual() * transform * dir;
-        PointChunkRayTracer {}.trace_ray_in_chunk(
-            VoxelDataWrapper::new(voxel_data, dimension),
+        chunk_ray_tracer.trace_ray_in_chunk(
+            VoxelDataWrapper::new(
+                voxel_data,
+                dimension,
+            ),
             &square_pos,
             &square_dir,
             &mut handle.dependent_handle(
