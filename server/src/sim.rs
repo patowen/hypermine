@@ -211,7 +211,7 @@ impl Sim {
                 let Chunk::Populated { voxels, .. } = self.graph.get_chunk_mut(change.chunk).unwrap() else {
                     panic!();
                 };
-                voxels.data_mut(self.cfg.chunk_size)[change.index as usize] = change.material;
+                voxels.data_mut(self.cfg.chunk_size)[change.index as usize] = change.new_material;
             }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);

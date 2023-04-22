@@ -72,7 +72,8 @@ pub struct CharacterInput {
 pub struct BlockChange {
     pub chunk: ChunkId,
     pub index: u32,
-    pub material: Material,
+    pub old_material: Material,
+    pub new_material: Material,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

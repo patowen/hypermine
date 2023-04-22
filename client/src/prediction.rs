@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use common::{
     character_controller,
     node::DualGraph,
-    proto::{CharacterInput, Position},
+    proto::{BlockChange, CharacterInput, Position},
     SimConfig,
 };
 
@@ -72,17 +72,33 @@ impl PredictedMotion {
         self.predicted_velocity = velocity;
         self.predicted_on_ground = on_ground;
 
+        let mut block_change_undo_sequence = vec![];
+        for input in self.log.iter().rev() {
+            for change in input.block_changes.iter().rev() {
+                block_change_undo_sequence.push(BlockChange {
+                    chunk: change.chunk,
+                    index: change.index,
+                    old_material: change.new_material,
+                    new_material: change.old_material,
+                });
+            }
+        }
+
         for input in self.log.iter() {
             character_controller::run_character_step(
                 cfg,
                 graph,
-                &[], // TODO
+                &block_change_undo_sequence,
                 &mut self.predicted_position,
                 &mut self.predicted_velocity,
                 &mut self.predicted_on_ground,
                 input,
                 cfg.step_interval.as_secs_f32(),
             );
+
+            for _ in &input.block_changes {
+                block_change_undo_sequence.pop();
+            }
         }
     }
 

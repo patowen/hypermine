@@ -614,21 +614,23 @@ impl Sim {
                         + (block_pos.2[2] + 1) * lwm * lwm;
                     if placing {
                         if data[array_entry] == Material::Void && !conflict {
-                            data[array_entry] = Material::WoodPlanks;
                             self.block_changes.push(BlockChange {
                                 chunk: ChunkId::new(block_pos.0, block_pos.1),
                                 index: array_entry as u32,
-                                material: Material::WoodPlanks,
+                                old_material: data[array_entry],
+                                new_material: Material::WoodPlanks,
                             });
+                            data[array_entry] = Material::WoodPlanks;
                             must_fix_neighboring_chunks = true;
                         }
                     } else {
-                        data[array_entry] = Material::Void;
                         self.block_changes.push(BlockChange {
                             chunk: ChunkId::new(block_pos.0, block_pos.1),
                             index: array_entry as u32,
-                            material: Material::Void,
+                            old_material: data[array_entry],
+                            new_material: Material::Void,
                         });
+                        data[array_entry] = Material::Void;
                         must_fix_neighboring_chunks = true;
                     }
 

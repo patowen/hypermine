@@ -434,7 +434,7 @@ fn voxel_is_solid(
         .iter()
         .filter(|c| c.index == index as u32)
         .last()
-        .map(|c| c.material)
+        .map(|c| c.new_material)
         .unwrap_or_else(|| voxel_data.get(index));
     material != Material::Void
 }
