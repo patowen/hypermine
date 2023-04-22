@@ -8,7 +8,9 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     block_placing_temp::{
         chunk_ray_tracer::{RayTracingResult, RayTracingResultHandle},
-        graph_ray_tracer, point_chunk_ray_tracer::PointChunkRayTracer,
+        graph_ray_tracer,
+        point_chunk_ray_tracer::PointChunkRayTracer,
+        single_block_sphere_collision_checker::SingleBlockSphereCollisionChecker,
     },
     character_controller,
     dodeca::Vertex,
@@ -597,7 +599,8 @@ impl Sim {
                 return;
             };
 
-            let conflict = false; //placing && self.placing_has_conflict(block_pos.0, block_pos.1, block_pos.2);
+            let conflict =
+                placing && self.placing_has_conflict(block_pos.0, block_pos.1, block_pos.2);
 
             let mut must_fix_neighboring_chunks = false;
 
@@ -718,6 +721,36 @@ impl Sim {
         }
 
         Some((node, vertex, coords))
+    }
+
+    fn placing_has_conflict(&self, node: NodeId, vertex: Vertex, coords: [usize; 3]) -> bool {
+        const EPSILON: f64 = 1e-5;
+
+        let mut ray_tracing_result = RayTracingResult::new(0.0);
+        if !graph_ray_tracer::trace_ray(
+            &self.graph,
+            self.params.as_ref().unwrap().cfg.chunk_size as usize,
+            &SingleBlockSphereCollisionChecker {
+                node,
+                vertex,
+                coords,
+                radius: self.params.as_ref().unwrap().cfg.character_radius as f64 - EPSILON,
+            },
+            self.view_position.node,
+            &(self.view_position.local * na::Vector4::w()).cast(),
+            &(self.view_position.local * self.orientation.to_homogeneous() * -na::Vector4::z())
+                .cast(),
+            &mut RayTracingResultHandle::new(
+                &mut ray_tracing_result,
+                self.view_position.node,
+                common::dodeca::Vertex::A,
+                self.view_position.local.try_inverse().unwrap().cast(),
+            ),
+        ) {
+            return true; // Unsafe to place blocks when collision check is inconclusive
+        };
+
+        ray_tracing_result.intersection.is_some()
     }
 }
 
