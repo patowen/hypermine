@@ -169,9 +169,8 @@ fn apply_velocity(
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
-    let mut active_wall_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
-    let mut ground_active_wall_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
-    let mut ground_normal_active = false;
+    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+    let mut ground_active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
     let mut all_collisions_resolved = false;
 
     let mut expected_displacement_horizontal = expected_displacement;
@@ -196,7 +195,7 @@ fn apply_velocity(
             expected_displacement_horizontal *= displacement_factor;
 
             if collision.normal.dot(up) > cos_max_slope {
-                if ground_normal.is_some() && !ground_normal_active {
+                if ground_normal.is_some() {
                     expected_displacement = expected_displacement_horizontal;
                     *velocity = velocity_horizontal;
                 }
@@ -213,28 +212,26 @@ fn apply_velocity(
                     velocity,
                 );
                 *ground_normal = Some(collision.normal);
-                active_wall_normals.retain(|n| n.dot(velocity) < 0.0);
-                ground_normal_active = true;
+                active_normals.retain(|n| n.dot(velocity) < 0.0);
+                active_normals.push(collision.normal);
+                expected_displacement_horizontal = expected_displacement;
+                velocity_horizontal = *velocity;
             } else {
                 // We maintain a list of surface normals that should restrict player movement. We remove normals for
                 // surfaces the player is pushed away from and add the surface normal of the latest collision.
-                active_wall_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_wall_normals.push(collision.normal);
-                ground_active_wall_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals.push(collision.normal);
+                ground_active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
                 if collision.normal.dot(&expected_displacement_horizontal) < 0.0 {
-                    ground_active_wall_normals.push(collision.normal);
+                    ground_active_normals.push(collision.normal);
                 }
             }
 
-            let mut active_normals = active_wall_normals.clone();
-            if ground_normal_active {
-                active_normals.push(ground_normal.unwrap());
-            }
             expected_displacement = apply_normals(&active_normals, &expected_displacement);
             *velocity = apply_normals(&active_normals, velocity);
 
             if let Some(ground_normal) = ground_normal {
-                let mut active_normals_with_ground = ground_active_wall_normals.clone();
+                let mut active_normals_with_ground = ground_active_normals.clone();
                 active_normals_with_ground.push(*ground_normal);
                 expected_displacement_horizontal = apply_normals(
                     &active_normals_with_ground,
@@ -243,7 +240,7 @@ fn apply_velocity(
                 velocity_horizontal =
                     apply_normals(&active_normals_with_ground, &velocity_horizontal);
 
-                if !ground_normal_active && velocity.dot(ground_normal) > 0.0 {
+                if velocity.dot(ground_normal) > 0.0 {
                     expected_displacement = expected_displacement_horizontal;
                     *velocity = velocity_horizontal;
                 }
