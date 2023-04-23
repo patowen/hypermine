@@ -202,17 +202,17 @@ fn apply_velocity(
                 }
                 apply_ground_normal_change(
                     up,
-                    ground_normal,
+                    ground_normal.is_some(),
                     &collision.normal,
                     &mut expected_displacement,
                 );
-                apply_ground_normal_change(up, ground_normal, &collision.normal, velocity);
+                apply_ground_normal_change(
+                    up,
+                    ground_normal.is_some(),
+                    &collision.normal,
+                    velocity,
+                );
                 *ground_normal = Some(collision.normal);
-                // TODO: Retain wall normals needed to prevent being pushed too hard away from walls
-                // (Possibility: Keep horizontal and vertical velocity components separate when applying normals.
-                // The vertical component may shift horizontally, but apply_ground_normal_change should kill that component.
-                // As in, maintain the horizontal velocity as a separate variable always staying orthogonal to ground_normal.
-                // Only use that variable when a collision occurs with the ground or if total velocity points away from the ground.)
                 active_wall_normals.retain(|n| n.dot(velocity) < 0.0);
                 ground_normal_active = true;
             } else {
@@ -226,36 +226,28 @@ fn apply_velocity(
                 }
             }
 
-            if !ground_normal_active {
-                if let Some(ground_normal) = ground_normal.as_ref() {
-                    if apply_normals(&active_wall_normals, velocity).dot(ground_normal) > 0.0 {
-                        ground_normal_active = true;
-                    }
-                }
-            }
-
             let mut active_normals = active_wall_normals.clone();
-            let mut active_normals_with_ground = ground_active_wall_normals.clone();
             if ground_normal_active {
                 active_normals.push(ground_normal.unwrap());
             }
+            expected_displacement = apply_normals(&active_normals, &expected_displacement);
+            *velocity = apply_normals(&active_normals, velocity);
+
             if let Some(ground_normal) = ground_normal {
+                let mut active_normals_with_ground = ground_active_wall_normals.clone();
                 active_normals_with_ground.push(*ground_normal);
-                // Problem: On the ground, gravity can cause you to collide with the wall behind you, locking
-                // you to the plane of that wall if horizontal velocity is measured naively. This edge case needs
-                // to be dealt with.
                 expected_displacement_horizontal = apply_normals(
                     &active_normals_with_ground,
                     &expected_displacement_horizontal,
                 );
                 velocity_horizontal =
                     apply_normals(&active_normals_with_ground, &velocity_horizontal);
+
+                if !ground_normal_active && velocity.dot(ground_normal) > 0.0 {
+                    expected_displacement = expected_displacement_horizontal;
+                    *velocity = velocity_horizontal;
+                }
             }
-
-            expected_displacement = apply_normals(&active_normals, &expected_displacement);
-
-            // Also update the velocity to ensure that walls kill momentum.
-            *velocity = apply_normals(&active_normals, velocity);
         } else {
             all_collisions_resolved = true;
             break;
@@ -415,11 +407,11 @@ fn apply_normals_internal(
 
 fn apply_ground_normal_change(
     up: &na::UnitVector3<f32>,
-    old_ground_normal: &Option<na::UnitVector3<f32>>,
+    was_on_ground: bool,
     new_ground_normal: &na::UnitVector3<f32>,
     subject: &mut na::Vector3<f32>,
 ) {
-    if let Some(_) = old_ground_normal {
+    if was_on_ground {
         let subject_norm = subject.norm();
         if subject_norm > 1e-16 {
             let mut unit_subject = *subject / subject_norm;
@@ -428,7 +420,6 @@ fn apply_ground_normal_change(
             unit_subject += **up * upward_correction;
             unit_subject.try_normalize_mut(1e-16);
             *subject = unit_subject * subject_norm;
-            // No need to add the vertical component back at the end because the player just collided with the ground
         }
     } else {
         // TODO: Consider using fancier formula for max_upward_correction, one that makes
