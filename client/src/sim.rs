@@ -159,8 +159,16 @@ impl Sim {
         })
     }
 
-    pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
-        self.movement_input = movement_input;
+    pub fn set_movement_input(&mut self, mut raw_movement_input: na::Vector3<f32>) {
+        if !self.no_clip {
+            // Vertical movement keys shouldn't do anything unless no-clip is on.
+            raw_movement_input.y = 0.0;
+        }
+        if raw_movement_input.norm_squared() >= 1.0 {
+            // Cap movement input at 1
+            raw_movement_input.normalize_mut();
+        }
+        self.movement_input = raw_movement_input;
     }
 
     pub fn toggle_no_clip(&mut self) {

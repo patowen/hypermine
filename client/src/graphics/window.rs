@@ -130,16 +130,11 @@ impl Window {
                 Event::MainEventsCleared => {
                     let this_frame = Instant::now();
                     let dt = this_frame - last_frame;
-                    let move_direction: na::Vector3<f32> = na::Vector3::x()
-                        * (right as u8 as f32 - left as u8 as f32)
-                        + na::Vector3::y() * (up as u8 as f32 - down as u8 as f32)
-                        + na::Vector3::z() * (back as u8 as f32 - forward as u8 as f32);
-                    self.sim
-                        .set_movement_input(if move_direction.norm_squared() > 1.0 {
-                            move_direction.normalize()
-                        } else {
-                            move_direction
-                        });
+                    self.sim.set_movement_input(na::Vector3::new(
+                        right as u8 as f32 - left as u8 as f32,
+                        up as u8 as f32 - down as u8 as f32,
+                        back as u8 as f32 - forward as u8 as f32,
+                    ));
                     self.sim.set_jump(jump || jump_sticky);
                     jump_sticky = false;
 
