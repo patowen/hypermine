@@ -227,18 +227,17 @@ fn apply_velocity(
                 }
             }
 
-            expected_displacement = apply_normals(&active_normals, &expected_displacement);
-            *velocity = apply_normals(&active_normals, velocity);
+            apply_normals(&active_normals, &mut expected_displacement);
+            apply_normals(&active_normals, velocity);
 
             if let Some(ground_normal) = ground_normal {
                 let mut active_normals_with_ground = ground_active_normals.clone();
                 active_normals_with_ground.push(*ground_normal);
-                expected_displacement_horizontal = apply_normals(
+                apply_normals(
                     &active_normals_with_ground,
-                    &expected_displacement_horizontal,
+                    &mut expected_displacement_horizontal,
                 );
-                velocity_horizontal =
-                    apply_normals(&active_normals_with_ground, &velocity_horizontal);
+                apply_normals(&active_normals_with_ground, &mut velocity_horizontal);
 
                 if velocity.dot(ground_normal) > 0.0 {
                     expected_displacement = expected_displacement_horizontal;
@@ -277,7 +276,7 @@ fn get_ground_normal(
             }
             active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             active_normals.push(collision.normal);
-            allowed_displacement = apply_normals(&active_normals, &allowed_displacement);
+            apply_normals(&active_normals, &mut allowed_displacement);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -364,26 +363,25 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
 /// orthogonal to all the normals. The normals are assumed to be linearly independent, and, assuming the final
 /// result is nonzero, a small correction is applied to ensure that the subject is moving away from the surfaces
 /// the normals represent even when floating point approximation is involved.
-fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &na::Vector3<f32>) -> na::Vector3<f32> {
+fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
     if normals.len() >= 3 {
         // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
         // There is no need to do any extra logic to handle precision limitations in this case.
-        return na::Vector3::zeros();
+        *subject = na::Vector3::zeros();
     }
 
     // Corrective term to ensure that normals face away from any potential collision surfaces
     const RELATIVE_EPSILON: f32 = 1e-4;
-    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON)
+    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
 }
 
 /// Modifies the `subject` by a linear combination of the `normals` so that the dot product with each normal is
 /// `distance`. The `normals` must be linearly independent for this function to work as expected.
 fn apply_normals_internal(
     normals: &[na::UnitVector3<f32>],
-    subject: &na::Vector3<f32>,
+    subject: &mut na::Vector3<f32>,
     distance: f32,
-) -> na::Vector3<f32> {
-    let mut subject = *subject;
+) {
     let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
     for i in 0..normals.len() {
         // Perform the Gram-Schmidt process on `normals` to produce `ortho_normals`.
@@ -396,10 +394,9 @@ fn apply_normals_internal(
         // The following formula ensures that the dot product of `subject` and `normals[i]` is `distance`.
         // Because we only move the subject along `ortho_normals[i]`, this adjustment does not affect the
         // subject's dot product with any earlier normals.
-        subject += ortho_normals[i]
+        *subject += ortho_normals[i]
             * ((distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]));
     }
-    subject
 }
 
 fn apply_ground_normal_change(
@@ -507,11 +504,11 @@ mod tests {
             .iter()
             .map(|n| na::UnitVector3::new_normalize(na::Vector3::new(n[0], n[1], n[2])))
             .collect();
-        let subject = na::Vector3::new(subject[0], subject[1], subject[2]);
+        let mut subject = na::Vector3::new(subject[0], subject[1], subject[2]);
 
-        let result = apply_normals_internal(&normals, &subject, distance);
+        apply_normals_internal(&normals, &mut subject, distance);
         for normal in normals {
-            assert_abs_diff_eq!(result.dot(&normal), distance, epsilon = 1e-5);
+            assert_abs_diff_eq!(subject.dot(&normal), distance, epsilon = 1.0e-5);
         }
     }
 }
