@@ -242,9 +242,8 @@ fn handle_collision_in_air(
             up,
             false,
             collision_normal,
-            &mut state.remaining_displacement,
+            [&mut state.remaining_displacement, &mut state.velocity],
         );
-        apply_ground_normal_change(up, false, collision_normal, &mut state.velocity);
         new_ground_normal = Some(*collision_normal);
         state
             .active_normals
@@ -257,8 +256,10 @@ fn handle_collision_in_air(
 
     state.active_normals.push(*collision_normal);
 
-    apply_normals(&state.active_normals, &mut state.remaining_displacement);
-    apply_normals(&state.active_normals, &mut state.velocity);
+    apply_normals(
+        &state.active_normals,
+        [&mut state.remaining_displacement, &mut state.velocity],
+    );
 
     match new_ground_normal {
         Some(new_ground_normal) => {
@@ -289,9 +290,8 @@ fn handle_collision_on_ground(
             up,
             true,
             collision_normal,
-            &mut state.remaining_displacement,
+            [&mut state.remaining_displacement, &mut state.velocity],
         );
-        apply_ground_normal_change(up, true, collision_normal, &mut state.velocity);
         state.ground_normal = *collision_normal;
         state.remaining_displacement_horizontal = state.remaining_displacement;
         state.velocity_horizontal = state.velocity;
@@ -316,18 +316,19 @@ fn handle_collision_on_ground(
 
     state.active_normals.push(*collision_normal);
 
-    apply_normals(&state.active_normals, &mut state.remaining_displacement);
-    apply_normals(&state.active_normals, &mut state.velocity);
+    apply_normals(
+        &state.active_normals,
+        [&mut state.remaining_displacement, &mut state.velocity],
+    );
 
     let mut active_normals_horizontal_with_ground = state.active_normals_horizontal.clone();
     active_normals_horizontal_with_ground.push(state.ground_normal);
     apply_normals(
         &active_normals_horizontal_with_ground,
-        &mut state.remaining_displacement_horizontal,
-    );
-    apply_normals(
-        &active_normals_horizontal_with_ground,
-        &mut state.velocity_horizontal,
+        [
+            &mut state.remaining_displacement_horizontal,
+            &mut state.velocity_horizontal,
+        ],
     );
 
     if state.velocity.dot(&state.ground_normal) > 0.0 {
@@ -440,7 +441,7 @@ fn get_ground_normal(
             }
             active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             active_normals.push(collision.normal);
-            apply_normals(&active_normals, &mut allowed_displacement);
+            apply_normals(&active_normals, [&mut allowed_displacement]);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -527,16 +528,21 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
 /// orthogonal to all the normals. The normals are assumed to be linearly independent, and, assuming the final
 /// result is nonzero, a small correction is applied to ensure that the subject is moving away from the surfaces
 /// the normals represent even when floating point approximation is involved.
-fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
-    if normals.len() >= 3 {
-        // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
-        // There is no need to do any extra logic to handle precision limitations in this case.
-        *subject = na::Vector3::zeros();
-    }
+fn apply_normals<const N: usize>(
+    normals: &[na::UnitVector3<f32>],
+    subjects: [&mut na::Vector3<f32>; N],
+) {
+    for subject in subjects {
+        if normals.len() >= 3 {
+            // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
+            // There is no need to do any extra logic to handle precision limitations in this case.
+            *subject = na::Vector3::zeros();
+        }
 
-    // Corrective term to ensure that normals face away from any potential collision surfaces
-    const RELATIVE_EPSILON: f32 = 1e-4;
-    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
+        // Corrective term to ensure that normals face away from any potential collision surfaces
+        const RELATIVE_EPSILON: f32 = 1e-4;
+        apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
+    }
 }
 
 /// Modifies the `subject` by a linear combination of the `normals` so that the dot product with each normal is
@@ -563,32 +569,34 @@ fn apply_normals_internal(
     }
 }
 
-fn apply_ground_normal_change(
+fn apply_ground_normal_change<const N: usize>(
     up: &na::UnitVector3<f32>,
     was_on_ground: bool,
     new_ground_normal: &na::UnitVector3<f32>,
-    subject: &mut na::Vector3<f32>,
+    subjects: [&mut na::Vector3<f32>; N],
 ) {
-    if was_on_ground {
-        let subject_norm = subject.norm();
-        if subject_norm > 1e-16 {
-            let mut unit_subject = *subject / subject_norm;
-            let upward_correction =
-                -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-            unit_subject += **up * upward_correction;
-            unit_subject.try_normalize_mut(1e-16);
-            *subject = unit_subject * subject_norm;
-        }
-    } else {
-        // TODO: Consider using fancier formula for max_upward_correction, one that makes
-        // new_ground_normal and subject as collinear as possible.
-        let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-        let max_upward_correction = -subject.dot(up);
-        if upward_correction > max_upward_correction {
-            upward_correction = max_upward_correction;
-        }
-        if upward_correction >= 0.0 {
-            *subject += **up * upward_correction;
+    for subject in subjects {
+        if was_on_ground {
+            let subject_norm = subject.norm();
+            if subject_norm > 1e-16 {
+                let mut unit_subject = *subject / subject_norm;
+                let upward_correction =
+                    -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+                unit_subject += **up * upward_correction;
+                unit_subject.try_normalize_mut(1e-16);
+                *subject = unit_subject * subject_norm;
+            }
+        } else {
+            // TODO: Consider using fancier formula for max_upward_correction, one that makes
+            // new_ground_normal and subject as collinear as possible.
+            let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+            let max_upward_correction = -subject.dot(up);
+            if upward_correction > max_upward_correction {
+                upward_correction = max_upward_correction;
+            }
+            if upward_correction >= 0.0 {
+                *subject += **up * upward_correction;
+            }
         }
     }
 }
