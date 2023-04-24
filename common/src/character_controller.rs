@@ -172,31 +172,32 @@ fn apply_velocity(
     let mut state =
         ApplyVelocityCharacterState::new(up, expected_displacement, *velocity, ground_normal);
 
+    //tracing::info!("Start");
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let expected_displacement2 = &match state {
-            ApplyVelocityCharacterState::InAir(ref air_state) => air_state.expected_displacement,
+        let remaining_displacement = &match state {
+            ApplyVelocityCharacterState::InAir(ref air_state) => air_state.remaining_displacement,
             ApplyVelocityCharacterState::Grounded(ref ground_state) => {
-                ground_state.expected_displacement
+                ground_state.remaining_displacement
             }
         };
 
-        let collision_result = check_collision(collision_context, position, expected_displacement2);
+        let collision_result = check_collision(collision_context, position, remaining_displacement);
         position.local *= collision_result.displacement_transform;
 
         // Update the expected displacement to whatever is remaining.
         let displacement_factor = 1.0
-            - collision_result.displacement_vector.magnitude() / expected_displacement2.magnitude();
+            - collision_result.displacement_vector.magnitude() / remaining_displacement.magnitude();
 
         if let Some(collision) = collision_result.collision {
             match state {
                 ApplyVelocityCharacterState::InAir(mut air_state) => {
-                    air_state.expected_displacement *= displacement_factor;
+                    air_state.remaining_displacement *= displacement_factor;
                     state =
                         handle_collision_in_air(up, max_slope_angle, &collision.normal, air_state);
                 }
                 ApplyVelocityCharacterState::Grounded(mut ground_state) => {
-                    ground_state.expected_displacement *= displacement_factor;
-                    ground_state.expected_displacement_horizontal *= displacement_factor;
+                    ground_state.remaining_displacement *= displacement_factor;
+                    ground_state.remaining_displacement_horizontal *= displacement_factor;
                     state = ApplyVelocityCharacterState::Grounded(handle_collision_on_ground(
                         up,
                         max_slope_angle,
@@ -205,6 +206,7 @@ fn apply_velocity(
                     ))
                 }
             }
+            //tracing::info!("{:?}", state);
         } else {
             all_collisions_resolved = true;
             break;
@@ -235,13 +237,12 @@ fn handle_collision_in_air(
 ) -> ApplyVelocityCharacterState {
     let mut new_ground_normal = None;
 
-    let cos_max_slope = max_slope_angle.cos();
-    if collision_normal.dot(up) > cos_max_slope {
+    if collision_normal.dot(up) > max_slope_angle.cos() {
         apply_ground_normal_change(
             up,
             false,
             collision_normal,
-            &mut state.expected_displacement,
+            &mut state.remaining_displacement,
         );
         apply_ground_normal_change(up, false, collision_normal, &mut state.velocity);
         new_ground_normal = Some(*collision_normal);
@@ -256,14 +257,14 @@ fn handle_collision_in_air(
 
     state.active_normals.push(*collision_normal);
 
-    apply_normals(&state.active_normals, &mut state.expected_displacement);
+    apply_normals(&state.active_normals, &mut state.remaining_displacement);
     apply_normals(&state.active_normals, &mut state.velocity);
 
     match new_ground_normal {
         Some(new_ground_normal) => {
             ApplyVelocityCharacterState::Grounded(ApplyVelocityGroundedCharacterState {
-                expected_displacement: state.expected_displacement,
-                expected_displacement_horizontal: state.expected_displacement,
+                remaining_displacement: state.remaining_displacement,
+                remaining_displacement_horizontal: state.remaining_displacement,
                 velocity: state.velocity,
                 velocity_horizontal: state.velocity,
                 ground_normal: new_ground_normal,
@@ -281,14 +282,18 @@ fn handle_collision_on_ground(
     collision_normal: &na::UnitVector3<f32>,
     mut state: ApplyVelocityGroundedCharacterState,
 ) -> ApplyVelocityGroundedCharacterState {
-    let cos_max_slope = max_slope_angle.cos();
-    if collision_normal.dot(up) > cos_max_slope {
-        state.expected_displacement = state.expected_displacement_horizontal;
+    if collision_normal.dot(up) > max_slope_angle.cos() {
+        state.remaining_displacement = state.remaining_displacement_horizontal;
         state.velocity = state.velocity_horizontal;
-        apply_ground_normal_change(up, true, collision_normal, &mut state.expected_displacement);
+        apply_ground_normal_change(
+            up,
+            true,
+            collision_normal,
+            &mut state.remaining_displacement,
+        );
         apply_ground_normal_change(up, true, collision_normal, &mut state.velocity);
         state.ground_normal = *collision_normal;
-        state.expected_displacement_horizontal = state.expected_displacement;
+        state.remaining_displacement_horizontal = state.remaining_displacement;
         state.velocity_horizontal = state.velocity;
         state
             .active_normals
@@ -304,21 +309,21 @@ fn handle_collision_on_ground(
             .active_normals_horizontal
             .retain(|n| n.dot(collision_normal) < 0.0);
 
-        if collision_normal.dot(&state.expected_displacement_horizontal) < 0.0 {
+        if collision_normal.dot(&state.remaining_displacement_horizontal) < 0.0 {
             state.active_normals_horizontal.push(*collision_normal);
         }
     }
 
     state.active_normals.push(*collision_normal);
 
-    apply_normals(&state.active_normals, &mut state.expected_displacement);
+    apply_normals(&state.active_normals, &mut state.remaining_displacement);
     apply_normals(&state.active_normals, &mut state.velocity);
 
     let mut active_normals_horizontal_with_ground = state.active_normals_horizontal.clone();
     active_normals_horizontal_with_ground.push(state.ground_normal);
     apply_normals(
         &active_normals_horizontal_with_ground,
-        &mut state.expected_displacement_horizontal,
+        &mut state.remaining_displacement_horizontal,
     );
     apply_normals(
         &active_normals_horizontal_with_ground,
@@ -326,7 +331,7 @@ fn handle_collision_on_ground(
     );
 
     if state.velocity.dot(&state.ground_normal) > 0.0 {
-        state.expected_displacement = state.expected_displacement_horizontal;
+        state.remaining_displacement = state.remaining_displacement_horizontal;
         state.velocity = state.velocity_horizontal;
     }
 
@@ -342,20 +347,20 @@ enum ApplyVelocityCharacterState {
 impl ApplyVelocityCharacterState {
     fn new(
         up: &na::UnitVector3<f32>,
-        expected_displacement: na::Vector3<f32>,
+        remaining_displacement: na::Vector3<f32>,
         velocity: na::Vector3<f32>,
         ground_normal: &Option<na::UnitVector3<f32>>,
     ) -> Self {
         if let Some(ground_normal) = ground_normal.as_ref() {
             ApplyVelocityCharacterState::Grounded(ApplyVelocityGroundedCharacterState::new(
                 up,
-                expected_displacement,
+                remaining_displacement,
                 velocity,
                 *ground_normal,
             ))
         } else {
             ApplyVelocityCharacterState::InAir(ApplyVelocityInAirCharacterState::new(
-                expected_displacement,
+                remaining_displacement,
                 velocity,
             ))
         }
@@ -364,15 +369,15 @@ impl ApplyVelocityCharacterState {
 
 #[derive(Debug)]
 struct ApplyVelocityInAirCharacterState {
-    expected_displacement: na::Vector3<f32>,
+    remaining_displacement: na::Vector3<f32>,
     velocity: na::Vector3<f32>,
     active_normals: Vec<na::UnitVector3<f32>>,
 }
 
 impl ApplyVelocityInAirCharacterState {
-    fn new(expected_displacement: na::Vector3<f32>, velocity: na::Vector3<f32>) -> Self {
+    fn new(remaining_displacement: na::Vector3<f32>, velocity: na::Vector3<f32>) -> Self {
         ApplyVelocityInAirCharacterState {
-            expected_displacement,
+            remaining_displacement,
             velocity,
             active_normals: vec![],
         }
@@ -381,8 +386,8 @@ impl ApplyVelocityInAirCharacterState {
 
 #[derive(Debug)]
 struct ApplyVelocityGroundedCharacterState {
-    expected_displacement: na::Vector3<f32>,
-    expected_displacement_horizontal: na::Vector3<f32>,
+    remaining_displacement: na::Vector3<f32>,
+    remaining_displacement_horizontal: na::Vector3<f32>,
     velocity: na::Vector3<f32>,
     velocity_horizontal: na::Vector3<f32>,
     ground_normal: na::UnitVector3<f32>,
@@ -393,18 +398,18 @@ struct ApplyVelocityGroundedCharacterState {
 impl ApplyVelocityGroundedCharacterState {
     fn new(
         up: &na::UnitVector3<f32>,
-        expected_displacement: na::Vector3<f32>,
+        remaining_displacement: na::Vector3<f32>,
         velocity: na::Vector3<f32>,
         ground_normal: na::UnitVector3<f32>,
     ) -> Self {
-        let expected_displacement_horizontal = expected_displacement
-            - **up * (expected_displacement.dot(&ground_normal) / up.dot(&ground_normal));
+        let remaining_displacement_horizontal = remaining_displacement
+            - **up * (remaining_displacement.dot(&ground_normal) / up.dot(&ground_normal));
         let velocity_horizontal =
             velocity - **up * (velocity.dot(&ground_normal) / up.dot(&ground_normal));
 
         ApplyVelocityGroundedCharacterState {
-            expected_displacement,
-            expected_displacement_horizontal,
+            remaining_displacement,
+            remaining_displacement_horizontal,
             velocity,
             velocity_horizontal,
             ground_normal,
