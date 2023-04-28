@@ -284,6 +284,10 @@ fn handle_collision_on_ground(
     mut state: ApplyVelocityGroundedCharacterState,
 ) -> ApplyVelocityGroundedCharacterState {
     if collision_normal.dot(up) > max_slope_angle.cos() {
+        // Idea: Rather than having a separate horizontal vector, have a separate "vertical" vector
+        // that decides which "up" direction to use for getting the displacement/velocity vectors orthogonal
+        // to the "ground" vector. This "up" vector can only be adjusted by wall collisions with normals at
+        // an acute angle to the "up" vector, so ceilings leave it unchanged.
         state.remaining_displacement = state.remaining_displacement_horizontal;
         state.velocity = state.velocity_horizontal;
         apply_ground_normal_change(
