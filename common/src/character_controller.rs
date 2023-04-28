@@ -295,12 +295,16 @@ fn handle_collision_on_ground(
         state.ground_normal = *collision_normal;
         state.remaining_displacement_horizontal = state.remaining_displacement;
         state.velocity_horizontal = state.velocity;
+        // TODO: Rather than comparing to velocity, compare with the "normal"'s substitute,
+        // which is any vector with the same direction as the diff between the new and the old
+        // remaining_displacement.
+        tracing::info!("Hit ground");
         state
             .active_normals
-            .retain(|n| n.dot(&state.velocity) < 0.0);
+            .retain(|n| n.dot(&state.remaining_displacement) < 0.0);
         state
             .active_normals_horizontal
-            .retain(|n| n.dot(&state.velocity) < 0.0);
+            .retain(|n| n.dot(&state.remaining_displacement_horizontal) < 0.0);
     } else {
         state
             .active_normals
@@ -336,6 +340,12 @@ fn handle_collision_on_ground(
         state.velocity = state.velocity_horizontal;
     }
 
+    tracing::info!(
+        "{:?} vs {:?}; ground {:?}",
+        state.active_normals,
+        state.active_normals_horizontal,
+        state.ground_normal,
+    );
     state
 }
 
