@@ -158,7 +158,7 @@ fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
     max_slope_angle: f32,
-    expected_displacement: na::Vector3<f32>,
+    mut expected_displacement: na::Vector3<f32>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
@@ -167,270 +167,93 @@ fn apply_velocity(
     // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 5;
+    let cos_max_slope = max_slope_angle.cos();
+
+    let mut active_normals = Vec::<na::UnitVector3<f32>>::new();
+    let mut active_normals_horizontal = Vec::<na::UnitVector3<f32>>::new();
+
+    let mut expected_displacement_horizontal = expected_displacement;
+    let mut velocity_horizontal = *velocity;
+
+    if let Some(ground_normal) = ground_normal {
+        expected_displacement_horizontal -=
+            **up * (expected_displacement.dot(ground_normal) / up.dot(ground_normal));
+        velocity_horizontal -= **up * (velocity.dot(ground_normal) / up.dot(ground_normal));
+    }
 
     let mut all_collisions_resolved = false;
-    let mut state =
-        ApplyVelocityCharacterState::new(up, expected_displacement, *velocity, ground_normal);
-
-    //tracing::info!("Start");
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let remaining_displacement = &match state {
-            ApplyVelocityCharacterState::InAir(ref air_state) => air_state.remaining_displacement,
-            ApplyVelocityCharacterState::Grounded(ref ground_state) => {
-                ground_state.remaining_displacement
-            }
-        };
-
-        let collision_result = check_collision(collision_context, position, remaining_displacement);
+        let collision_result = check_collision(collision_context, position, &expected_displacement);
         position.local *= collision_result.displacement_transform;
 
-        // Update the expected displacement to whatever is remaining.
-        let displacement_factor = 1.0
-            - collision_result.displacement_vector.magnitude() / remaining_displacement.magnitude();
-
         if let Some(collision) = collision_result.collision {
-            match state {
-                ApplyVelocityCharacterState::InAir(mut air_state) => {
-                    air_state.remaining_displacement *= displacement_factor;
-                    state =
-                        handle_collision_in_air(up, max_slope_angle, &collision.normal, air_state);
+            // Update the expected displacement to whatever is remaining.
+            let displacement_factor = 1.0
+                - collision_result.displacement_vector.magnitude()
+                    / expected_displacement.magnitude();
+            expected_displacement *= displacement_factor;
+            expected_displacement_horizontal *= displacement_factor;
+
+            if collision.normal.dot(up) > cos_max_slope {
+                if ground_normal.is_some() {
+                    expected_displacement = expected_displacement_horizontal;
+                    *velocity = velocity_horizontal;
                 }
-                ApplyVelocityCharacterState::Grounded(mut ground_state) => {
-                    ground_state.remaining_displacement *= displacement_factor;
-                    ground_state.remaining_displacement_horizontal *= displacement_factor;
-                    state = ApplyVelocityCharacterState::Grounded(handle_collision_on_ground(
-                        up,
-                        max_slope_angle,
-                        &collision.normal,
-                        ground_state,
-                    ))
+                apply_ground_normal_change(
+                    up,
+                    ground_normal.is_some(),
+                    &collision.normal,
+                    &mut expected_displacement,
+                );
+                apply_ground_normal_change(
+                    up,
+                    ground_normal.is_some(),
+                    &collision.normal,
+                    velocity,
+                );
+                *ground_normal = Some(collision.normal);
+                expected_displacement_horizontal = expected_displacement;
+                velocity_horizontal = *velocity;
+                active_normals.retain(|n| n.dot(velocity) < 0.0);
+                active_normals_horizontal.retain(|n| n.dot(velocity) < 0.0);
+            } else {
+                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
+                active_normals_horizontal.retain(|n| n.dot(&collision.normal) < 0.0);
+            }
+
+            active_normals.push(collision.normal);
+            if collision.normal.dot(&expected_displacement_horizontal) < 0.0 {
+                active_normals_horizontal.push(collision.normal);
+            }
+
+            apply_normals(&active_normals, &mut expected_displacement);
+            apply_normals(&active_normals, velocity);
+
+            if let Some(ground_normal) = ground_normal {
+                let mut active_normals_horizontal_with_ground = active_normals_horizontal.clone();
+                active_normals_horizontal_with_ground.push(*ground_normal);
+                apply_normals(
+                    &active_normals_horizontal_with_ground,
+                    &mut expected_displacement_horizontal,
+                );
+                apply_normals(
+                    &active_normals_horizontal_with_ground,
+                    &mut velocity_horizontal,
+                );
+
+                if velocity.dot(ground_normal) > 0.0 {
+                    expected_displacement = expected_displacement_horizontal;
+                    *velocity = velocity_horizontal;
                 }
             }
-            //tracing::info!("{:?}", state);
         } else {
             all_collisions_resolved = true;
             break;
         }
     }
 
-    match state {
-        ApplyVelocityCharacterState::InAir(air_state) => {
-            *velocity = air_state.velocity;
-            *ground_normal = None;
-        }
-        ApplyVelocityCharacterState::Grounded(ground_state) => {
-            *velocity = ground_state.velocity;
-            *ground_normal = Some(ground_state.ground_normal);
-        }
-    }
-
     if !all_collisions_resolved {
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
-    }
-}
-
-fn handle_collision_in_air(
-    up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
-    collision_normal: &na::UnitVector3<f32>,
-    mut state: ApplyVelocityInAirCharacterState,
-) -> ApplyVelocityCharacterState {
-    let mut new_ground_normal = None;
-
-    if collision_normal.dot(up) > max_slope_angle.cos() {
-        apply_ground_normal_change(
-            up,
-            false,
-            collision_normal,
-            [&mut state.remaining_displacement, &mut state.velocity],
-        );
-        new_ground_normal = Some(*collision_normal);
-        state
-            .active_normals
-            .retain(|n| n.dot(&state.velocity) < 0.0);
-    } else {
-        state
-            .active_normals
-            .retain(|n| n.dot(collision_normal) < 0.0);
-    }
-
-    state.active_normals.push(*collision_normal);
-
-    apply_normals(
-        &state.active_normals,
-        [&mut state.remaining_displacement, &mut state.velocity],
-    );
-
-    match new_ground_normal {
-        Some(new_ground_normal) => {
-            ApplyVelocityCharacterState::Grounded(ApplyVelocityGroundedCharacterState {
-                remaining_displacement: state.remaining_displacement,
-                remaining_displacement_horizontal: state.remaining_displacement,
-                velocity: state.velocity,
-                velocity_horizontal: state.velocity,
-                ground_normal: new_ground_normal,
-                active_normals: state.active_normals.clone(),
-                active_normals_horizontal: vec![],
-            })
-        }
-        None => ApplyVelocityCharacterState::InAir(state),
-    }
-}
-
-fn handle_collision_on_ground(
-    up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
-    collision_normal: &na::UnitVector3<f32>,
-    mut state: ApplyVelocityGroundedCharacterState,
-) -> ApplyVelocityGroundedCharacterState {
-    if collision_normal.dot(up) > max_slope_angle.cos() {
-        // Idea: Rather than having a separate horizontal vector, have a separate "vertical" vector
-        // that decides which "up" direction to use for getting the displacement/velocity vectors orthogonal
-        // to the "ground" vector. This "up" vector can only be adjusted by wall collisions with normals at
-        // an acute angle to the "up" vector, so ceilings leave it unchanged.
-        state.remaining_displacement = state.remaining_displacement_horizontal;
-        state.velocity = state.velocity_horizontal;
-        apply_ground_normal_change(
-            up,
-            true,
-            collision_normal,
-            [&mut state.remaining_displacement, &mut state.velocity],
-        );
-        state.ground_normal = *collision_normal;
-        state.remaining_displacement_horizontal = state.remaining_displacement;
-        state.velocity_horizontal = state.velocity;
-        // TODO: Rather than comparing to velocity, compare with the "normal"'s substitute,
-        // which is any vector with the same direction as the diff between the new and the old
-        // remaining_displacement.
-        tracing::info!("Hit ground");
-        state
-            .active_normals
-            .retain(|n| n.dot(&state.remaining_displacement) < 0.0);
-        state
-            .active_normals_horizontal
-            .retain(|n| n.dot(&state.remaining_displacement_horizontal) < 0.0);
-    } else {
-        state
-            .active_normals
-            .retain(|n| n.dot(collision_normal) < 0.0);
-        state
-            .active_normals_horizontal
-            .retain(|n| n.dot(collision_normal) < 0.0);
-
-        if collision_normal.dot(&state.remaining_displacement_horizontal) < 0.0 {
-            state.active_normals_horizontal.push(*collision_normal);
-        }
-    }
-
-    state.active_normals.push(*collision_normal);
-
-    apply_normals(
-        &state.active_normals,
-        [&mut state.remaining_displacement, &mut state.velocity],
-    );
-
-    let mut active_normals_horizontal_with_ground = state.active_normals_horizontal.clone();
-    active_normals_horizontal_with_ground.push(state.ground_normal);
-    apply_normals(
-        &active_normals_horizontal_with_ground,
-        [
-            &mut state.remaining_displacement_horizontal,
-            &mut state.velocity_horizontal,
-        ],
-    );
-
-    if state.velocity.dot(&state.ground_normal) > 0.0 {
-        state.remaining_displacement = state.remaining_displacement_horizontal;
-        state.velocity = state.velocity_horizontal;
-    }
-
-    tracing::info!(
-        "{:?} vs {:?}; ground {:?}",
-        state.active_normals,
-        state.active_normals_horizontal,
-        state.ground_normal,
-    );
-    state
-}
-
-#[derive(Debug)]
-enum ApplyVelocityCharacterState {
-    InAir(ApplyVelocityInAirCharacterState),
-    Grounded(ApplyVelocityGroundedCharacterState),
-}
-
-impl ApplyVelocityCharacterState {
-    fn new(
-        up: &na::UnitVector3<f32>,
-        remaining_displacement: na::Vector3<f32>,
-        velocity: na::Vector3<f32>,
-        ground_normal: &Option<na::UnitVector3<f32>>,
-    ) -> Self {
-        if let Some(ground_normal) = ground_normal.as_ref() {
-            ApplyVelocityCharacterState::Grounded(ApplyVelocityGroundedCharacterState::new(
-                up,
-                remaining_displacement,
-                velocity,
-                *ground_normal,
-            ))
-        } else {
-            ApplyVelocityCharacterState::InAir(ApplyVelocityInAirCharacterState::new(
-                remaining_displacement,
-                velocity,
-            ))
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ApplyVelocityInAirCharacterState {
-    remaining_displacement: na::Vector3<f32>,
-    velocity: na::Vector3<f32>,
-    active_normals: Vec<na::UnitVector3<f32>>,
-}
-
-impl ApplyVelocityInAirCharacterState {
-    fn new(remaining_displacement: na::Vector3<f32>, velocity: na::Vector3<f32>) -> Self {
-        ApplyVelocityInAirCharacterState {
-            remaining_displacement,
-            velocity,
-            active_normals: vec![],
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ApplyVelocityGroundedCharacterState {
-    remaining_displacement: na::Vector3<f32>,
-    remaining_displacement_horizontal: na::Vector3<f32>,
-    velocity: na::Vector3<f32>,
-    velocity_horizontal: na::Vector3<f32>,
-    ground_normal: na::UnitVector3<f32>,
-    active_normals: Vec<na::UnitVector3<f32>>,
-    active_normals_horizontal: Vec<na::UnitVector3<f32>>,
-}
-
-impl ApplyVelocityGroundedCharacterState {
-    fn new(
-        up: &na::UnitVector3<f32>,
-        remaining_displacement: na::Vector3<f32>,
-        velocity: na::Vector3<f32>,
-        ground_normal: na::UnitVector3<f32>,
-    ) -> Self {
-        let remaining_displacement_horizontal = remaining_displacement
-            - **up * (remaining_displacement.dot(&ground_normal) / up.dot(&ground_normal));
-        let velocity_horizontal =
-            velocity - **up * (velocity.dot(&ground_normal) / up.dot(&ground_normal));
-
-        ApplyVelocityGroundedCharacterState {
-            remaining_displacement,
-            remaining_displacement_horizontal,
-            velocity,
-            velocity_horizontal,
-            ground_normal,
-            active_normals: vec![],
-            active_normals_horizontal: vec![],
-        }
     }
 }
 
@@ -455,7 +278,7 @@ fn get_ground_normal(
             }
             active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             active_normals.push(collision.normal);
-            apply_normals(&active_normals, [&mut allowed_displacement]);
+            apply_normals(&active_normals, &mut allowed_displacement);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -542,21 +365,16 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
 /// orthogonal to all the normals. The normals are assumed to be linearly independent, and, assuming the final
 /// result is nonzero, a small correction is applied to ensure that the subject is moving away from the surfaces
 /// the normals represent even when floating point approximation is involved.
-fn apply_normals<const N: usize>(
-    normals: &[na::UnitVector3<f32>],
-    subjects: [&mut na::Vector3<f32>; N],
-) {
-    for subject in subjects {
-        if normals.len() >= 3 {
-            // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
-            // There is no need to do any extra logic to handle precision limitations in this case.
-            *subject = na::Vector3::zeros();
-        }
-
-        // Corrective term to ensure that normals face away from any potential collision surfaces
-        const RELATIVE_EPSILON: f32 = 1e-4;
-        apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
+fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
+    if normals.len() >= 3 {
+        // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
+        // There is no need to do any extra logic to handle precision limitations in this case.
+        *subject = na::Vector3::zeros();
     }
+
+    // Corrective term to ensure that normals face away from any potential collision surfaces
+    const RELATIVE_EPSILON: f32 = 1e-4;
+    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
 }
 
 /// Modifies the `subject` by a linear combination of the `normals` so that the dot product with each normal is
@@ -583,34 +401,32 @@ fn apply_normals_internal(
     }
 }
 
-fn apply_ground_normal_change<const N: usize>(
+fn apply_ground_normal_change(
     up: &na::UnitVector3<f32>,
     was_on_ground: bool,
     new_ground_normal: &na::UnitVector3<f32>,
-    subjects: [&mut na::Vector3<f32>; N],
+    subject: &mut na::Vector3<f32>,
 ) {
-    for subject in subjects {
-        if was_on_ground {
-            let subject_norm = subject.norm();
-            if subject_norm > 1e-16 {
-                let mut unit_subject = *subject / subject_norm;
-                let upward_correction =
-                    -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-                unit_subject += **up * upward_correction;
-                unit_subject.try_normalize_mut(1e-16);
-                *subject = unit_subject * subject_norm;
-            }
-        } else {
-            // TODO: Consider using fancier formula for max_upward_correction, one that makes
-            // new_ground_normal and subject as collinear as possible.
-            let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-            let max_upward_correction = -subject.dot(up);
-            if upward_correction > max_upward_correction {
-                upward_correction = max_upward_correction;
-            }
-            if upward_correction >= 0.0 {
-                *subject += **up * upward_correction;
-            }
+    if was_on_ground {
+        let subject_norm = subject.norm();
+        if subject_norm > 1e-16 {
+            let mut unit_subject = *subject / subject_norm;
+            let upward_correction =
+                -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+            unit_subject += **up * upward_correction;
+            unit_subject.try_normalize_mut(1e-16);
+            *subject = unit_subject * subject_norm;
+        }
+    } else {
+        // TODO: Consider using fancier formula for max_upward_correction, one that makes
+        // new_ground_normal and subject as collinear as possible.
+        let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
+        let max_upward_correction = -subject.dot(up);
+        if upward_correction > max_upward_correction {
+            upward_correction = max_upward_correction;
+        }
+        if upward_correction >= 0.0 {
+            *subject += **up * upward_correction;
         }
     }
 }
