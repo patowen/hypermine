@@ -219,6 +219,53 @@ fn apply_normals_internal(
     }
 }
 
+struct BoundVector {
+    inner: na::Vector3<f32>,
+    bounds: Vec<VectorBound>,
+    distance_factor: f32,
+}
+
+impl BoundVector {
+    fn apply_bound(&mut self, new_bound: VectorBound) {
+        // Update `bounds`, removing vectors as appropriate, finishing up with a final swap
+        let ortho_bound = new_bound.normal.into_inner();
+        self.inner += ortho_bound
+            * (self.distance_factor * new_bound.distance_factor
+                - self.inner.dot(&new_bound.normal));
+        let mut ortho_bounds = vec![ortho_bound];
+        let mut new_bounds = vec![new_bound];
+
+        while let Some(next_index) = self
+            .bounds
+            .iter()
+            .position(|b| self.inner.dot(&b.normal) > 0.0)
+        {
+            let next_bound = self.bounds.swap_remove(next_index);
+            let mut next_ortho_bound = next_bound.normal.into_inner();
+            // Perform the Gram-Schmidt process.
+            for ortho_bound in ortho_bounds.iter() {
+                next_ortho_bound -= *ortho_bound * next_ortho_bound.dot(ortho_bound);
+            }
+            next_ortho_bound.normalize_mut();
+
+            self.inner += next_ortho_bound
+                * ((self.distance_factor * next_bound.distance_factor
+                    - self.inner.dot(&next_bound.normal))
+                    / next_ortho_bound.dot(&next_bound.normal));
+
+            ortho_bounds.push(next_ortho_bound);
+            new_bounds.push(next_bound);
+        }
+
+        self.bounds = new_bounds;
+    }
+}
+
+struct VectorBound {
+    normal: na::UnitVector3<f32>,
+    distance_factor: f32,
+}
+
 struct CollisionCheckingResult {
     /// The displacement allowed for the character before hitting a wall. The result of
     /// `math::translate_along(&displacement_vector)` is `displacement_transform`.
