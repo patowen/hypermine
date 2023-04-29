@@ -220,23 +220,21 @@ fn apply_normals_internal(
 }
 
 mod bound_vector {
-    struct BoundVector {
+    pub struct BoundVector {
         inner: na::Vector3<f32>,
         bounds: Vec<VectorBound>,
         distance_factor: f32,
     }
 
     impl BoundVector {
-        fn apply_bound(&mut self, new_bound: VectorBound) {
-            // Update `bounds`, removing vectors as appropriate, finishing up with a final swap
-            let ortho_bound = new_bound.normal.into_inner();
+        pub fn apply_bound(&mut self, new_bound: VectorBound) {
             ensure_dot_product(
                 self.distance_factor * new_bound.distance_factor,
-                &ortho_bound,
+                &new_bound.normal,
                 &new_bound.normal,
                 &mut self.inner,
             );
-            let mut ortho_bounds = vec![ortho_bound];
+            let mut ortho_bounds = vec![new_bound.normal];
             let mut new_bounds = vec![new_bound];
 
             while let Some(next_index) = self
@@ -245,13 +243,7 @@ mod bound_vector {
                 .position(|b| self.inner.dot(&b.normal) > 0.0)
             {
                 let next_bound = self.bounds.swap_remove(next_index);
-                let mut next_ortho_bound = next_bound.normal.into_inner();
-                // Perform the Gram-Schmidt process.
-                for ortho_bound in ortho_bounds.iter() {
-                    next_ortho_bound -= *ortho_bound * next_ortho_bound.dot(ortho_bound);
-                }
-                next_ortho_bound.normalize_mut();
-
+                let next_ortho_bound = gram_schmidt(&ortho_bounds, &next_bound.normal);
                 ensure_dot_product(
                     self.distance_factor * next_bound.distance_factor,
                     &next_ortho_bound,
@@ -269,16 +261,27 @@ mod bound_vector {
 
     fn ensure_dot_product(
         dot_product: f32,
-        adjustment_direction: &na::Vector3<f32>,
+        adjustment_direction: &na::UnitVector3<f32>,
         fixed_vector: &na::UnitVector3<f32>,
         moving_vector: &mut na::Vector3<f32>,
     ) {
-        *moving_vector += adjustment_direction
+        *moving_vector += adjustment_direction.as_ref()
             * ((dot_product - moving_vector.dot(fixed_vector))
                 / adjustment_direction.dot(fixed_vector));
     }
 
-    struct VectorBound {
+    fn gram_schmidt(
+        ortho_vectors: &[na::UnitVector3<f32>],
+        current_vector: &na::UnitVector3<f32>,
+    ) -> na::UnitVector3<f32> {
+        let mut current_ortho_vector = current_vector.into_inner();
+        for ortho_vector in ortho_vectors {
+            current_ortho_vector -= ortho_vector.as_ref() * current_ortho_vector.dot(ortho_vector);
+        }
+        na::UnitVector3::new_normalize(current_ortho_vector)
+    }
+
+    pub struct VectorBound {
         normal: na::UnitVector3<f32>,
         distance_factor: f32,
     }
