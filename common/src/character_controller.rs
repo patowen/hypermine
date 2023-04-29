@@ -468,6 +468,116 @@ impl CollisionCheckingResult {
     }
 }
 
+mod bound_vector {
+    pub struct BoundVector {
+        pub inner: na::Vector3<f32>,
+        bounds: Vec<VectorBound>,
+    }
+
+    impl BoundVector {
+        pub fn new(inner: na::Vector3<f32>) -> Self {
+            BoundVector {
+                inner,
+                bounds: vec![],
+            }
+        }
+
+        pub fn apply_bound(
+            &mut self,
+            new_bound: VectorBound,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+            let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
+            let tagalong_distance_factor = tagalong
+                .as_ref()
+                .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
+
+            ensure_dot_product(
+                common_distance_factor * new_bound.distance_factor,
+                &new_bound.normal,
+                &new_bound.normal,
+                &mut self.inner,
+            );
+            if let Some(ref mut tagalong) = tagalong {
+                ensure_dot_product(
+                    tagalong_distance_factor * new_bound.distance_factor,
+                    &new_bound.normal,
+                    &new_bound.normal,
+                    tagalong,
+                );
+            }
+            let mut ortho_bounds = vec![new_bound.normal];
+            let mut new_bounds = vec![new_bound];
+
+            while let Some(next_index) = self
+                .bounds
+                .iter()
+                .position(|b| self.inner.dot(&b.normal) < 0.0)
+            {
+                let next_bound = self.bounds.swap_remove(next_index);
+                let next_ortho_bound = gram_schmidt(&ortho_bounds, &next_bound.normal);
+                ensure_dot_product(
+                    common_distance_factor * next_bound.distance_factor,
+                    &next_ortho_bound,
+                    &next_bound.normal,
+                    &mut self.inner,
+                );
+                if let Some(ref mut tagalong) = tagalong {
+                    ensure_dot_product(
+                        tagalong_distance_factor * next_bound.distance_factor,
+                        &next_ortho_bound,
+                        &next_bound.normal,
+                        tagalong,
+                    );
+                }
+
+                ortho_bounds.push(next_ortho_bound);
+                new_bounds.push(next_bound);
+            }
+
+            self.bounds = new_bounds;
+        }
+    }
+
+    fn ensure_dot_product(
+        dot_product: f32,
+        adjustment_direction: &na::UnitVector3<f32>,
+        fixed_vector: &na::UnitVector3<f32>,
+        moving_vector: &mut na::Vector3<f32>,
+    ) {
+        *moving_vector += adjustment_direction.as_ref()
+            * ((dot_product - moving_vector.dot(fixed_vector))
+                / adjustment_direction.dot(fixed_vector));
+    }
+
+    fn gram_schmidt(
+        ortho_vectors: &[na::UnitVector3<f32>],
+        current_vector: &na::UnitVector3<f32>,
+    ) -> na::UnitVector3<f32> {
+        let mut current_ortho_vector = current_vector.into_inner();
+        for ortho_vector in ortho_vectors {
+            current_ortho_vector -= ortho_vector.as_ref() * current_ortho_vector.dot(ortho_vector);
+        }
+        na::UnitVector3::new_normalize(current_ortho_vector)
+    }
+
+    pub struct VectorBound {
+        normal: na::UnitVector3<f32>,
+        distance_factor: f32,
+    }
+
+    impl VectorBound {
+        pub fn new(normal: na::UnitVector3<f32>, distance_factor: f32) -> Self {
+            VectorBound {
+                normal,
+                distance_factor,
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
