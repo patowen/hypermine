@@ -1,6 +1,7 @@
 use tracing::{error, warn};
 
 use crate::{
+    character_controller::bound_vector::{BoundVector, VectorBound},
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
@@ -158,7 +159,7 @@ fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
     max_slope_angle: f32,
-    mut expected_displacement: na::Vector3<f32>,
+    expected_displacement: na::Vector3<f32>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
@@ -169,21 +170,22 @@ fn apply_velocity(
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
-    let mut active_normals = Vec::<na::UnitVector3<f32>>::new();
+    let mut remaining_displacement = BoundVector::new(expected_displacement);
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result = check_collision(collision_context, position, &expected_displacement);
+        let collision_result =
+            check_collision(collision_context, position, &remaining_displacement.inner);
         position.local *= collision_result.displacement_transform;
 
         if let Some(collision) = collision_result.collision {
             // Update the expected displacement to whatever is remaining.
-            expected_displacement -= collision_result.displacement_vector;
+            remaining_displacement.inner -= collision_result.displacement_vector;
 
             if collision.normal.dot(up) > cos_max_slope {
                 if let Some(ground_normal) = ground_normal {
-                    expected_displacement -= up.as_ref()
-                        * (expected_displacement.dot(ground_normal) / up.dot(ground_normal));
+                    remaining_displacement.inner -= up.as_ref()
+                        * (remaining_displacement.inner.dot(ground_normal) / up.dot(ground_normal));
                     *velocity -=
                         up.as_ref() * (velocity.dot(ground_normal) / up.dot(ground_normal));
                 }
@@ -191,7 +193,7 @@ fn apply_velocity(
                     up,
                     ground_normal.is_some(),
                     &collision.normal,
-                    &mut expected_displacement,
+                    &mut remaining_displacement.inner,
                 );
                 apply_ground_normal_change(
                     up,
@@ -200,15 +202,10 @@ fn apply_velocity(
                     velocity,
                 );
                 *ground_normal = Some(collision.normal);
-                active_normals.retain(|n| n.dot(velocity) < 0.0);
-            } else {
-                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
             }
 
-            active_normals.push(collision.normal);
-
-            apply_normals(&active_normals, &mut expected_displacement);
-            apply_normals(&active_normals, velocity);
+            remaining_displacement
+                .apply_bound(VectorBound::new(collision.normal, 1.0), Some(velocity));
         } else {
             all_collisions_resolved = true;
             break;
@@ -230,18 +227,16 @@ fn get_ground_normal(
     const MAX_COLLISION_ITERATIONS: u32 = 5;
     let cos_max_slope = max_slope_angle.cos();
 
-    let mut allowed_displacement = -up.into_inner() * allowed_distance;
-    let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result = check_collision(collision_context, position, &allowed_displacement);
+        let collision_result =
+            check_collision(collision_context, position, &allowed_displacement.inner);
         if let Some(collision) = collision_result.collision.as_ref() {
             if collision.normal.dot(up) > cos_max_slope {
                 return collision_result;
             }
-            active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-            active_normals.push(collision.normal);
-            apply_normals(&active_normals, &mut allowed_displacement);
+            allowed_displacement.apply_bound(VectorBound::new(collision.normal, 1.0), None);
         } else {
             return CollisionCheckingResult::stationary();
         }
