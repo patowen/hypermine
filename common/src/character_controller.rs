@@ -4,7 +4,7 @@ use crate::{
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
-    sanitize_motion_input, SimConfig,
+    sanitize_motion_input, SimConfig, character_controller::bound_vector::{BoundVector, VectorBound},
 };
 
 pub fn run_character_step(
@@ -89,32 +89,28 @@ impl CharacterControllerPass<'_> {
         // in which case further movement processing is delayed until the next time step.
         const MAX_COLLISION_ITERATIONS: u32 = 5;
 
-        let mut expected_displacement = estimated_average_velocity * self.dt_seconds;
-        let mut active_normals = Vec::<na::UnitVector3<f32>>::with_capacity(3);
+        let mut bound_displacement = BoundVector::new(estimated_average_velocity * self.dt_seconds);
+        let mut bound_velocity = BoundVector::new(*self.velocity);
 
         let mut all_collisions_resolved = false;
 
         for _ in 0..MAX_COLLISION_ITERATIONS {
-            let collision_result = self.check_collision(&expected_displacement);
+            let collision_result = self.check_collision(&bound_displacement.inner);
             self.position.local *= collision_result.displacement_transform;
 
             if let Some(collision) = collision_result.collision {
-                // We maintain a list of surface normals that should restrict player movement. We remove normals for
-                // surfaces the player is pushed away from and add the surface normal of the latest collision.
-                active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_normals.push(collision.normal);
-
                 // Update the expected displacement to whatever is remaining.
-                expected_displacement -= collision_result.displacement_vector;
-                apply_normals(&active_normals, &mut expected_displacement);
+                bound_displacement.inner -= collision_result.displacement_vector;
 
-                // Also update the velocity to ensure that walls kill momentum.
-                apply_normals(&active_normals, self.velocity);
+                bound_displacement.apply_bound(VectorBound::new(collision.normal, 1.0));
+                bound_velocity.apply_bound(VectorBound::new(collision.normal, 1.0));
             } else {
                 all_collisions_resolved = true;
                 break;
             }
         }
+
+        *self.velocity = bound_velocity.inner;
 
         if !all_collisions_resolved {
             warn!("A character entity processed too many collisions and collision resolution was cut short.");
@@ -221,12 +217,23 @@ fn apply_normals_internal(
 
 mod bound_vector {
     pub struct BoundVector {
-        inner: na::Vector3<f32>,
+        pub inner: na::Vector3<f32>,
         bounds: Vec<VectorBound>,
         distance_factor: f32,
     }
 
     impl BoundVector {
+        pub fn new(inner: na::Vector3<f32>) -> Self {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+
+            BoundVector {
+                inner,
+                bounds: vec![],
+                distance_factor: inner.magnitude() * RELATIVE_EPSILON,
+            }
+        }
+
         pub fn apply_bound(&mut self, new_bound: VectorBound) {
             ensure_dot_product(
                 self.distance_factor * new_bound.distance_factor,
@@ -240,7 +247,7 @@ mod bound_vector {
             while let Some(next_index) = self
                 .bounds
                 .iter()
-                .position(|b| self.inner.dot(&b.normal) > 0.0)
+                .position(|b| self.inner.dot(&b.normal) < 0.0)
             {
                 let next_bound = self.bounds.swap_remove(next_index);
                 let next_ortho_bound = gram_schmidt(&ortho_bounds, &next_bound.normal);
@@ -284,6 +291,12 @@ mod bound_vector {
     pub struct VectorBound {
         normal: na::UnitVector3<f32>,
         distance_factor: f32,
+    }
+
+    impl VectorBound {
+        pub fn new(normal: na::UnitVector3<f32>, distance_factor: f32) -> Self {
+            VectorBound { normal, distance_factor}
+        }
     }
 }
 
