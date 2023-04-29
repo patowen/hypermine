@@ -1,10 +1,11 @@
 use tracing::{error, warn};
 
 use crate::{
+    character_controller::bound_vector::{BoundVector, VectorBound},
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
-    sanitize_motion_input, SimConfig, character_controller::bound_vector::{BoundVector, VectorBound},
+    sanitize_motion_input, SimConfig,
 };
 
 pub fn run_character_step(
@@ -90,7 +91,6 @@ impl CharacterControllerPass<'_> {
         const MAX_COLLISION_ITERATIONS: u32 = 5;
 
         let mut bound_displacement = BoundVector::new(estimated_average_velocity * self.dt_seconds);
-        let mut bound_velocity = BoundVector::new(*self.velocity);
 
         let mut all_collisions_resolved = false;
 
@@ -102,15 +102,13 @@ impl CharacterControllerPass<'_> {
                 // Update the expected displacement to whatever is remaining.
                 bound_displacement.inner -= collision_result.displacement_vector;
 
-                bound_displacement.apply_bound(VectorBound::new(collision.normal, 1.0));
-                bound_velocity.apply_bound(VectorBound::new(collision.normal, 1.0));
+                bound_displacement
+                    .apply_bound(VectorBound::new(collision.normal, 1.0), Some(self.velocity));
             } else {
                 all_collisions_resolved = true;
                 break;
             }
         }
-
-        *self.velocity = bound_velocity.inner;
 
         if !all_collisions_resolved {
             warn!("A character entity processed too many collisions and collision resolution was cut short.");
@@ -219,28 +217,42 @@ mod bound_vector {
     pub struct BoundVector {
         pub inner: na::Vector3<f32>,
         bounds: Vec<VectorBound>,
-        distance_factor: f32,
     }
 
     impl BoundVector {
         pub fn new(inner: na::Vector3<f32>) -> Self {
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-
             BoundVector {
                 inner,
                 bounds: vec![],
-                distance_factor: inner.magnitude() * RELATIVE_EPSILON,
             }
         }
 
-        pub fn apply_bound(&mut self, new_bound: VectorBound) {
+        pub fn apply_bound(
+            &mut self,
+            new_bound: VectorBound,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+            let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
+            let tagalong_distance_factor = tagalong
+                .as_ref()
+                .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
+
             ensure_dot_product(
-                self.distance_factor * new_bound.distance_factor,
+                common_distance_factor * new_bound.distance_factor,
                 &new_bound.normal,
                 &new_bound.normal,
                 &mut self.inner,
             );
+            if let Some(ref mut tagalong) = tagalong {
+                ensure_dot_product(
+                    tagalong_distance_factor * new_bound.distance_factor,
+                    &new_bound.normal,
+                    &new_bound.normal,
+                    tagalong,
+                );
+            }
             let mut ortho_bounds = vec![new_bound.normal];
             let mut new_bounds = vec![new_bound];
 
@@ -252,11 +264,19 @@ mod bound_vector {
                 let next_bound = self.bounds.swap_remove(next_index);
                 let next_ortho_bound = gram_schmidt(&ortho_bounds, &next_bound.normal);
                 ensure_dot_product(
-                    self.distance_factor * next_bound.distance_factor,
+                    common_distance_factor * next_bound.distance_factor,
                     &next_ortho_bound,
                     &next_bound.normal,
                     &mut self.inner,
                 );
+                if let Some(ref mut tagalong) = tagalong {
+                    ensure_dot_product(
+                        tagalong_distance_factor * next_bound.distance_factor,
+                        &next_ortho_bound,
+                        &next_bound.normal,
+                        tagalong,
+                    );
+                }
 
                 ortho_bounds.push(next_ortho_bound);
                 new_bounds.push(next_bound);
@@ -295,7 +315,10 @@ mod bound_vector {
 
     impl VectorBound {
         pub fn new(normal: na::UnitVector3<f32>, distance_factor: f32) -> Self {
-            VectorBound { normal, distance_factor}
+            VectorBound {
+                normal,
+                distance_factor,
+            }
         }
     }
 }
