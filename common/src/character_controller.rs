@@ -170,16 +170,6 @@ fn apply_velocity(
     let cos_max_slope = max_slope_angle.cos();
 
     let mut active_normals = Vec::<na::UnitVector3<f32>>::new();
-    let mut active_normals_horizontal = Vec::<na::UnitVector3<f32>>::new();
-
-    let mut expected_displacement_horizontal = expected_displacement;
-    let mut velocity_horizontal = *velocity;
-
-    if let Some(ground_normal) = ground_normal {
-        expected_displacement_horizontal -=
-            **up * (expected_displacement.dot(ground_normal) / up.dot(ground_normal));
-        velocity_horizontal -= **up * (velocity.dot(ground_normal) / up.dot(ground_normal));
-    }
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -188,16 +178,14 @@ fn apply_velocity(
 
         if let Some(collision) = collision_result.collision {
             // Update the expected displacement to whatever is remaining.
-            let displacement_factor = 1.0
-                - collision_result.displacement_vector.magnitude()
-                    / expected_displacement.magnitude();
-            expected_displacement *= displacement_factor;
-            expected_displacement_horizontal *= displacement_factor;
+            expected_displacement -= collision_result.displacement_vector;
 
             if collision.normal.dot(up) > cos_max_slope {
-                if ground_normal.is_some() {
-                    expected_displacement = expected_displacement_horizontal;
-                    *velocity = velocity_horizontal;
+                if let Some(ground_normal) = ground_normal {
+                    expected_displacement -= up.as_ref()
+                        * (expected_displacement.dot(ground_normal) / up.dot(ground_normal));
+                    *velocity -=
+                        up.as_ref() * (velocity.dot(ground_normal) / up.dot(ground_normal));
                 }
                 apply_ground_normal_change(
                     up,
@@ -212,40 +200,15 @@ fn apply_velocity(
                     velocity,
                 );
                 *ground_normal = Some(collision.normal);
-                expected_displacement_horizontal = expected_displacement;
-                velocity_horizontal = *velocity;
                 active_normals.retain(|n| n.dot(velocity) < 0.0);
-                active_normals_horizontal.retain(|n| n.dot(velocity) < 0.0);
             } else {
                 active_normals.retain(|n| n.dot(&collision.normal) < 0.0);
-                active_normals_horizontal.retain(|n| n.dot(&collision.normal) < 0.0);
             }
 
             active_normals.push(collision.normal);
-            if collision.normal.dot(&expected_displacement_horizontal) < 0.0 {
-                active_normals_horizontal.push(collision.normal);
-            }
 
             apply_normals(&active_normals, &mut expected_displacement);
             apply_normals(&active_normals, velocity);
-
-            if let Some(ground_normal) = ground_normal {
-                let mut active_normals_horizontal_with_ground = active_normals_horizontal.clone();
-                active_normals_horizontal_with_ground.push(*ground_normal);
-                apply_normals(
-                    &active_normals_horizontal_with_ground,
-                    &mut expected_displacement_horizontal,
-                );
-                apply_normals(
-                    &active_normals_horizontal_with_ground,
-                    &mut velocity_horizontal,
-                );
-
-                if velocity.dot(ground_normal) > 0.0 {
-                    expected_displacement = expected_displacement_horizontal;
-                    *velocity = velocity_horizontal;
-                }
-            }
         } else {
             all_collisions_resolved = true;
             break;
