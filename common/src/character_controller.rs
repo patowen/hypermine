@@ -1,3 +1,4 @@
+use rand_distr::num_traits::Zero;
 use tracing::{error, warn};
 
 use crate::{
@@ -171,6 +172,7 @@ fn apply_velocity(
     let cos_max_slope = max_slope_angle.cos();
 
     let mut remaining_displacement = BoundVector::new(expected_displacement);
+    let mut vertical_correction_direction = BoundVector::new(up.into_inner());
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -184,10 +186,16 @@ fn apply_velocity(
 
             if collision.normal.dot(up) > cos_max_slope {
                 if let Some(ground_normal) = ground_normal {
-                    remaining_displacement.inner -= up.as_ref()
-                        * (remaining_displacement.inner.dot(ground_normal) / up.dot(ground_normal));
-                    *velocity -=
-                        up.as_ref() * (velocity.dot(ground_normal) / up.dot(ground_normal));
+                    if vertical_correction_direction.inner.dot(ground_normal) > 0.0 {
+                        vertical_correction_direction.inner.normalize_mut();
+                        remaining_displacement.inner -= vertical_correction_direction.inner
+                            * (remaining_displacement.inner.dot(ground_normal)
+                                / vertical_correction_direction.inner.dot(ground_normal));
+                        *velocity -= vertical_correction_direction.inner
+                            * (velocity.dot(ground_normal)
+                                / vertical_correction_direction.inner.dot(ground_normal));
+                        vertical_correction_direction.inner.set_zero();
+                    }
                 }
                 apply_ground_normal_change(
                     up,
@@ -210,6 +218,8 @@ fn apply_velocity(
             }
             remaining_displacement.apply_bound(collision.normal, Some(velocity));
             remaining_displacement.remove_temporary_bounds();
+
+            vertical_correction_direction.apply_bound(collision.normal, None);
         } else {
             all_collisions_resolved = true;
             break;
