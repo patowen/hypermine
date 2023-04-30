@@ -205,7 +205,7 @@ fn apply_velocity(
             }
 
             remaining_displacement
-                .apply_bound(VectorBound::new(collision.normal, 1.0), Some(velocity));
+                .apply_bound(VectorBound::new(collision.normal, 1.0, 0.0), Some(velocity));
         } else {
             all_collisions_resolved = true;
             break;
@@ -236,7 +236,7 @@ fn get_ground_normal(
             if collision.normal.dot(up) > cos_max_slope {
                 return collision_result;
             }
-            allowed_displacement.apply_bound(VectorBound::new(collision.normal, 1.0), None);
+            allowed_displacement.apply_bound(VectorBound::new(collision.normal, 1.0, 0.0), None);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -465,14 +465,14 @@ mod bound_vector {
                 .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
 
             ensure_dot_product(
-                common_distance_factor * new_bound.distance_factor,
+                common_distance_factor * new_bound.distance_factor_set,
                 &new_bound.normal,
                 &new_bound.normal,
                 &mut self.inner,
             );
             if let Some(ref mut tagalong) = tagalong {
                 ensure_dot_product(
-                    tagalong_distance_factor * new_bound.distance_factor,
+                    tagalong_distance_factor * new_bound.distance_factor_set,
                     &new_bound.normal,
                     &new_bound.normal,
                     tagalong,
@@ -480,18 +480,18 @@ mod bound_vector {
             }
 
             // Check if all constraints are satisfied
-            if self.bounds.iter().all(|b| self.inner.dot(&b.normal) > 0.0) {
+            if self.bounds.iter().all(|b| {
+                self.inner.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
+            }) {
                 self.bounds = vec![new_bound];
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in self
-                .bounds
-                .iter()
-                .filter(|b| self.inner.dot(&b.normal) <= 0.0)
-            {
+            for bound in self.bounds.iter().filter(|b| {
+                self.inner.dot(&b.normal) <= common_distance_factor * b.distance_factor_checked
+            }) {
                 const MIN_ORTHO_NORM: f32 = 1e-5;
 
                 let mut candidate = self.inner;
@@ -506,17 +506,19 @@ mod bound_vector {
                 };
 
                 ensure_dot_product(
-                    common_distance_factor * bound.distance_factor,
+                    common_distance_factor * bound.distance_factor_set,
                     &ortho_bound_normal,
                     &bound.normal,
                     &mut candidate,
                 );
 
-                if self.bounds.iter().all(|b| candidate.dot(&b.normal) > 0.0) {
+                if self.bounds.iter().all(|b| {
+                    candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
+                }) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = tagalong {
                         ensure_dot_product(
-                            tagalong_distance_factor * bound.distance_factor,
+                            tagalong_distance_factor * bound.distance_factor_set,
                             &ortho_bound_normal,
                             &bound.normal,
                             tagalong,
@@ -561,14 +563,20 @@ mod bound_vector {
     #[derive(Clone)]
     pub struct VectorBound {
         normal: na::UnitVector3<f32>,
-        distance_factor: f32,
+        distance_factor_set: f32,
+        distance_factor_checked: f32,
     }
 
     impl VectorBound {
-        pub fn new(normal: na::UnitVector3<f32>, distance_factor: f32) -> Self {
+        pub fn new(
+            normal: na::UnitVector3<f32>,
+            distance_factor_set: f32,
+            distance_factor_checked: f32,
+        ) -> Self {
             VectorBound {
                 normal,
-                distance_factor,
+                distance_factor_set,
+                distance_factor_checked,
             }
         }
     }
