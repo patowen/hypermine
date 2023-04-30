@@ -440,6 +440,15 @@ mod bound_vector {
             }
         }
 
+        // TODO: Rather than this ad-hoc method that isn't necessarily going to yield good results for certain edge cases,
+        // we should solve an optimization problem: Find the vector closest to the current `inner` vector that fits all bounds.
+        // This is a particular form of a quadratic programming problem, but using a quadratic programming algorithm seems like
+        // overkill. I don't know of any specific algorithms that make this easier in the general case, but fortunately, if
+        // we're restricted to 3D, and we force the vector to be on the plane orthogonal to `new_bound` (which makes sense, since
+        // the player moved freely before hitting the wall, which has normal `new_bound`), then we're effectively restricted
+        // to 2D. Since all planes pass through the origin, the domain is simply a sector of the plane (using the circle meaning
+        // of "sector"). With this restriction, the answer is either the vector projected to one of the planes (the one it was deepest in),
+        // or the answer is just "zero", which would mean the player got stuck in the corner.
         pub fn apply_bound(
             &mut self,
             new_bound: VectorBound,
