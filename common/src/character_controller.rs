@@ -1,7 +1,7 @@
 use tracing::{error, warn};
 
 use crate::{
-    character_controller::bound_vector::{BoundVector, VectorBound},
+    character_controller::bound_vector::BoundVector,
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
@@ -204,7 +204,12 @@ fn apply_velocity(
                 *ground_normal = Some(collision.normal);
             }
 
+            if let Some(ground_normal) = ground_normal {
+                remaining_displacement
+                    .add_temporary_bound(na::UnitVector3::new_unchecked(-ground_normal.as_ref()));
+            }
             remaining_displacement.apply_bound(collision.normal, Some(velocity));
+            remaining_displacement.remove_temporary_bounds();
         } else {
             all_collisions_resolved = true;
             break;
@@ -456,6 +461,12 @@ mod bound_vector {
                 .as_ref()
                 .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
 
+            // If there's no movement to apply the bound to, just add the bound and don't apply any more computation.
+            if common_distance_factor == 0.0 {
+                self.bounds.push(new_bound);
+                return;
+            }
+
             ensure_dot_product(
                 common_distance_factor * new_bound.distance_factor_set,
                 &new_bound.normal,
@@ -549,19 +560,8 @@ mod bound_vector {
                 / adjustment_direction.dot(fixed_vector));
     }
 
-    fn gram_schmidt(
-        ortho_vectors: &[na::UnitVector3<f32>],
-        current_vector: &na::UnitVector3<f32>,
-    ) -> na::UnitVector3<f32> {
-        let mut current_ortho_vector = current_vector.into_inner();
-        for ortho_vector in ortho_vectors {
-            current_ortho_vector -= ortho_vector.as_ref() * current_ortho_vector.dot(ortho_vector);
-        }
-        na::UnitVector3::new_normalize(current_ortho_vector)
-    }
-
     #[derive(Clone)]
-    pub struct VectorBound {
+    struct VectorBound {
         normal: na::UnitVector3<f32>,
         distance_factor_set: f32,
         distance_factor_checked: f32,
@@ -569,7 +569,7 @@ mod bound_vector {
     }
 
     impl VectorBound {
-        pub fn new(
+        fn new(
             normal: na::UnitVector3<f32>,
             distance_factor_set: f32,
             distance_factor_checked: f32,
