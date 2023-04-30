@@ -204,8 +204,7 @@ fn apply_velocity(
                 *ground_normal = Some(collision.normal);
             }
 
-            remaining_displacement
-                .apply_bound(VectorBound::new(collision.normal, 1.0, 0.0), Some(velocity));
+            remaining_displacement.apply_bound(collision.normal, Some(velocity));
         } else {
             all_collisions_resolved = true;
             break;
@@ -236,7 +235,7 @@ fn get_ground_normal(
             if collision.normal.dot(up) > cos_max_slope {
                 return collision_result;
             }
-            allowed_displacement.apply_bound(VectorBound::new(collision.normal, 1.0, 0.0), None);
+            allowed_displacement.apply_bound(collision.normal, None);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -443,20 +442,13 @@ mod bound_vector {
             }
         }
 
-        // TODO: Rather than this ad-hoc method that isn't necessarily going to yield good results for certain edge cases,
-        // we should solve an optimization problem: Find the vector closest to the current `inner` vector that fits all bounds.
-        // This is a particular form of a quadratic programming problem, but using a quadratic programming algorithm seems like
-        // overkill. I don't know of any specific algorithms that make this easier in the general case, but fortunately, if
-        // we're restricted to 3D, and we force the vector to be on the plane orthogonal to `new_bound` (which makes sense, since
-        // the player moved freely before hitting the wall, which has normal `new_bound`), then we're effectively restricted
-        // to 2D. Since all planes pass through the origin, the domain is simply a sector of the plane (using the circle meaning
-        // of "sector"). With this restriction, the answer is either the vector projected to one of the planes (the one it was deepest in),
-        // or the answer is just "zero", which would mean the player got stuck in the corner.
         pub fn apply_bound(
             &mut self,
-            new_bound: VectorBound,
+            new_bound_normal: na::UnitVector3<f32>,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
+            let new_bound = VectorBound::new(new_bound_normal, 1.0, 0.0, false);
+
             // Corrective term to ensure that normals face away from any potential collision surfaces
             const RELATIVE_EPSILON: f32 = 1e-4;
             let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
@@ -536,6 +528,14 @@ mod bound_vector {
             }
             self.bounds.push(new_bound);
         }
+
+        pub fn add_temporary_bound(&mut self, normal: na::UnitVector3<f32>) {
+            self.bounds.push(VectorBound::new(normal, -1.0, -2.0, true));
+        }
+
+        pub fn remove_temporary_bounds(&mut self) {
+            self.bounds.retain(|b| !b.temporary);
+        }
     }
 
     fn ensure_dot_product(
@@ -565,6 +565,7 @@ mod bound_vector {
         normal: na::UnitVector3<f32>,
         distance_factor_set: f32,
         distance_factor_checked: f32,
+        temporary: bool,
     }
 
     impl VectorBound {
@@ -572,11 +573,13 @@ mod bound_vector {
             normal: na::UnitVector3<f32>,
             distance_factor_set: f32,
             distance_factor_checked: f32,
+            temporary: bool,
         ) -> Self {
             VectorBound {
                 normal,
                 distance_factor_set,
                 distance_factor_checked,
+                temporary,
             }
         }
     }
