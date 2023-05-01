@@ -498,7 +498,7 @@ mod bound_vector {
             if self.bounds.iter().all(|b| {
                 self.inner.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
             }) {
-                self.bounds = vec![new_bound];
+                self.bounds.push(new_bound);
                 return;
             }
 
@@ -539,7 +539,7 @@ mod bound_vector {
                             tagalong,
                         );
                     }
-                    self.bounds = vec![bound.clone(), new_bound];
+                    self.bounds.push(new_bound);
                     return;
                 }
             }
