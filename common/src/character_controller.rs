@@ -168,7 +168,7 @@ fn apply_velocity(
     // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
     // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
-    const MAX_COLLISION_ITERATIONS: u32 = 5;
+    const MAX_COLLISION_ITERATIONS: u32 = 6;
     let cos_max_slope = max_slope_angle.cos();
 
     let mut remaining_displacement = BoundVector::new(expected_displacement);
@@ -243,8 +243,6 @@ fn apply_velocity(
     }
 
     if !all_collisions_resolved {
-        // One example of where this warning can trigger is at a vertex on an order-5 edge, as the character
-        // can end up interacting with all five walls on a single frame.
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 }
@@ -256,7 +254,7 @@ fn get_ground_normal(
     allowed_distance: f32,
     position: &Position,
 ) -> CollisionCheckingResult {
-    const MAX_COLLISION_ITERATIONS: u32 = 5;
+    const MAX_COLLISION_ITERATIONS: u32 = 6;
     let cos_max_slope = max_slope_angle.cos();
 
     let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
