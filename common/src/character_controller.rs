@@ -477,11 +477,24 @@ mod bound_vector {
             &mut self,
             new_bound_normal: na::UnitVector3<f32>,
             new_bound_push_direction: na::UnitVector3<f32>,
+            tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            let new_bound = VectorBound {
+                normal: new_bound_normal,
+                push_direction: new_bound_push_direction,
+                distance_factor_set: 1.0,
+                distance_factor_checked: 0.0,
+                temporary: false,
+            };
+            self.apply_bound_internal(&new_bound, tagalong);
+            self.bounds.push(new_bound);
+        }
+
+        fn apply_bound_internal(
+            &mut self,
+            new_bound: &VectorBound,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
-            let new_bound =
-                VectorBound::new(new_bound_normal, new_bound_push_direction, 1.0, 0.0, false);
-
             // Corrective term to ensure that normals face away from any potential collision surfaces
             const RELATIVE_EPSILON: f32 = 1e-4;
             let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
@@ -489,9 +502,8 @@ mod bound_vector {
                 .as_ref()
                 .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
 
-            // If there's no movement to apply the bound to, just add the bound and don't apply any more computation.
+            // If there's no movement to apply the bound to, no computation is needed.
             if common_distance_factor == 0.0 {
-                self.bounds.push(new_bound);
                 return;
             }
 
@@ -514,7 +526,6 @@ mod bound_vector {
             if self.bounds.iter().all(|b| {
                 self.inner.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
             }) {
-                self.bounds.push(new_bound);
                 return;
             }
 
@@ -560,7 +571,6 @@ mod bound_vector {
                             tagalong,
                         );
                     }
-                    self.bounds.push(new_bound);
                     return;
                 }
             }
@@ -570,7 +580,6 @@ mod bound_vector {
             if let Some(ref mut tagalong) = tagalong {
                 tagalong.set_zero();
             }
-            self.bounds.push(new_bound);
         }
 
         pub fn add_temporary_bound(
@@ -578,8 +587,13 @@ mod bound_vector {
             normal: na::UnitVector3<f32>,
             push_direction: na::UnitVector3<f32>,
         ) {
-            self.bounds
-                .push(VectorBound::new(normal, push_direction, -1.0, -2.0, true));
+            self.bounds.push(VectorBound {
+                normal,
+                push_direction,
+                distance_factor_set: -1.0,
+                distance_factor_checked: -2.0,
+                temporary: true,
+            });
         }
 
         pub fn remove_temporary_bounds(&mut self) {
@@ -587,6 +601,10 @@ mod bound_vector {
         }
     }
 
+    // Updates `moving_vector` by moving it along the line determined by `adjustment_direction` so that
+    // its dot product with `fixed_vector` is `dot_product`. This effectively projects vectors onto a plane,
+    // where the plane does not need to go through the origin, and the projection can be non-orthogonal.
+    // Precondition: For this to be possible, the adjustment direction cannot be orthogonal to the fixed vector.
     fn ensure_dot_product(
         dot_product: f32,
         adjustment_direction: &na::UnitVector3<f32>,
@@ -598,7 +616,6 @@ mod bound_vector {
                 / adjustment_direction.dot(fixed_vector));
     }
 
-    #[derive(Clone)]
     struct VectorBound {
         normal: na::UnitVector3<f32>,
         push_direction: na::UnitVector3<f32>,
@@ -607,21 +624,31 @@ mod bound_vector {
         temporary: bool,
     }
 
-    impl VectorBound {
-        fn new(
-            normal: na::UnitVector3<f32>,
-            push_direction: na::UnitVector3<f32>,
-            distance_factor_set: f32,
-            distance_factor_checked: f32,
-            temporary: bool,
-        ) -> Self {
-            VectorBound {
-                normal,
-                push_direction,
-                distance_factor_set,
-                distance_factor_checked,
-                temporary,
-            }
+    #[cfg(test)]
+    mod tests {
+        use approx::assert_abs_diff_eq;
+
+        use super::*;
+
+        #[test]
+        fn ensure_dot_product_example() {
+            let dot_product = 4.0;
+            let adjustment_direction: na::UnitVector3<f32> =
+                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+            let fixed_vector: na::UnitVector3<f32> =
+                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+            let mut moving_vector = na::Vector3::new(-6.0, -3.0, 4.0);
+            ensure_dot_product(
+                dot_product,
+                &adjustment_direction,
+                &fixed_vector,
+                &mut moving_vector,
+            );
+            assert_abs_diff_eq!(
+                fixed_vector.dot(&moving_vector),
+                dot_product,
+                epsilon = 1.0e-5
+            );
         }
     }
 }
