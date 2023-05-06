@@ -446,7 +446,7 @@ mod bound_vector {
     pub struct BoundVector {
         pub inner: na::Vector3<f32>,
         pub tagalong: Option<na::Vector3<f32>>,
-        bounds: Vec<VectorBound>,
+        bounds: VectorBounds,
         inner_distance_factor: f32,
         tagalong_distance_factor: f32,
     }
@@ -464,7 +464,10 @@ mod bound_vector {
             BoundVector {
                 inner,
                 tagalong,
-                bounds: vec![],
+                bounds: VectorBounds {
+                    permanent_bounds: vec![],
+                    temporary_bounds: vec![],
+                },
                 inner_distance_factor,
                 tagalong_distance_factor,
             }
@@ -485,23 +488,22 @@ mod bound_vector {
             let new_bound = VectorBound {
                 normal: new_bound_normal,
                 push_direction: new_bound_push_direction,
-                distance_factor_set: 1.0,
-                temporary: false,
+                target_distance_factor: 1.0,
             };
             self.apply_bound(&new_bound);
-            self.bounds.push(new_bound);
+            self.bounds.permanent_bounds.push(new_bound);
         }
 
         fn apply_bound(&mut self, new_bound: &VectorBound) {
             ensure_dot_product(
-                self.inner_distance_factor * new_bound.distance_factor_set,
+                self.inner_distance_factor * new_bound.target_distance_factor,
                 &new_bound.push_direction,
                 &new_bound.normal,
                 &mut self.inner,
             );
             if let Some(ref mut tagalong) = self.tagalong {
                 ensure_dot_product(
-                    self.tagalong_distance_factor * new_bound.distance_factor_set,
+                    self.tagalong_distance_factor * new_bound.target_distance_factor,
                     &new_bound.push_direction,
                     &new_bound.normal,
                     tagalong,
@@ -510,7 +512,8 @@ mod bound_vector {
 
             // Check if all constraints are satisfied
             if self.bounds.iter().all(|b| {
-                self.inner.dot(&b.normal) >= self.inner_distance_factor * b.distance_factor_checked()
+                self.inner.dot(&b.normal)
+                    >= self.inner_distance_factor * b.checked_distance_factor()
             }) {
                 return;
             }
@@ -518,7 +521,7 @@ mod bound_vector {
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
             for bound in self.bounds.iter().filter(|b| {
-                self.inner.dot(&b.normal) < self.inner_distance_factor * b.distance_factor_checked()
+                self.inner.dot(&b.normal) < self.inner_distance_factor * b.checked_distance_factor()
             }) {
                 const MIN_ORTHO_NORM: f32 = 1e-5;
 
@@ -539,19 +542,20 @@ mod bound_vector {
                 };
 
                 ensure_dot_product(
-                    self.inner_distance_factor * bound.distance_factor_set,
+                    self.inner_distance_factor * bound.target_distance_factor,
                     &ortho_bound_push_direction,
                     &bound.normal,
                     &mut candidate,
                 );
 
                 if self.bounds.iter().all(|b| {
-                    candidate.dot(&b.normal) > self.inner_distance_factor * b.distance_factor_checked()
+                    candidate.dot(&b.normal)
+                        > self.inner_distance_factor * b.checked_distance_factor()
                 }) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = self.tagalong {
                         ensure_dot_product(
-                            self.tagalong_distance_factor * bound.distance_factor_set,
+                            self.tagalong_distance_factor * bound.target_distance_factor,
                             &ortho_bound_push_direction,
                             &bound.normal,
                             tagalong,
@@ -573,16 +577,15 @@ mod bound_vector {
             normal: na::UnitVector3<f32>,
             push_direction: na::UnitVector3<f32>,
         ) {
-            self.bounds.push(VectorBound {
+            self.bounds.temporary_bounds.push(VectorBound {
                 normal,
                 push_direction,
-                distance_factor_set: -1.0,
-                temporary: true,
+                target_distance_factor: -1.0,
             });
         }
 
         pub fn remove_temporary_bounds(&mut self) {
-            self.bounds.retain(|b| !b.temporary);
+            self.bounds.temporary_bounds.clear();
         }
     }
 
@@ -601,16 +604,28 @@ mod bound_vector {
                 / adjustment_direction.dot(fixed_vector));
     }
 
+    struct VectorBounds {
+        permanent_bounds: Vec<VectorBound>,
+        temporary_bounds: Vec<VectorBound>,
+    }
+
+    impl VectorBounds {
+        fn iter(&self) -> impl Iterator<Item = &VectorBound> {
+            self.permanent_bounds.iter().chain(&self.temporary_bounds)
+        }
+    }
+
     struct VectorBound {
         normal: na::UnitVector3<f32>,
         push_direction: na::UnitVector3<f32>,
-        distance_factor_set: f32,
-        temporary: bool,
+        target_distance_factor: f32, // Margin of error when the bound is applied
     }
 
     impl VectorBound {
-        fn distance_factor_checked(&self) -> f32 {
-            self.distance_factor_set - 1.0
+        // An additional margin of error is needed when the bound is checked to ensure that an
+        // applied bound always passes the check.
+        fn checked_distance_factor(&self) -> f32 {
+            self.target_distance_factor - 1.0
         }
     }
 
