@@ -171,8 +171,8 @@ fn apply_velocity(
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut remaining_displacement = BoundVector::new(expected_displacement);
-    let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
+    let mut remaining_displacement = BoundVector::new(expected_displacement, Some(*velocity));
+    let mut vertical_correction_direction = BoundVector::new(-up.into_inner(), None);
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -191,9 +191,16 @@ fn apply_velocity(
                         remaining_displacement.inner -= vertical_correction_direction.inner
                             * (remaining_displacement.inner.dot(ground_normal)
                                 / vertical_correction_direction.inner.dot(ground_normal));
-                        *velocity -= vertical_correction_direction.inner
-                            * (velocity.dot(ground_normal)
-                                / vertical_correction_direction.inner.dot(ground_normal));
+                        remaining_displacement.tagalong = Some(
+                            remaining_displacement.tagalong.as_ref().unwrap()
+                                - vertical_correction_direction.inner
+                                    * (remaining_displacement
+                                        .tagalong
+                                        .as_ref()
+                                        .unwrap()
+                                        .dot(ground_normal)
+                                        / vertical_correction_direction.inner.dot(ground_normal)),
+                        );
                         vertical_correction_direction.inner.set_zero();
                     }
                 }
@@ -207,7 +214,7 @@ fn apply_velocity(
                     up,
                     ground_normal.is_some(),
                     &collision.normal,
-                    velocity,
+                    remaining_displacement.tagalong.as_mut().unwrap(),
                 );
                 *ground_normal = Some(collision.normal);
                 if let Some(ground_normal) = ground_normal {
@@ -216,7 +223,7 @@ fn apply_velocity(
                         *up,
                     );
                 }
-                remaining_displacement.apply_bound(collision.normal, *up, Some(velocity));
+                remaining_displacement.add_and_apply_bound(collision.normal, *up);
             } else {
                 if let Some(ground_normal) = ground_normal {
                     remaining_displacement.add_temporary_bound(
@@ -224,17 +231,14 @@ fn apply_velocity(
                         *up,
                     );
                 }
-                remaining_displacement.apply_bound(
-                    collision.normal,
-                    collision.normal,
-                    Some(velocity),
-                );
+                remaining_displacement.add_and_apply_bound(collision.normal, collision.normal);
             }
 
             remaining_displacement.remove_temporary_bounds();
 
             if vertical_correction_direction.inner.dot(&collision.normal) < 0.0 {
-                vertical_correction_direction.apply_bound(collision.normal, collision.normal, None);
+                vertical_correction_direction
+                    .add_and_apply_bound(collision.normal, collision.normal);
             }
         } else {
             all_collisions_resolved = true;
@@ -245,6 +249,8 @@ fn apply_velocity(
     if !all_collisions_resolved {
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
+
+    *velocity = remaining_displacement.tagalong.unwrap();
 }
 
 fn get_ground_normal(
@@ -257,7 +263,7 @@ fn get_ground_normal(
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
+    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance, None);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result =
@@ -266,7 +272,7 @@ fn get_ground_normal(
             if collision.normal.dot(up) > min_slope_up_component {
                 return collision_result;
             }
-            allowed_displacement.apply_bound(collision.normal, collision.normal, None);
+            allowed_displacement.add_and_apply_bound(collision.normal, collision.normal);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -462,22 +468,23 @@ mod bound_vector {
 
     pub struct BoundVector {
         pub inner: na::Vector3<f32>,
+        pub tagalong: Option<na::Vector3<f32>>,
         bounds: Vec<VectorBound>,
     }
 
     impl BoundVector {
-        pub fn new(inner: na::Vector3<f32>) -> Self {
+        pub fn new(inner: na::Vector3<f32>, tagalong: Option<na::Vector3<f32>>) -> Self {
             BoundVector {
                 inner,
+                tagalong,
                 bounds: vec![],
             }
         }
 
-        pub fn apply_bound(
+        pub fn add_and_apply_bound(
             &mut self,
             new_bound_normal: na::UnitVector3<f32>,
             new_bound_push_direction: na::UnitVector3<f32>,
-            tagalong: Option<&mut na::Vector3<f32>>,
         ) {
             let new_bound = VectorBound {
                 normal: new_bound_normal,
@@ -486,19 +493,16 @@ mod bound_vector {
                 distance_factor_checked: 0.0,
                 temporary: false,
             };
-            self.apply_bound_internal(&new_bound, tagalong);
+            self.apply_bound(&new_bound);
             self.bounds.push(new_bound);
         }
 
-        fn apply_bound_internal(
-            &mut self,
-            new_bound: &VectorBound,
-            mut tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
+        fn apply_bound(&mut self, new_bound: &VectorBound) {
             // Corrective term to ensure that normals face away from any potential collision surfaces
             const RELATIVE_EPSILON: f32 = 1e-4;
             let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
-            let tagalong_distance_factor = tagalong
+            let tagalong_distance_factor = self
+                .tagalong
                 .as_ref()
                 .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
 
@@ -513,7 +517,7 @@ mod bound_vector {
                 &new_bound.normal,
                 &mut self.inner,
             );
-            if let Some(ref mut tagalong) = tagalong {
+            if let Some(ref mut tagalong) = self.tagalong {
                 ensure_dot_product(
                     tagalong_distance_factor * new_bound.distance_factor_set,
                     &new_bound.push_direction,
@@ -524,7 +528,7 @@ mod bound_vector {
 
             // Check if all constraints are satisfied
             if self.bounds.iter().all(|b| {
-                self.inner.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
+                self.inner.dot(&b.normal) >= common_distance_factor * b.distance_factor_checked
             }) {
                 return;
             }
@@ -563,7 +567,7 @@ mod bound_vector {
                     candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
                 }) {
                     self.inner = candidate;
-                    if let Some(ref mut tagalong) = tagalong {
+                    if let Some(ref mut tagalong) = self.tagalong {
                         ensure_dot_product(
                             tagalong_distance_factor * bound.distance_factor_set,
                             &ortho_bound_push_direction,
@@ -577,7 +581,7 @@ mod bound_vector {
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
             self.inner.set_zero();
-            if let Some(ref mut tagalong) = tagalong {
+            if let Some(ref mut tagalong) = self.tagalong {
                 tagalong.set_zero();
             }
         }
