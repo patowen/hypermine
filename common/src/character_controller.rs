@@ -188,34 +188,16 @@ fn apply_velocity(
                 if let Some(ground_normal) = ground_normal {
                     if vertical_correction_direction.inner.dot(ground_normal) < 0.0 {
                         vertical_correction_direction.inner.normalize_mut();
-                        remaining_displacement.inner -= vertical_correction_direction.inner
-                            * (remaining_displacement.inner.dot(ground_normal)
-                                / vertical_correction_direction.inner.dot(ground_normal));
-                        remaining_displacement.tagalong = Some(
-                            remaining_displacement.tagalong.as_ref().unwrap()
-                                - vertical_correction_direction.inner
-                                    * (remaining_displacement
-                                        .tagalong
-                                        .as_ref()
-                                        .unwrap()
-                                        .dot(ground_normal)
-                                        / vertical_correction_direction.inner.dot(ground_normal)),
-                        );
+                        remaining_displacement.apply(|v| {
+                            *v -= vertical_correction_direction.inner * (v.dot(ground_normal))
+                                / vertical_correction_direction.inner.dot(ground_normal);
+                        });
                         vertical_correction_direction.inner.set_zero();
                     }
                 }
-                apply_ground_normal_change(
-                    up,
-                    ground_normal.is_some(),
-                    &collision.normal,
-                    &mut remaining_displacement.inner,
-                );
-                apply_ground_normal_change(
-                    up,
-                    ground_normal.is_some(),
-                    &collision.normal,
-                    remaining_displacement.tagalong.as_mut().unwrap(),
-                );
+                remaining_displacement.apply(|v| {
+                    apply_ground_normal_change(up, ground_normal.is_some(), &collision.normal, v);
+                });
                 *ground_normal = Some(collision.normal);
                 if let Some(ground_normal) = ground_normal {
                     remaining_displacement.add_temporary_bound(
@@ -478,6 +460,13 @@ mod bound_vector {
                 inner,
                 tagalong,
                 bounds: vec![],
+            }
+        }
+
+        pub fn apply(&mut self, mut f: impl FnMut(&mut na::Vector3<f32>)) {
+            f(&mut self.inner);
+            if let Some(ref mut tagalong) = self.tagalong {
+                f(tagalong);
             }
         }
 
