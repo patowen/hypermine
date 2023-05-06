@@ -541,40 +541,30 @@ mod bound_vector {
                 self.inner.vector.dot(&b.normal)
                     < self.inner.error_margin * b.checked_distance_factor()
             }) {
-                const MIN_ORTHO_NORM: f32 = 1e-5;
-
-                let mut candidate = self.inner.vector;
-                let mut ortho_bound_push_direction = bound.push_direction.into_inner();
-                ensure_dot_product(
-                    0.0,
-                    &new_bound.push_direction,
-                    &new_bound.normal,
-                    &mut ortho_bound_push_direction,
-                );
-
-                let Some(ortho_bound_push_direction) =
-                    na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM)
+                let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                     continue;
                 };
 
+                let mut candidate = self.inner.clone();
                 ensure_dot_product(
                     self.inner.error_margin * bound.target_distance_factor,
-                    &ortho_bound_push_direction,
-                    &bound.normal,
-                    &mut candidate,
+                    &ortho_bound.push_direction,
+                    &ortho_bound.normal,
+                    &mut candidate.vector,
                 );
 
                 if self.bounds.iter().all(|b| {
-                    candidate.dot(&b.normal) > self.inner.error_margin * b.checked_distance_factor()
+                    candidate.vector.dot(&b.normal)
+                        > candidate.error_margin * b.checked_distance_factor()
                 }) {
-                    self.inner.vector = candidate;
+                    self.inner = candidate;
                     if let Some(ref mut tagalong) = self.tagalong {
                         ensure_dot_product(
                             tagalong.error_margin * bound.target_distance_factor,
-                            &ortho_bound_push_direction,
-                            &bound.normal,
+                            &ortho_bound.push_direction,
+                            &ortho_bound.normal,
                             &mut tagalong.vector,
                         );
                     }
@@ -583,10 +573,7 @@ mod bound_vector {
             }
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-            self.inner.vector.set_zero();
-            if let Some(ref mut tagalong) = self.tagalong {
-                tagalong.vector.set_zero();
-            }
+            self.apply(|v| v.vector.set_zero());
         }
 
         pub fn add_temporary_bound(
@@ -621,6 +608,7 @@ mod bound_vector {
                 / adjustment_direction.dot(fixed_vector));
     }
 
+    #[derive(Clone)]
     pub struct VectorWithErrorMargin {
         pub vector: na::Vector3<f32>,
         pub error_margin: f32,
@@ -636,6 +624,15 @@ mod bound_vector {
                 vector,
                 error_margin,
             }
+        }
+
+        fn apply_bound(&mut self, bound: &VectorBound) {
+            ensure_dot_product(
+                self.error_margin * bound.target_distance_factor,
+                &bound.push_direction,
+                &bound.normal,
+                &mut self.vector,
+            );
         }
     }
 
@@ -661,6 +658,26 @@ mod bound_vector {
         // applied bound always passes the check.
         fn checked_distance_factor(&self) -> f32 {
             self.target_distance_factor - 1.0
+        }
+
+        fn get_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
+            const MIN_ORTHO_NORM: f32 = 1e-5;
+
+            let mut ortho_bound_push_direction = self.push_direction.into_inner();
+            ensure_dot_product(
+                0.0,
+                &bound.push_direction,
+                &bound.normal,
+                &mut ortho_bound_push_direction,
+            );
+
+            na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM).map(|d| {
+                VectorBound {
+                    normal: self.normal,
+                    push_direction: d,
+                    target_distance_factor: self.target_distance_factor,
+                }
+            })
         }
     }
 
