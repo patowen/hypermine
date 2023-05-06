@@ -213,6 +213,11 @@ fn apply_velocity(
             }
 
             if let Some(ground_normal) = ground_normal {
+                // TODO: Treating the temporary bound as a ceiling with a sloped floor upward towards a wall is
+                // ambiguous on which direction the player should slide. It should either go upward, or it
+                // should go forward. Forward is likely more intuitive, but accomplishing this likely requires
+                // rethinking portions of the bound_vector module, ensuring that the ground only affects vertical
+                // movement.
                 remaining_displacement
                     .add_temporary_bound(na::UnitVector3::new_unchecked(-ground_normal.as_ref()));
             }
@@ -229,6 +234,8 @@ fn apply_velocity(
     }
 
     if !all_collisions_resolved {
+        // One example of where this warning can trigger is at a vertex on an order-5 edge, as the character
+        // can end up interacting with all five walls on a single frame.
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 }
