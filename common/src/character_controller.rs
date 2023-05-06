@@ -512,35 +512,19 @@ mod bound_vector {
                 return;
             }
 
-            ensure_dot_product(
-                self.inner.error_margin * new_bound.target_distance_factor,
-                &new_bound.push_direction,
-                &new_bound.normal,
-                &mut self.inner.vector,
-            );
+            self.inner.apply_bound(new_bound);
             if let Some(ref mut tagalong) = self.tagalong {
-                ensure_dot_product(
-                    tagalong.error_margin * new_bound.target_distance_factor,
-                    &new_bound.push_direction,
-                    &new_bound.normal,
-                    &mut tagalong.vector,
-                );
+                tagalong.apply_bound(new_bound);
             }
 
             // Check if all constraints are satisfied
-            if self.bounds.iter().all(|b| {
-                self.inner.vector.dot(&b.normal)
-                    >= self.inner.error_margin * b.checked_distance_factor()
-            }) {
+            if self.bounds.iter().all(|b| self.inner.check_bound(b)) {
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in self.bounds.iter().filter(|b| {
-                self.inner.vector.dot(&b.normal)
-                    < self.inner.error_margin * b.checked_distance_factor()
-            }) {
+            for bound in self.bounds.iter().filter(|b| !self.inner.check_bound(b)) {
                 let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
@@ -548,25 +532,12 @@ mod bound_vector {
                 };
 
                 let mut candidate = self.inner.clone();
-                ensure_dot_product(
-                    self.inner.error_margin * bound.target_distance_factor,
-                    &ortho_bound.push_direction,
-                    &ortho_bound.normal,
-                    &mut candidate.vector,
-                );
+                candidate.apply_bound(&ortho_bound);
 
-                if self.bounds.iter().all(|b| {
-                    candidate.vector.dot(&b.normal)
-                        > candidate.error_margin * b.checked_distance_factor()
-                }) {
+                if self.bounds.iter().all(|b| candidate.check_bound(b)) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = self.tagalong {
-                        ensure_dot_product(
-                            tagalong.error_margin * bound.target_distance_factor,
-                            &ortho_bound.push_direction,
-                            &ortho_bound.normal,
-                            &mut tagalong.vector,
-                        );
+                        tagalong.apply_bound(&ortho_bound);
                     }
                     return;
                 }
@@ -633,6 +604,10 @@ mod bound_vector {
                 &bound.normal,
                 &mut self.vector,
             );
+        }
+
+        fn check_bound(&self, bound: &VectorBound) -> bool {
+            self.vector.dot(&bound.normal) >= self.error_margin * bound.checked_distance_factor()
         }
     }
 
