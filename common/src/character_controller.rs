@@ -346,46 +346,6 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
     )
 }
 
-/// Modifies the `subject` by a linear combination of the `normals` to ensure that it is approximately
-/// orthogonal to all the normals. The normals are assumed to be linearly independent, and, assuming the final
-/// result is nonzero, a small correction is applied to ensure that the subject is moving away from the surfaces
-/// the normals represent even when floating point approximation is involved.
-fn apply_normals(normals: &[na::UnitVector3<f32>], subject: &mut na::Vector3<f32>) {
-    if normals.len() >= 3 {
-        // The normals are assumed to be linearly independent, so applying all of them will zero out the subject.
-        // There is no need to do any extra logic to handle precision limitations in this case.
-        *subject = na::Vector3::zeros();
-    }
-
-    // Corrective term to ensure that normals face away from any potential collision surfaces
-    const RELATIVE_EPSILON: f32 = 1e-4;
-    apply_normals_internal(normals, subject, subject.magnitude() * RELATIVE_EPSILON);
-}
-
-/// Modifies the `subject` by a linear combination of the `normals` so that the dot product with each normal is
-/// `distance`. The `normals` must be linearly independent for this function to work as expected.
-fn apply_normals_internal(
-    normals: &[na::UnitVector3<f32>],
-    subject: &mut na::Vector3<f32>,
-    distance: f32,
-) {
-    let mut ortho_normals: Vec<na::Vector3<f32>> = normals.iter().map(|n| n.into_inner()).collect();
-    for i in 0..normals.len() {
-        // Perform the Gram-Schmidt process on `normals` to produce `ortho_normals`.
-        for j in i + 1..normals.len() {
-            ortho_normals[j] = (ortho_normals[j]
-                - ortho_normals[i] * ortho_normals[j].dot(&ortho_normals[i]))
-            .normalize();
-        }
-
-        // The following formula ensures that the dot product of `subject` and `normals[i]` is `distance`.
-        // Because we only move the subject along `ortho_normals[i]`, this adjustment does not affect the
-        // subject's dot product with any earlier normals.
-        *subject += ortho_normals[i]
-            * ((distance - subject.dot(&normals[i])) / ortho_normals[i].dot(&normals[i]));
-    }
-}
-
 fn apply_ground_normal_change(
     up: &na::UnitVector3<f32>,
     was_on_ground: bool,
@@ -628,53 +588,6 @@ mod bound_vector {
                     target_distance_factor: self.target_distance_factor,
                 }
             })
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use approx::assert_abs_diff_eq;
-
-    use super::*;
-
-    #[test]
-    fn apply_normals_internal_examples() {
-        // Zero vectors (No-op but should not panic)
-        test_apply_normals_internal(&[], [0.60, -0.85, 0.90], 0.2);
-
-        // One vector
-        test_apply_normals_internal(&[[-0.48, -0.10, -0.67]], [0.85, -0.53, -0.61], 0.2);
-
-        // Two vectors
-        test_apply_normals_internal(
-            &[[-0.17, 0.07, -0.38], [-0.85, 0.19, -0.84]],
-            [0.19, -0.84, -0.62],
-            0.2,
-        );
-
-        // Three vectors (Not in use as of the creation of this test but should work anyways)
-        test_apply_normals_internal(
-            &[
-                [-0.24, 0.90, -0.06],
-                [-0.91, 0.01, 0.44],
-                [0.02, -0.65, -0.12],
-            ],
-            [0.91, -0.01, -0.61],
-            0.2,
-        );
-    }
-
-    fn test_apply_normals_internal(normals: &[[f32; 3]], subject: [f32; 3], distance: f32) {
-        let normals: Vec<na::UnitVector3<f32>> = normals
-            .iter()
-            .map(|n| na::UnitVector3::new_normalize(na::Vector3::new(n[0], n[1], n[2])))
-            .collect();
-        let mut subject = na::Vector3::new(subject[0], subject[1], subject[2]);
-
-        apply_normals_internal(&normals, &mut subject, distance);
-        for normal in normals {
-            assert_abs_diff_eq!(subject.dot(&normal), distance, epsilon = 1.0e-5);
         }
     }
 }
