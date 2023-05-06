@@ -34,7 +34,7 @@ pub fn run_character_step(
         };
 
         let up = get_relative_up(graph, position);
-        let max_slope_angle = cfg.max_floor_slope_angle;
+        let max_slope = cfg.max_floor_slope;
 
         // Initialize ground_normal
         let mut ground_normal = None;
@@ -42,7 +42,7 @@ pub fn run_character_step(
             let ground_result = get_ground_normal(
                 &collision_context,
                 &up,
-                max_slope_angle,
+                max_slope,
                 cfg.ground_distance_tolerance,
                 position,
             );
@@ -96,7 +96,7 @@ pub fn run_character_step(
         apply_velocity(
             &collision_context,
             &up,
-            max_slope_angle,
+            max_slope,
             estimated_average_velocity * dt_seconds,
             position,
             velocity,
@@ -159,7 +159,7 @@ fn apply_air_controls(
 fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
+    max_slope: f32,
     expected_displacement: na::Vector3<f32>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
@@ -169,7 +169,7 @@ fn apply_velocity(
     // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let cos_max_slope = max_slope_angle.cos();
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
     let mut remaining_displacement = BoundVector::new(expected_displacement);
     let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
@@ -184,7 +184,7 @@ fn apply_velocity(
             // Update the expected displacement to whatever is remaining.
             remaining_displacement.inner -= collision_result.displacement_vector;
 
-            if collision.normal.dot(up) > cos_max_slope {
+            if collision.normal.dot(up) > min_slope_up_component {
                 if let Some(ground_normal) = ground_normal {
                     if vertical_correction_direction.inner.dot(ground_normal) < 0.0 {
                         vertical_correction_direction.inner.normalize_mut();
@@ -250,12 +250,12 @@ fn apply_velocity(
 fn get_ground_normal(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
+    max_slope: f32,
     allowed_distance: f32,
     position: &Position,
 ) -> CollisionCheckingResult {
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let cos_max_slope = max_slope_angle.cos();
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
     let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
 
@@ -263,7 +263,7 @@ fn get_ground_normal(
         let collision_result =
             check_collision(collision_context, position, &allowed_displacement.inner);
         if let Some(collision) = collision_result.collision.as_ref() {
-            if collision.normal.dot(up) > cos_max_slope {
+            if collision.normal.dot(up) > min_slope_up_component {
                 return collision_result;
             }
             allowed_displacement.apply_bound(collision.normal, collision.normal, None);
