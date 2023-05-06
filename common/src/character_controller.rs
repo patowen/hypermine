@@ -393,12 +393,12 @@ fn apply_ground_normal_change(
     subject: &mut na::Vector3<f32>,
 ) {
     if was_on_ground {
+        // Try to keep the horizontal component constant. Update the vertical component to ensure
+        // the subject is parallel to the ground, and scale the vector to undo any change in magnitude.
         let subject_norm = subject.norm();
         if subject_norm > 1e-16 {
             let mut unit_subject = *subject / subject_norm;
-            let upward_correction =
-                -unit_subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-            unit_subject += **up * upward_correction;
+            math::project_to_plane(&mut unit_subject, new_ground_normal, up, 0.0);
             unit_subject.try_normalize_mut(1e-16);
             *subject = unit_subject * subject_norm;
         }
@@ -456,6 +456,8 @@ impl CollisionCheckingResult {
 mod bound_vector {
     use rand_distr::num_traits::Zero;
     use tracing::warn;
+
+    use crate::math;
 
     pub struct BoundVector {
         pub inner: VectorWithErrorMargin,
@@ -537,21 +539,6 @@ mod bound_vector {
         }
     }
 
-    // Updates `moving_vector` by moving it along the line determined by `adjustment_direction` so that
-    // its dot product with `fixed_vector` is `dot_product`. This effectively projects vectors onto a plane,
-    // where the plane does not need to go through the origin, and the projection can be non-orthogonal.
-    // Precondition: For this to be possible, the adjustment direction cannot be orthogonal to the fixed vector.
-    fn ensure_dot_product(
-        dot_product: f32,
-        adjustment_direction: &na::UnitVector3<f32>,
-        fixed_vector: &na::UnitVector3<f32>,
-        moving_vector: &mut na::Vector3<f32>,
-    ) {
-        *moving_vector += adjustment_direction.as_ref()
-            * ((dot_product - moving_vector.dot(fixed_vector))
-                / adjustment_direction.dot(fixed_vector));
-    }
-
     #[derive(Clone)]
     pub struct VectorWithErrorMargin {
         pub vector: na::Vector3<f32>,
@@ -571,11 +558,11 @@ mod bound_vector {
         }
 
         pub fn apply_bound(&mut self, bound: &VectorBound) {
-            ensure_dot_product(
-                self.error_margin * bound.target_distance_factor,
-                &bound.push_direction,
-                &bound.normal,
+            math::project_to_plane(
                 &mut self.vector,
+                &bound.normal,
+                &bound.push_direction,
+                self.error_margin * bound.target_distance_factor,
             );
         }
 
@@ -634,11 +621,11 @@ mod bound_vector {
             const MIN_ORTHO_NORM: f32 = 1e-5;
 
             let mut ortho_bound_push_direction = self.push_direction.into_inner();
-            ensure_dot_product(
-                0.0,
-                &bound.push_direction,
-                &bound.normal,
+            math::project_to_plane(
                 &mut ortho_bound_push_direction,
+                &bound.normal,
+                &bound.push_direction,
+                0.0,
             );
 
             na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM).map(|d| {
@@ -648,34 +635,6 @@ mod bound_vector {
                     target_distance_factor: self.target_distance_factor,
                 }
             })
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use approx::assert_abs_diff_eq;
-
-        use super::*;
-
-        #[test]
-        fn ensure_dot_product_example() {
-            let dot_product = 4.0;
-            let adjustment_direction: na::UnitVector3<f32> =
-                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
-            let fixed_vector: na::UnitVector3<f32> =
-                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
-            let mut moving_vector = na::Vector3::new(-6.0, -3.0, 4.0);
-            ensure_dot_product(
-                dot_product,
-                &adjustment_direction,
-                &fixed_vector,
-                &mut moving_vector,
-            );
-            assert_abs_diff_eq!(
-                fixed_vector.dot(&moving_vector),
-                dot_product,
-                epsilon = 1.0e-5
-            );
         }
     }
 }
