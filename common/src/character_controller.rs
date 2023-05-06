@@ -121,24 +121,23 @@ fn apply_ground_controls(
     dt_seconds: f32,
     movement: &na::Vector3<f32>,
     up: &na::UnitVector3<f32>,
-    ground_normal: &na::Vector3<f32>,
+    ground_normal: &na::UnitVector3<f32>,
     velocity: &mut na::Vector3<f32>,
 ) {
     let movement_norm = movement.norm();
-    let target_velocity = if movement_norm < 1e-16 {
+    let target_ground_velocity = if movement_norm < 1e-16 {
         na::Vector3::zeros()
     } else {
         let mut unit_movement = movement / movement_norm;
-        let upward_correction = -unit_movement.dot(ground_normal) / up.dot(ground_normal);
-        unit_movement += **up * upward_correction;
+        math::project_to_plane(&mut unit_movement, ground_normal, up, 0.0);
         unit_movement.try_normalize_mut(1e-16);
-        unit_movement * movement_norm
+        unit_movement * movement_norm * max_ground_speed
     };
-    let vertical_component = velocity.dot(ground_normal) / up.dot(ground_normal);
-    let current_to_target_velocity =
-        target_velocity * max_ground_speed - (*velocity - **up * vertical_component);
+    let mut ground_velocity = *velocity;
+    math::project_to_plane(&mut ground_velocity, ground_normal, up, 0.0);
+    let current_to_target_velocity = target_ground_velocity - ground_velocity;
     let max_delta_velocity = ground_acceleration * dt_seconds;
-    if current_to_target_velocity.norm_squared() > math::sqr(max_delta_velocity) {
+    if current_to_target_velocity.norm_squared() > max_delta_velocity.powi(2) {
         *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
     } else {
         *velocity += current_to_target_velocity;
