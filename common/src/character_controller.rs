@@ -493,14 +493,6 @@ mod bound_vector {
         }
 
         fn apply_bound(&mut self, new_bound: &VectorBound) {
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-            self.inner_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
-            self.tagalong_distance_factor = self
-                .tagalong
-                .as_ref()
-                .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
-
             ensure_dot_product(
                 self.inner_distance_factor * new_bound.distance_factor_set,
                 &new_bound.push_direction,
