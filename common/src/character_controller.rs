@@ -204,15 +204,11 @@ fn apply_velocity(
                         remaining_displacement.apply(|v| v.apply_bound(&vertical_correction_bound));
                         vertical_correction_direction.inner.vector.set_zero();
                     }
+
+                    remaining_displacement.apply(|v| {
+                        apply_ground_normal_change(up, &collision.normal, &mut v.vector);
+                    });
                 }
-                remaining_displacement.apply(|v| {
-                    apply_ground_normal_change(
-                        up,
-                        ground_normal.is_some(),
-                        &collision.normal,
-                        &mut v.vector,
-                    );
-                });
                 *ground_normal = Some(collision.normal);
                 push_direction = up;
             }
@@ -289,24 +285,17 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
 
 fn apply_ground_normal_change(
     up: &na::UnitVector3<f32>,
-    was_on_ground: bool,
     new_ground_normal: &na::UnitVector3<f32>,
     subject: &mut na::Vector3<f32>,
 ) {
-    if was_on_ground {
-        // Try to keep the horizontal component constant. Update the vertical component to ensure
-        // the subject is parallel to the ground, and scale the vector to undo any change in magnitude.
-        let subject_norm = subject.norm();
-        if subject_norm > 1e-16 {
-            let mut unit_subject = *subject / subject_norm;
-            math::project_to_plane(&mut unit_subject, new_ground_normal, up, 0.0);
-            unit_subject.try_normalize_mut(1e-16);
-            *subject = unit_subject * subject_norm;
-        }
-    } else {
-        // TODO: Consider pushing the subject somewhat in the direction of new_ground_normal to have
-        // the player slide down steeper floors after jumping.
-        // Don't make pillaring up too difficult. The character should ideally be able to jump in place.
+    // Try to keep the horizontal component constant. Update the vertical component to ensure
+    // the subject is parallel to the ground, and scale the vector to undo any change in magnitude.
+    let subject_norm = subject.norm();
+    if subject_norm > 1e-16 {
+        let mut unit_subject = *subject / subject_norm;
+        math::project_to_plane(&mut unit_subject, new_ground_normal, up, 0.0);
+        unit_subject.try_normalize_mut(1e-16);
+        *subject = unit_subject * subject_norm;
     }
 }
 
