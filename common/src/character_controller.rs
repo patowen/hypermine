@@ -184,6 +184,8 @@ fn apply_velocity(
             // Update the expected displacement to whatever is remaining.
             remaining_displacement.inner -= collision_result.displacement_vector;
 
+            let mut push_direction = &collision.normal;
+
             if collision.normal.dot(up) > min_slope_up_component {
                 if let Some(ground_normal) = ground_normal {
                     if vertical_correction_direction.inner.dot(ground_normal) < 0.0 {
@@ -199,23 +201,16 @@ fn apply_velocity(
                     apply_ground_normal_change(up, ground_normal.is_some(), &collision.normal, v);
                 });
                 *ground_normal = Some(collision.normal);
-                if let Some(ground_normal) = ground_normal {
-                    remaining_displacement.add_temporary_bound(
-                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
-                        *up,
-                    );
-                }
-                remaining_displacement.add_and_apply_bound(collision.normal, *up);
-            } else {
-                if let Some(ground_normal) = ground_normal {
-                    remaining_displacement.add_temporary_bound(
-                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
-                        *up,
-                    );
-                }
-                remaining_displacement.add_and_apply_bound(collision.normal, collision.normal);
+                push_direction = up;
             }
 
+            if let Some(ground_normal) = ground_normal {
+                remaining_displacement.add_temporary_bound(
+                    na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
+                    *up,
+                );
+            }
+            remaining_displacement.add_and_apply_bound(collision.normal, *push_direction);
             remaining_displacement.remove_temporary_bounds();
 
             if vertical_correction_direction.inner.dot(&collision.normal) < 0.0 {
