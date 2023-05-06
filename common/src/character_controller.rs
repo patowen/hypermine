@@ -490,7 +490,6 @@ mod bound_vector {
                 normal: new_bound_normal,
                 push_direction: new_bound_push_direction,
                 distance_factor_set: 1.0,
-                distance_factor_checked: 0.0,
                 temporary: false,
             };
             self.apply_bound(&new_bound);
@@ -528,7 +527,7 @@ mod bound_vector {
 
             // Check if all constraints are satisfied
             if self.bounds.iter().all(|b| {
-                self.inner.dot(&b.normal) >= common_distance_factor * b.distance_factor_checked
+                self.inner.dot(&b.normal) >= common_distance_factor * b.distance_factor_checked()
             }) {
                 return;
             }
@@ -536,7 +535,7 @@ mod bound_vector {
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
             for bound in self.bounds.iter().filter(|b| {
-                self.inner.dot(&b.normal) <= common_distance_factor * b.distance_factor_checked
+                self.inner.dot(&b.normal) <= common_distance_factor * b.distance_factor_checked()
             }) {
                 const MIN_ORTHO_NORM: f32 = 1e-5;
 
@@ -564,7 +563,7 @@ mod bound_vector {
                 );
 
                 if self.bounds.iter().all(|b| {
-                    candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
+                    candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked()
                 }) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = self.tagalong {
@@ -595,7 +594,6 @@ mod bound_vector {
                 normal,
                 push_direction,
                 distance_factor_set: -1.0,
-                distance_factor_checked: -2.0,
                 temporary: true,
             });
         }
@@ -624,8 +622,13 @@ mod bound_vector {
         normal: na::UnitVector3<f32>,
         push_direction: na::UnitVector3<f32>,
         distance_factor_set: f32,
-        distance_factor_checked: f32,
         temporary: bool,
+    }
+
+    impl VectorBound {
+        fn distance_factor_checked(&self) -> f32 {
+            self.distance_factor_set - 1.0
+        }
     }
 
     #[cfg(test)]
