@@ -210,22 +210,31 @@ fn apply_velocity(
                     velocity,
                 );
                 *ground_normal = Some(collision.normal);
+                if let Some(ground_normal) = ground_normal {
+                    remaining_displacement.add_temporary_bound(
+                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
+                        *up,
+                    );
+                }
+                remaining_displacement.apply_bound(collision.normal, *up, Some(velocity));
+            } else {
+                if let Some(ground_normal) = ground_normal {
+                    remaining_displacement.add_temporary_bound(
+                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
+                        *up,
+                    );
+                }
+                remaining_displacement.apply_bound(
+                    collision.normal,
+                    collision.normal,
+                    Some(velocity),
+                );
             }
 
-            if let Some(ground_normal) = ground_normal {
-                // TODO: Treating the temporary bound as a ceiling with a sloped floor upward towards a wall is
-                // ambiguous on which direction the player should slide. It should either go upward, or it
-                // should go forward. Forward is likely more intuitive, but accomplishing this likely requires
-                // rethinking portions of the bound_vector module, ensuring that the ground only affects vertical
-                // movement.
-                remaining_displacement
-                    .add_temporary_bound(na::UnitVector3::new_unchecked(-ground_normal.as_ref()));
-            }
-            remaining_displacement.apply_bound(collision.normal, Some(velocity));
             remaining_displacement.remove_temporary_bounds();
 
             if vertical_correction_direction.inner.dot(&collision.normal) < 0.0 {
-                vertical_correction_direction.apply_bound(collision.normal, None);
+                vertical_correction_direction.apply_bound(collision.normal, collision.normal, None);
             }
         } else {
             all_collisions_resolved = true;
@@ -259,7 +268,7 @@ fn get_ground_normal(
             if collision.normal.dot(up) > cos_max_slope {
                 return collision_result;
             }
-            allowed_displacement.apply_bound(collision.normal, None);
+            allowed_displacement.apply_bound(collision.normal, collision.normal, None);
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -469,9 +478,11 @@ mod bound_vector {
         pub fn apply_bound(
             &mut self,
             new_bound_normal: na::UnitVector3<f32>,
+            new_bound_push_direction: na::UnitVector3<f32>,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
-            let new_bound = VectorBound::new(new_bound_normal, 1.0, 0.0, false);
+            let new_bound =
+                VectorBound::new(new_bound_normal, new_bound_push_direction, 1.0, 0.0, false);
 
             // Corrective term to ensure that normals face away from any potential collision surfaces
             const RELATIVE_EPSILON: f32 = 1e-4;
@@ -488,14 +499,14 @@ mod bound_vector {
 
             ensure_dot_product(
                 common_distance_factor * new_bound.distance_factor_set,
-                &new_bound.normal,
+                &new_bound.push_direction,
                 &new_bound.normal,
                 &mut self.inner,
             );
             if let Some(ref mut tagalong) = tagalong {
                 ensure_dot_product(
                     tagalong_distance_factor * new_bound.distance_factor_set,
-                    &new_bound.normal,
+                    &new_bound.push_direction,
                     &new_bound.normal,
                     tagalong,
                 );
@@ -517,11 +528,16 @@ mod bound_vector {
                 const MIN_ORTHO_NORM: f32 = 1e-5;
 
                 let mut candidate = self.inner;
-                let ortho_bound_normal = bound.normal.as_ref()
-                    - new_bound.normal.as_ref() * bound.normal.dot(&new_bound.normal);
+                let mut ortho_bound_push_direction = bound.push_direction.into_inner();
+                ensure_dot_product(
+                    0.0,
+                    &new_bound.push_direction,
+                    &new_bound.normal,
+                    &mut ortho_bound_push_direction,
+                );
 
-                let Some(ortho_bound_normal) =
-                    na::UnitVector3::try_new(ortho_bound_normal, MIN_ORTHO_NORM)
+                let Some(ortho_bound_push_direction) =
+                    na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                     continue;
@@ -529,7 +545,7 @@ mod bound_vector {
 
                 ensure_dot_product(
                     common_distance_factor * bound.distance_factor_set,
-                    &ortho_bound_normal,
+                    &ortho_bound_push_direction,
                     &bound.normal,
                     &mut candidate,
                 );
@@ -541,7 +557,7 @@ mod bound_vector {
                     if let Some(ref mut tagalong) = tagalong {
                         ensure_dot_product(
                             tagalong_distance_factor * bound.distance_factor_set,
-                            &ortho_bound_normal,
+                            &ortho_bound_push_direction,
                             &bound.normal,
                             tagalong,
                         );
@@ -559,8 +575,13 @@ mod bound_vector {
             self.bounds.push(new_bound);
         }
 
-        pub fn add_temporary_bound(&mut self, normal: na::UnitVector3<f32>) {
-            self.bounds.push(VectorBound::new(normal, -1.0, -2.0, true));
+        pub fn add_temporary_bound(
+            &mut self,
+            normal: na::UnitVector3<f32>,
+            push_direction: na::UnitVector3<f32>,
+        ) {
+            self.bounds
+                .push(VectorBound::new(normal, push_direction, -1.0, -2.0, true));
         }
 
         pub fn remove_temporary_bounds(&mut self) {
@@ -582,6 +603,7 @@ mod bound_vector {
     #[derive(Clone)]
     struct VectorBound {
         normal: na::UnitVector3<f32>,
+        push_direction: na::UnitVector3<f32>,
         distance_factor_set: f32,
         distance_factor_checked: f32,
         temporary: bool,
@@ -590,12 +612,14 @@ mod bound_vector {
     impl VectorBound {
         fn new(
             normal: na::UnitVector3<f32>,
+            push_direction: na::UnitVector3<f32>,
             distance_factor_set: f32,
             distance_factor_checked: f32,
             temporary: bool,
         ) -> Self {
             VectorBound {
                 normal,
+                push_direction,
                 distance_factor_set,
                 distance_factor_checked,
                 temporary,
