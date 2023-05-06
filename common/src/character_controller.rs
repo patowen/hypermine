@@ -447,14 +447,26 @@ mod bound_vector {
         pub inner: na::Vector3<f32>,
         pub tagalong: Option<na::Vector3<f32>>,
         bounds: Vec<VectorBound>,
+        inner_distance_factor: f32,
+        tagalong_distance_factor: f32,
     }
 
     impl BoundVector {
         pub fn new(inner: na::Vector3<f32>, tagalong: Option<na::Vector3<f32>>) -> Self {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+
+            let inner_distance_factor = inner.magnitude() * RELATIVE_EPSILON;
+            let tagalong_distance_factor = tagalong
+                .as_ref()
+                .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
+
             BoundVector {
                 inner,
                 tagalong,
                 bounds: vec![],
+                inner_distance_factor,
+                tagalong_distance_factor,
             }
         }
 
@@ -483,26 +495,21 @@ mod bound_vector {
         fn apply_bound(&mut self, new_bound: &VectorBound) {
             // Corrective term to ensure that normals face away from any potential collision surfaces
             const RELATIVE_EPSILON: f32 = 1e-4;
-            let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
-            let tagalong_distance_factor = self
+            self.inner_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
+            self.tagalong_distance_factor = self
                 .tagalong
                 .as_ref()
                 .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
 
-            // If there's no movement to apply the bound to, no computation is needed.
-            if common_distance_factor == 0.0 {
-                return;
-            }
-
             ensure_dot_product(
-                common_distance_factor * new_bound.distance_factor_set,
+                self.inner_distance_factor * new_bound.distance_factor_set,
                 &new_bound.push_direction,
                 &new_bound.normal,
                 &mut self.inner,
             );
             if let Some(ref mut tagalong) = self.tagalong {
                 ensure_dot_product(
-                    tagalong_distance_factor * new_bound.distance_factor_set,
+                    self.tagalong_distance_factor * new_bound.distance_factor_set,
                     &new_bound.push_direction,
                     &new_bound.normal,
                     tagalong,
@@ -511,7 +518,7 @@ mod bound_vector {
 
             // Check if all constraints are satisfied
             if self.bounds.iter().all(|b| {
-                self.inner.dot(&b.normal) >= common_distance_factor * b.distance_factor_checked()
+                self.inner.dot(&b.normal) >= self.inner_distance_factor * b.distance_factor_checked()
             }) {
                 return;
             }
@@ -519,7 +526,7 @@ mod bound_vector {
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
             for bound in self.bounds.iter().filter(|b| {
-                self.inner.dot(&b.normal) <= common_distance_factor * b.distance_factor_checked()
+                self.inner.dot(&b.normal) < self.inner_distance_factor * b.distance_factor_checked()
             }) {
                 const MIN_ORTHO_NORM: f32 = 1e-5;
 
@@ -540,19 +547,19 @@ mod bound_vector {
                 };
 
                 ensure_dot_product(
-                    common_distance_factor * bound.distance_factor_set,
+                    self.inner_distance_factor * bound.distance_factor_set,
                     &ortho_bound_push_direction,
                     &bound.normal,
                     &mut candidate,
                 );
 
                 if self.bounds.iter().all(|b| {
-                    candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked()
+                    candidate.dot(&b.normal) > self.inner_distance_factor * b.distance_factor_checked()
                 }) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = self.tagalong {
                         ensure_dot_product(
-                            tagalong_distance_factor * bound.distance_factor_set,
+                            self.tagalong_distance_factor * bound.distance_factor_set,
                             &ortho_bound_push_direction,
                             &bound.normal,
                             tagalong,
