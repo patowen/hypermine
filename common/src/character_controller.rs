@@ -403,16 +403,9 @@ fn apply_ground_normal_change(
             *subject = unit_subject * subject_norm;
         }
     } else {
-        // TODO: Consider using fancier formula for max_upward_correction, one that makes
-        // new_ground_normal and subject as collinear as possible.
-        let mut upward_correction = -subject.dot(new_ground_normal) / up.dot(new_ground_normal);
-        let max_upward_correction = -subject.dot(up);
-        if upward_correction > max_upward_correction {
-            upward_correction = max_upward_correction;
-        }
-        if upward_correction >= 0.0 {
-            *subject += **up * upward_correction;
-        }
+        // TODO: Consider pushing the subject somewhat in the direction of new_ground_normal to have
+        // the player slide down steeper floors after jumping.
+        // Don't make pillaring up too difficult. The character should ideally be able to jump in place.
     }
 }
 
