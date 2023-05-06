@@ -2,7 +2,7 @@ use rand_distr::num_traits::Zero;
 use tracing::{error, warn};
 
 use crate::{
-    character_controller::bound_vector::BoundVector,
+    character_controller::bound_vector::{BoundVector, VectorBound},
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position, BlockChange},
@@ -37,7 +37,7 @@ pub fn run_character_step(
         };
 
         let up = get_relative_up(graph, position);
-        let max_slope_angle = cfg.max_floor_slope_angle;
+        let max_slope = cfg.max_floor_slope;
 
         // Initialize ground_normal
         let mut ground_normal = None;
@@ -45,7 +45,7 @@ pub fn run_character_step(
             let ground_result = get_ground_normal(
                 &collision_context,
                 &up,
-                max_slope_angle,
+                max_slope,
                 cfg.ground_distance_tolerance,
                 position,
             );
@@ -99,7 +99,7 @@ pub fn run_character_step(
         apply_velocity(
             &collision_context,
             &up,
-            max_slope_angle,
+            max_slope,
             estimated_average_velocity * dt_seconds,
             position,
             velocity,
@@ -162,7 +162,7 @@ fn apply_air_controls(
 fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
+    max_slope: f32,
     expected_displacement: na::Vector3<f32>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
@@ -172,72 +172,63 @@ fn apply_velocity(
     // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let cos_max_slope = max_slope_angle.cos();
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut remaining_displacement = BoundVector::new(expected_displacement);
-    let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
+    let mut remaining_displacement = BoundVector::new(expected_displacement, Some(*velocity));
+    let mut vertical_correction_direction = BoundVector::new(-up.into_inner(), None);
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result =
-            check_collision(collision_context, position, &remaining_displacement.inner);
+        let collision_result = check_collision(
+            collision_context,
+            position,
+            &remaining_displacement.inner.vector,
+        );
         position.local *= collision_result.displacement_transform;
 
         if let Some(collision) = collision_result.collision {
             // Update the expected displacement to whatever is remaining.
-            remaining_displacement.inner -= collision_result.displacement_vector;
+            remaining_displacement.inner.vector -= collision_result.displacement_vector;
 
-            if collision.normal.dot(up) > cos_max_slope {
+            let mut push_direction = &collision.normal;
+
+            if collision.normal.dot(up) > min_slope_up_component {
                 if let Some(ground_normal) = ground_normal {
-                    if vertical_correction_direction.inner.dot(ground_normal) < 0.0 {
-                        vertical_correction_direction.inner.normalize_mut();
-                        remaining_displacement.inner -= vertical_correction_direction.inner
-                            * (remaining_displacement.inner.dot(ground_normal)
-                                / vertical_correction_direction.inner.dot(ground_normal));
-                        *velocity -= vertical_correction_direction.inner
-                            * (velocity.dot(ground_normal)
-                                / vertical_correction_direction.inner.dot(ground_normal));
-                        vertical_correction_direction.inner.set_zero();
+                    if vertical_correction_direction.is_facing(ground_normal) {
+                        vertical_correction_direction.inner.vector.normalize_mut();
+                        let vertical_correction_bound = VectorBound::new_push(
+                            *ground_normal,
+                            na::UnitVector3::new_normalize(
+                                vertical_correction_direction.inner.vector,
+                            ),
+                        );
+                        remaining_displacement.apply(|v| v.apply_bound(&vertical_correction_bound));
+                        vertical_correction_direction.inner.vector.set_zero();
                     }
                 }
-                apply_ground_normal_change(
-                    up,
-                    ground_normal.is_some(),
-                    &collision.normal,
-                    &mut remaining_displacement.inner,
-                );
-                apply_ground_normal_change(
-                    up,
-                    ground_normal.is_some(),
-                    &collision.normal,
-                    velocity,
-                );
+                remaining_displacement.apply(|v| {
+                    apply_ground_normal_change(
+                        up,
+                        ground_normal.is_some(),
+                        &collision.normal,
+                        &mut v.vector,
+                    );
+                });
                 *ground_normal = Some(collision.normal);
-                if let Some(ground_normal) = ground_normal {
-                    remaining_displacement.add_temporary_bound(
-                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
-                        *up,
-                    );
-                }
-                remaining_displacement.apply_bound(collision.normal, *up, Some(velocity));
-            } else {
-                if let Some(ground_normal) = ground_normal {
-                    remaining_displacement.add_temporary_bound(
-                        na::UnitVector3::new_unchecked(-ground_normal.as_ref()),
-                        *up,
-                    );
-                }
-                remaining_displacement.apply_bound(
-                    collision.normal,
-                    collision.normal,
-                    Some(velocity),
-                );
+                push_direction = up;
             }
 
+            if let Some(ground_normal) = ground_normal {
+                remaining_displacement
+                    .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+            }
+            remaining_displacement
+                .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
             remaining_displacement.remove_temporary_bounds();
 
-            if vertical_correction_direction.inner.dot(&collision.normal) < 0.0 {
-                vertical_correction_direction.apply_bound(collision.normal, collision.normal, None);
+            if vertical_correction_direction.is_facing(&collision.normal) {
+                vertical_correction_direction
+                    .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
             }
         } else {
             all_collisions_resolved = true;
@@ -248,28 +239,34 @@ fn apply_velocity(
     if !all_collisions_resolved {
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
+
+    *velocity = remaining_displacement.tagalong.unwrap().vector;
 }
 
 fn get_ground_normal(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope_angle: f32,
+    max_slope: f32,
     allowed_distance: f32,
     position: &Position,
 ) -> CollisionCheckingResult {
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let cos_max_slope = max_slope_angle.cos();
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
+    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance, None);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result =
-            check_collision(collision_context, position, &allowed_displacement.inner);
+        let collision_result = check_collision(
+            collision_context,
+            position,
+            &allowed_displacement.inner.vector,
+        );
         if let Some(collision) = collision_result.collision.as_ref() {
-            if collision.normal.dot(up) > cos_max_slope {
+            if collision.normal.dot(up) > min_slope_up_component {
                 return collision_result;
             }
-            allowed_displacement.apply_bound(collision.normal, collision.normal, None);
+            allowed_displacement
+                .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
         } else {
             return CollisionCheckingResult::stationary();
         }
@@ -466,132 +463,89 @@ mod bound_vector {
     use tracing::warn;
 
     pub struct BoundVector {
-        pub inner: na::Vector3<f32>,
-        bounds: Vec<VectorBound>,
+        pub inner: VectorWithErrorMargin,
+        pub tagalong: Option<VectorWithErrorMargin>,
+        bounds: VectorBounds,
     }
 
     impl BoundVector {
-        pub fn new(inner: na::Vector3<f32>) -> Self {
+        pub fn new(inner: na::Vector3<f32>, tagalong: Option<na::Vector3<f32>>) -> Self {
             BoundVector {
-                inner,
-                bounds: vec![],
+                inner: VectorWithErrorMargin::new(inner),
+                tagalong: tagalong.map(VectorWithErrorMargin::new),
+                bounds: VectorBounds {
+                    permanent_bounds: vec![],
+                    temporary_bounds: vec![],
+                },
             }
         }
 
-        pub fn apply_bound(
-            &mut self,
-            new_bound_normal: na::UnitVector3<f32>,
-            new_bound_push_direction: na::UnitVector3<f32>,
-            mut tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
-            let new_bound =
-                VectorBound::new(new_bound_normal, new_bound_push_direction, 1.0, 0.0, false);
+        pub fn apply(&mut self, mut f: impl FnMut(&mut VectorWithErrorMargin)) {
+            f(&mut self.inner);
+            if let Some(ref mut tagalong) = self.tagalong {
+                f(tagalong);
+            }
+        }
 
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-            let common_distance_factor = self.inner.magnitude() * RELATIVE_EPSILON;
-            let tagalong_distance_factor = tagalong
-                .as_ref()
-                .map_or(0.0, |t| t.magnitude() * RELATIVE_EPSILON);
+        pub fn is_facing(&self, vector: &na::Vector3<f32>) -> bool {
+            self.inner.vector.dot(vector) < 0.0
+        }
 
-            // If there's no movement to apply the bound to, just add the bound and don't apply any more computation.
-            if common_distance_factor == 0.0 {
-                self.bounds.push(new_bound);
+        pub fn add_and_apply_bound(&mut self, new_bound: VectorBound) {
+            self.apply_bound(&new_bound);
+            self.bounds.permanent_bounds.push(new_bound);
+        }
+
+        fn apply_bound(&mut self, new_bound: &VectorBound) {
+            if self.inner.vector.is_zero() {
                 return;
             }
 
-            ensure_dot_product(
-                common_distance_factor * new_bound.distance_factor_set,
-                &new_bound.push_direction,
-                &new_bound.normal,
-                &mut self.inner,
-            );
-            if let Some(ref mut tagalong) = tagalong {
-                ensure_dot_product(
-                    tagalong_distance_factor * new_bound.distance_factor_set,
-                    &new_bound.push_direction,
-                    &new_bound.normal,
-                    tagalong,
-                );
-            }
+            self.apply(|v| v.apply_bound(new_bound));
 
             // Check if all constraints are satisfied
-            if self.bounds.iter().all(|b| {
-                self.inner.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
-            }) {
-                self.bounds.push(new_bound);
+            if self.bounds.iter().all(|b| self.inner.check_bound(b)) {
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in self.bounds.iter().filter(|b| {
-                self.inner.dot(&b.normal) <= common_distance_factor * b.distance_factor_checked
-            }) {
-                const MIN_ORTHO_NORM: f32 = 1e-5;
-
-                let mut candidate = self.inner;
-                let mut ortho_bound_push_direction = bound.push_direction.into_inner();
-                ensure_dot_product(
-                    0.0,
-                    &new_bound.push_direction,
-                    &new_bound.normal,
-                    &mut ortho_bound_push_direction,
-                );
-
-                let Some(ortho_bound_push_direction) =
-                    na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM)
+            for bound in self.bounds.iter().filter(|b| !self.inner.check_bound(b)) {
+                let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                     continue;
                 };
 
-                ensure_dot_product(
-                    common_distance_factor * bound.distance_factor_set,
-                    &ortho_bound_push_direction,
-                    &bound.normal,
-                    &mut candidate,
-                );
+                let mut candidate = self.inner.clone();
+                candidate.apply_bound(&ortho_bound);
 
-                if self.bounds.iter().all(|b| {
-                    candidate.dot(&b.normal) > common_distance_factor * b.distance_factor_checked
-                }) {
+                if self.bounds.iter().all(|b| candidate.check_bound(b)) {
                     self.inner = candidate;
-                    if let Some(ref mut tagalong) = tagalong {
-                        ensure_dot_product(
-                            tagalong_distance_factor * bound.distance_factor_set,
-                            &ortho_bound_push_direction,
-                            &bound.normal,
-                            tagalong,
-                        );
+                    if let Some(ref mut tagalong) = self.tagalong {
+                        tagalong.apply_bound(&ortho_bound);
                     }
-                    self.bounds.push(new_bound);
                     return;
                 }
             }
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-            self.inner.set_zero();
-            if let Some(ref mut tagalong) = tagalong {
-                tagalong.set_zero();
-            }
-            self.bounds.push(new_bound);
+            self.apply(|v| v.vector.set_zero());
         }
 
-        pub fn add_temporary_bound(
-            &mut self,
-            normal: na::UnitVector3<f32>,
-            push_direction: na::UnitVector3<f32>,
-        ) {
-            self.bounds
-                .push(VectorBound::new(normal, push_direction, -1.0, -2.0, true));
+        pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
+            self.bounds.temporary_bounds.push(new_bound);
         }
 
         pub fn remove_temporary_bounds(&mut self) {
-            self.bounds.retain(|b| !b.temporary);
+            self.bounds.temporary_bounds.clear();
         }
     }
 
+    // Updates `moving_vector` by moving it along the line determined by `adjustment_direction` so that
+    // its dot product with `fixed_vector` is `dot_product`. This effectively projects vectors onto a plane,
+    // where the plane does not need to go through the origin, and the projection can be non-orthogonal.
+    // Precondition: For this to be possible, the adjustment direction cannot be orthogonal to the fixed vector.
     fn ensure_dot_product(
         dot_product: f32,
         adjustment_direction: &na::UnitVector3<f32>,
@@ -604,29 +558,129 @@ mod bound_vector {
     }
 
     #[derive(Clone)]
-    struct VectorBound {
+    pub struct VectorWithErrorMargin {
+        pub vector: na::Vector3<f32>,
+        pub error_margin: f32,
+    }
+
+    impl VectorWithErrorMargin {
+        fn new(vector: na::Vector3<f32>) -> Self {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+
+            let error_margin = vector.magnitude() * RELATIVE_EPSILON;
+            VectorWithErrorMargin {
+                vector,
+                error_margin,
+            }
+        }
+
+        pub fn apply_bound(&mut self, bound: &VectorBound) {
+            ensure_dot_product(
+                self.error_margin * bound.target_distance_factor,
+                &bound.push_direction,
+                &bound.normal,
+                &mut self.vector,
+            );
+        }
+
+        fn check_bound(&self, bound: &VectorBound) -> bool {
+            self.vector.dot(&bound.normal) >= self.error_margin * bound.checked_distance_factor()
+        }
+    }
+
+    struct VectorBounds {
+        permanent_bounds: Vec<VectorBound>,
+        temporary_bounds: Vec<VectorBound>,
+    }
+
+    impl VectorBounds {
+        fn iter(&self) -> impl Iterator<Item = &VectorBound> {
+            self.permanent_bounds.iter().chain(&self.temporary_bounds)
+        }
+    }
+
+    pub struct VectorBound {
         normal: na::UnitVector3<f32>,
         push_direction: na::UnitVector3<f32>,
-        distance_factor_set: f32,
-        distance_factor_checked: f32,
-        temporary: bool,
+        target_distance_factor: f32, // Margin of error when the bound is applied
     }
 
     impl VectorBound {
-        fn new(
+        pub fn new_push(
             normal: na::UnitVector3<f32>,
             push_direction: na::UnitVector3<f32>,
-            distance_factor_set: f32,
-            distance_factor_checked: f32,
-            temporary: bool,
         ) -> Self {
             VectorBound {
                 normal,
                 push_direction,
-                distance_factor_set,
-                distance_factor_checked,
-                temporary,
+                target_distance_factor: 1.0,
             }
+        }
+
+        pub fn new_pull(
+            normal: na::UnitVector3<f32>,
+            push_direction: na::UnitVector3<f32>,
+        ) -> Self {
+            VectorBound {
+                normal: na::UnitVector3::new_unchecked(-normal.as_ref()),
+                push_direction,
+                target_distance_factor: -1.0,
+            }
+        }
+
+        // An additional margin of error is needed when the bound is checked to ensure that an
+        // applied bound always passes the check.
+        fn checked_distance_factor(&self) -> f32 {
+            self.target_distance_factor - 1.0
+        }
+
+        fn get_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
+            const MIN_ORTHO_NORM: f32 = 1e-5;
+
+            let mut ortho_bound_push_direction = self.push_direction.into_inner();
+            ensure_dot_product(
+                0.0,
+                &bound.push_direction,
+                &bound.normal,
+                &mut ortho_bound_push_direction,
+            );
+
+            na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM).map(|d| {
+                VectorBound {
+                    normal: self.normal,
+                    push_direction: d,
+                    target_distance_factor: self.target_distance_factor,
+                }
+            })
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use approx::assert_abs_diff_eq;
+
+        use super::*;
+
+        #[test]
+        fn ensure_dot_product_example() {
+            let dot_product = 4.0;
+            let adjustment_direction: na::UnitVector3<f32> =
+                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+            let fixed_vector: na::UnitVector3<f32> =
+                na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+            let mut moving_vector = na::Vector3::new(-6.0, -3.0, 4.0);
+            ensure_dot_product(
+                dot_product,
+                &adjustment_direction,
+                &fixed_vector,
+                &mut moving_vector,
+            );
+            assert_abs_diff_eq!(
+                fixed_vector.dot(&moving_vector),
+                dot_product,
+                epsilon = 1.0e-5
+            );
         }
     }
 }
