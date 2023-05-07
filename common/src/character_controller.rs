@@ -4,7 +4,7 @@ use tracing::warn;
 use crate::{
     character_controller::{
         bound_vector::{BoundVector, VectorBound},
-        collision::{check_collision, CollisionCheckingResult, CollisionContext},
+        collision::{check_collision, CollisionContext},
     },
     math,
     node::{ChunkLayout, DualGraph},
@@ -42,16 +42,13 @@ pub fn run_character_step(
         // Initialize ground_normal
         let mut ground_normal = None;
         if *on_ground {
-            let ground_result = get_ground_normal(
+            ground_normal = get_ground_normal(
                 &collision_context,
                 &up,
                 max_slope,
                 cfg.ground_distance_tolerance,
                 position,
             );
-            if let Some(ground_collision) = ground_result.collision {
-                ground_normal = Some(ground_collision.normal);
-            }
         }
 
         // Jump if appropriate
@@ -261,7 +258,7 @@ fn get_ground_normal(
     max_slope: f32,
     allowed_distance: f32,
     position: &Position,
-) -> CollisionCheckingResult {
+) -> Option<na::UnitVector3<f32>> {
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
@@ -275,15 +272,15 @@ fn get_ground_normal(
         );
         if let Some(collision) = collision_result.collision.as_ref() {
             if collision.normal.dot(up) > min_slope_up_component {
-                return collision_result;
+                return Some(collision.normal);
             }
             allowed_displacement
                 .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
         } else {
-            return CollisionCheckingResult::stationary();
+            return None;
         }
     }
-    CollisionCheckingResult::stationary()
+    None
 }
 
 /// Returns the up-direction relative to the given position
