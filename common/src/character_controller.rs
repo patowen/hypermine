@@ -12,6 +12,8 @@ use crate::{
     sanitize_motion_input, SimConfig,
 };
 
+use self::collision::Collision;
+
 pub fn run_character_step(
     cfg: &SimConfig,
     graph: &DualGraph,
@@ -168,7 +170,6 @@ fn apply_velocity(
     // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
     let mut remaining_displacement = BoundVector::new(expected_displacement);
     let mut changed_velocity = BoundVector::new(*velocity);
@@ -187,58 +188,15 @@ fn apply_velocity(
             // Update the expected displacement to whatever is remaining.
             remaining_displacement.inner.vector -= collision_result.displacement_vector;
 
-            let mut push_direction = &collision.normal;
-
-            if collision.normal.dot(up) > min_slope_up_component {
-                if let Some(ground_normal) = ground_normal {
-                    if vertical_correction_direction.is_facing(ground_normal) {
-                        vertical_correction_direction.inner.vector.normalize_mut();
-                        let vertical_correction_bound = VectorBound::new_push(
-                            *ground_normal,
-                            na::UnitVector3::new_normalize(
-                                vertical_correction_direction.inner.vector,
-                            ),
-                        );
-                        remaining_displacement
-                            .inner
-                            .apply_bound(&vertical_correction_bound);
-                        changed_velocity
-                            .inner
-                            .apply_bound(&vertical_correction_bound);
-                        vertical_correction_direction.inner.vector.set_zero();
-                    }
-
-                    apply_ground_normal_change(
-                        up,
-                        &collision.normal,
-                        &mut remaining_displacement.inner.vector,
-                    );
-                    apply_ground_normal_change(
-                        up,
-                        &collision.normal,
-                        &mut changed_velocity.inner.vector,
-                    );
-                }
-                *ground_normal = Some(collision.normal);
-                push_direction = up;
-            }
-
-            if let Some(ground_normal) = ground_normal {
-                remaining_displacement
-                    .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
-                changed_velocity.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
-            }
-            remaining_displacement
-                .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
-            changed_velocity
-                .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
-            remaining_displacement.remove_temporary_bounds();
-            changed_velocity.remove_temporary_bounds();
-
-            if vertical_correction_direction.is_facing(&collision.normal) {
-                vertical_correction_direction
-                    .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
-            }
+            handle_collision(
+                collision,
+                up,
+                max_slope,
+                &mut remaining_displacement,
+                &mut changed_velocity,
+                &mut vertical_correction_direction,
+                ground_normal,
+            );
         } else {
             all_collisions_resolved = true;
             break;
@@ -250,6 +208,63 @@ fn apply_velocity(
     }
 
     *velocity = changed_velocity.inner.vector;
+}
+
+fn handle_collision(
+    collision: Collision,
+    up: &na::UnitVector3<f32>,
+    max_slope: f32,
+    remaining_displacement: &mut BoundVector,
+    changed_velocity: &mut BoundVector,
+    vertical_correction_direction: &mut BoundVector,
+    ground_normal: &mut Option<na::UnitVector3<f32>>,
+) {
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
+
+    let mut push_direction = &collision.normal;
+
+    if collision.normal.dot(up) > min_slope_up_component {
+        if let Some(ground_normal) = ground_normal {
+            if vertical_correction_direction.is_facing(ground_normal) {
+                vertical_correction_direction.inner.vector.normalize_mut();
+                let vertical_correction_bound = VectorBound::new_push(
+                    *ground_normal,
+                    na::UnitVector3::new_normalize(vertical_correction_direction.inner.vector),
+                );
+                remaining_displacement
+                    .inner
+                    .apply_bound(&vertical_correction_bound);
+                changed_velocity
+                    .inner
+                    .apply_bound(&vertical_correction_bound);
+                vertical_correction_direction.inner.vector.set_zero();
+            }
+
+            apply_ground_normal_change(
+                up,
+                &collision.normal,
+                &mut remaining_displacement.inner.vector,
+            );
+            apply_ground_normal_change(up, &collision.normal, &mut changed_velocity.inner.vector);
+        }
+        *ground_normal = Some(collision.normal);
+        push_direction = up;
+    }
+
+    if let Some(ground_normal) = ground_normal {
+        remaining_displacement.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+        changed_velocity.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+    }
+    remaining_displacement
+        .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
+    changed_velocity.add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
+    remaining_displacement.remove_temporary_bounds();
+    changed_velocity.remove_temporary_bounds();
+
+    if vertical_correction_direction.is_facing(&collision.normal) {
+        vertical_correction_direction
+            .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
+    }
 }
 
 fn get_ground_normal(
