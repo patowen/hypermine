@@ -173,8 +173,9 @@ fn apply_velocity(
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut remaining_displacement = BoundVector::new(expected_displacement, Some(*velocity));
-    let mut vertical_correction_direction = BoundVector::new(-up.into_inner(), None);
+    let mut remaining_displacement = BoundVector::new(expected_displacement);
+    let mut changed_velocity = BoundVector::new(*velocity);
+    let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -201,13 +202,25 @@ fn apply_velocity(
                                 vertical_correction_direction.inner.vector,
                             ),
                         );
-                        remaining_displacement.apply(|v| v.apply_bound(&vertical_correction_bound));
+                        remaining_displacement
+                            .inner
+                            .apply_bound(&vertical_correction_bound);
+                        changed_velocity
+                            .inner
+                            .apply_bound(&vertical_correction_bound);
                         vertical_correction_direction.inner.vector.set_zero();
                     }
 
-                    remaining_displacement.apply(|v| {
-                        apply_ground_normal_change(up, &collision.normal, &mut v.vector);
-                    });
+                    apply_ground_normal_change(
+                        up,
+                        &collision.normal,
+                        &mut remaining_displacement.inner.vector,
+                    );
+                    apply_ground_normal_change(
+                        up,
+                        &collision.normal,
+                        &mut changed_velocity.inner.vector,
+                    );
                 }
                 *ground_normal = Some(collision.normal);
                 push_direction = up;
@@ -216,10 +229,14 @@ fn apply_velocity(
             if let Some(ground_normal) = ground_normal {
                 remaining_displacement
                     .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+                changed_velocity.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
             }
             remaining_displacement
                 .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
+            changed_velocity
+                .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
             remaining_displacement.remove_temporary_bounds();
+            changed_velocity.remove_temporary_bounds();
 
             if vertical_correction_direction.is_facing(&collision.normal) {
                 vertical_correction_direction
@@ -235,7 +252,7 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = remaining_displacement.tagalong.unwrap().vector;
+    *velocity = changed_velocity.inner.vector;
 }
 
 fn get_ground_normal(
@@ -248,7 +265,7 @@ fn get_ground_normal(
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance, None);
+    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(
@@ -307,26 +324,17 @@ mod bound_vector {
 
     pub struct BoundVector {
         pub inner: VectorWithErrorMargin,
-        pub tagalong: Option<VectorWithErrorMargin>,
         bounds: VectorBounds,
     }
 
     impl BoundVector {
-        pub fn new(inner: na::Vector3<f32>, tagalong: Option<na::Vector3<f32>>) -> Self {
+        pub fn new(inner: na::Vector3<f32>) -> Self {
             BoundVector {
                 inner: VectorWithErrorMargin::new(inner),
-                tagalong: tagalong.map(VectorWithErrorMargin::new),
                 bounds: VectorBounds {
                     permanent_bounds: vec![],
                     temporary_bounds: vec![],
                 },
-            }
-        }
-
-        pub fn apply(&mut self, mut f: impl FnMut(&mut VectorWithErrorMargin)) {
-            f(&mut self.inner);
-            if let Some(ref mut tagalong) = self.tagalong {
-                f(tagalong);
             }
         }
 
@@ -344,7 +352,7 @@ mod bound_vector {
                 return;
             }
 
-            self.apply(|v| v.apply_bound(new_bound));
+            self.inner.apply_bound(new_bound);
 
             // Check if all constraints are satisfied
             if self.bounds.iter().all(|b| self.inner.check_bound(b)) {
@@ -365,15 +373,12 @@ mod bound_vector {
 
                 if self.bounds.iter().all(|b| candidate.check_bound(b)) {
                     self.inner = candidate;
-                    if let Some(ref mut tagalong) = self.tagalong {
-                        tagalong.apply_bound(&ortho_bound);
-                    }
                     return;
                 }
             }
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-            self.apply(|v| v.vector.set_zero());
+            self.inner.vector.set_zero();
         }
 
         pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
