@@ -171,8 +171,10 @@ fn apply_velocity(
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
 
-    let mut remaining_displacement = BoundVector::new(expected_displacement);
-    let mut changed_velocity = BoundVector::new(*velocity);
+    let mut velocity_info = VelocityInfo {
+        remaining_displacement: BoundVector::new(expected_displacement),
+        velocity: BoundVector::new(*velocity),
+    };
     let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
 
     let mut all_collisions_resolved = false;
@@ -180,20 +182,20 @@ fn apply_velocity(
         let collision_result = check_collision(
             collision_context,
             position,
-            &remaining_displacement.inner.vector,
+            &velocity_info.remaining_displacement.inner.vector,
         );
         position.local *= collision_result.displacement_transform;
 
         if let Some(collision) = collision_result.collision {
             // Update the expected displacement to whatever is remaining.
-            remaining_displacement.inner.vector -= collision_result.displacement_vector;
+            velocity_info.remaining_displacement.inner.vector -=
+                collision_result.displacement_vector;
 
             handle_collision(
                 collision,
                 up,
                 max_slope,
-                &mut remaining_displacement,
-                &mut changed_velocity,
+                &mut velocity_info,
                 &mut vertical_correction_direction,
                 ground_normal,
             );
@@ -207,15 +209,14 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = changed_velocity.inner.vector;
+    *velocity = velocity_info.velocity.inner.vector;
 }
 
 fn handle_collision(
     collision: Collision,
     up: &na::UnitVector3<f32>,
     max_slope: f32,
-    remaining_displacement: &mut BoundVector,
-    changed_velocity: &mut BoundVector,
+    velocity_info: &mut VelocityInfo,
     vertical_correction_direction: &mut BoundVector,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
 ) {
@@ -231,39 +232,44 @@ fn handle_collision(
                     *ground_normal,
                     na::UnitVector3::new_normalize(vertical_correction_direction.inner.vector),
                 );
-                remaining_displacement
-                    .inner
-                    .apply_bound(&vertical_correction_bound);
-                changed_velocity
-                    .inner
-                    .apply_bound(&vertical_correction_bound);
+                for v in velocity_info.iter_mut() {
+                    v.inner.apply_bound(&vertical_correction_bound)
+                }
                 vertical_correction_direction.inner.vector.set_zero();
             }
 
-            apply_ground_normal_change(
-                up,
-                &collision.normal,
-                &mut remaining_displacement.inner.vector,
-            );
-            apply_ground_normal_change(up, &collision.normal, &mut changed_velocity.inner.vector);
+            for v in velocity_info.iter_mut() {
+                apply_ground_normal_change(up, &collision.normal, &mut v.inner.vector);
+            }
         }
         *ground_normal = Some(collision.normal);
         push_direction = up;
     }
 
-    if let Some(ground_normal) = ground_normal {
-        remaining_displacement.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
-        changed_velocity.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+    for v in velocity_info.iter_mut() {
+        if let Some(ground_normal) = ground_normal {
+            v.add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+        }
+        v.add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
+        v.remove_temporary_bounds();
     }
-    remaining_displacement
-        .add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
-    changed_velocity.add_and_apply_bound(VectorBound::new_push(collision.normal, *push_direction));
-    remaining_displacement.remove_temporary_bounds();
-    changed_velocity.remove_temporary_bounds();
 
     if vertical_correction_direction.is_facing(&collision.normal) {
         vertical_correction_direction
             .add_and_apply_bound(VectorBound::new_push(collision.normal, collision.normal));
+    }
+}
+
+/// Contains info related to the average velocity over the timestep and the current velocity at
+/// the end of the timestep.
+struct VelocityInfo {
+    remaining_displacement: BoundVector,
+    velocity: BoundVector,
+}
+
+impl VelocityInfo {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut BoundVector> {
+        [&mut self.remaining_displacement, &mut self.velocity].into_iter()
     }
 }
 
@@ -376,6 +382,12 @@ mod bound_vector {
             for bound in self.bounds.iter().filter(|b| !self.inner.check_bound(b)) {
                 let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
+                    // TODO: If velocity is treated entirely separately from remaining_displacement, then this pathological
+                    // case seems to happen more frequently. Hypothesis is that new_bound for a new floor is being applied
+                    // prematurely, causing interference with an existing floor bound. However, failing to apply this would
+                    // cause the artificial ceiling to interfere instead. The simplest fix is likely to reintroduce velocity
+                    // as a tagalong instead, but hopefully in a way that is not as hacky. The velocity vector shouldn't need
+                    // error margins.
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                     continue;
                 };
