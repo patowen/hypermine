@@ -269,6 +269,9 @@ fn handle_collision(
     // to begin with. The behavior will likely have to depend on how ground_normal was set.
     // The data structure for this ret-con might be a simple as an ordered list of applied VectorBounds, although a special
     // case may be needed for zeroing out the vector entirely to avoid numerical precision limitations.
+
+    // Alternative idea: Ret-con with the original velocity vectors. The idea is that if only the ground collision were
+    // applied first, the problem we're trying to solve likely wouldn't have occurred to begin with.
     if vertical_correction_direction.is_facing(&collision.normal) {
         vertical_correction_direction.add_and_apply_bound(
             VectorBound::new_push(collision.normal, collision.normal),
