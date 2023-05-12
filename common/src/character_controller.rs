@@ -99,7 +99,8 @@ pub fn run_character_step(
             &collision_context,
             &up,
             max_slope,
-            estimated_average_velocity * dt_seconds,
+            estimated_average_velocity,
+            dt_seconds,
             position,
             velocity,
             &mut ground_normal,
@@ -157,11 +158,13 @@ fn apply_air_controls(
 
 /// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
 /// based on collisions that occur.
+#[allow(clippy::too_many_arguments)] // TODO: Reduce argument count
 fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
     max_slope: f32,
-    expected_displacement: na::Vector3<f32>,
+    average_velocity: na::Vector3<f32>,
+    dt_seconds: f32,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
@@ -171,25 +174,27 @@ fn apply_velocity(
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
 
+    let mut remaining_dt_seconds = dt_seconds;
+
     let mut velocity_info = VelocityInfo {
-        remaining_displacement: BoundVector::new(expected_displacement),
-        velocity: VectorWithErrorMargin::new(*velocity),
+        average_velocity: BoundVector::new(average_velocity),
+        final_velocity: VectorWithErrorMargin::new(*velocity),
     };
     let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result = check_collision(
-            collision_context,
-            position,
-            &velocity_info.remaining_displacement.inner.vector,
-        );
+        let expected_displacement =
+            velocity_info.average_velocity.inner.vector * remaining_dt_seconds;
+
+        let collision_result = check_collision(collision_context, position, &expected_displacement);
         position.local *= collision_result.displacement_transform;
 
         if let Some(collision) = collision_result.collision {
-            // Update the expected displacement to whatever is remaining.
-            velocity_info.remaining_displacement.inner.vector -=
-                collision_result.displacement_vector;
+            // Update the expected dt to whatever is remaining.
+            remaining_dt_seconds *= 1.0
+                - collision_result.displacement_vector.magnitude()
+                    / expected_displacement.magnitude();
 
             handle_collision(
                 collision,
@@ -209,7 +214,7 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = velocity_info.velocity.vector;
+    *velocity = velocity_info.final_velocity.vector;
 }
 
 fn handle_collision(
@@ -248,16 +253,14 @@ fn handle_collision(
 
     if let Some(ground_normal) = ground_normal {
         velocity_info
-            .remaining_displacement
+            .average_velocity
             .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
     }
-    velocity_info.remaining_displacement.add_and_apply_bound(
+    velocity_info.average_velocity.add_and_apply_bound(
         VectorBound::new_push(collision.normal, *push_direction),
-        Some(&mut velocity_info.velocity),
+        Some(&mut velocity_info.final_velocity),
     );
-    velocity_info
-        .remaining_displacement
-        .remove_temporary_bounds();
+    velocity_info.average_velocity.remove_temporary_bounds();
 
     // TODO: Vertical compensation has two potential pitfalls to address.
     // 1: The player can become slightly stuck in a corner, as horizontal momentum can be falsely attributed to the wall.
@@ -277,13 +280,13 @@ fn handle_collision(
 /// Contains info related to the average velocity over the timestep and the current velocity at
 /// the end of the timestep.
 struct VelocityInfo {
-    remaining_displacement: BoundVector,
-    velocity: VectorWithErrorMargin,
+    average_velocity: BoundVector,
+    final_velocity: VectorWithErrorMargin,
 }
 
 impl VelocityInfo {
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut VectorWithErrorMargin> {
-        [&mut self.remaining_displacement.inner, &mut self.velocity].into_iter()
+        [&mut self.average_velocity.inner, &mut self.final_velocity].into_iter()
     }
 }
 
