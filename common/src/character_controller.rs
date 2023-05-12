@@ -179,8 +179,8 @@ fn apply_velocity(
     let mut velocity_info = VelocityInfo {
         average_velocity: BoundVector::new(average_velocity),
         final_velocity: VectorWithErrorMargin::new(*velocity),
+        retcon: Some((average_velocity, *velocity)),
     };
-    let mut vertical_correction_direction = BoundVector::new(-up.into_inner());
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -196,14 +196,7 @@ fn apply_velocity(
                 - collision_result.displacement_vector.magnitude()
                     / expected_displacement.magnitude();
 
-            handle_collision(
-                collision,
-                up,
-                max_slope,
-                &mut velocity_info,
-                &mut vertical_correction_direction,
-                ground_normal,
-            );
+            handle_collision(collision, up, max_slope, &mut velocity_info, ground_normal);
         } else {
             all_collisions_resolved = true;
             break;
@@ -222,7 +215,6 @@ fn handle_collision(
     up: &na::UnitVector3<f32>,
     max_slope: f32,
     velocity_info: &mut VelocityInfo,
-    vertical_correction_direction: &mut BoundVector,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
 ) {
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
@@ -230,25 +222,28 @@ fn handle_collision(
     let mut push_direction = &collision.normal;
 
     if collision.normal.dot(up) > min_slope_up_component {
-        if let Some(ground_normal) = ground_normal {
-            if vertical_correction_direction.is_facing(ground_normal) {
-                vertical_correction_direction.inner.vector.normalize_mut();
-                let vertical_correction_bound = VectorBound::new_push(
-                    *ground_normal,
-                    na::UnitVector3::new_normalize(vertical_correction_direction.inner.vector),
-                );
-                for v in velocity_info.iter_mut() {
-                    v.apply_bound(&vertical_correction_bound)
-                }
-                vertical_correction_direction.inner.vector.set_zero();
-            }
+        // TODO: Properly scale velocity with apply_ground_normal change during retcon
 
-            for v in velocity_info.iter_mut() {
-                apply_ground_normal_change(up, &collision.normal, &mut v.vector);
-            }
+        if let Some(retcon) = velocity_info.retcon {
+            let mut retcon_average_velocity = BoundVector::new(retcon.0);
+            let mut retcon_final_velocity = VectorWithErrorMargin::new(retcon.1);
+            retcon_average_velocity
+                .add_temporary_bound(VectorBound::new_pull(collision.normal, *up));
+            retcon_average_velocity.add_and_apply_bound(
+                VectorBound::new_push(collision.normal, *up),
+                Some(&mut retcon_final_velocity),
+            );
+            retcon_average_velocity.reapply_bounds(
+                &velocity_info.average_velocity,
+                Some(&mut retcon_final_velocity),
+            );
+            velocity_info.average_velocity = retcon_average_velocity;
+            velocity_info.final_velocity = retcon_final_velocity;
+            velocity_info.retcon = None;
         }
+
         *ground_normal = Some(collision.normal);
-        push_direction = up;
+        push_direction = up; // TODO: Don't apply the same ground normal twice
     }
 
     if let Some(ground_normal) = ground_normal {
@@ -261,23 +256,6 @@ fn handle_collision(
         Some(&mut velocity_info.final_velocity),
     );
     velocity_info.average_velocity.remove_temporary_bounds();
-
-    // TODO: Vertical compensation has two potential pitfalls to address.
-    // 1: The player can become slightly stuck in a corner, as horizontal momentum can be falsely attributed to the wall.
-    // 2: If the player jumps in place at the corner with a sloped wall, they can be pushed back.
-    // To resolve this, we likely need some kind of way to ret-con collisions as if the velocity was parallel to the ground
-    // to begin with. The behavior will likely have to depend on how ground_normal was set.
-    // The data structure for this ret-con might be a simple as an ordered list of applied VectorBounds, although a special
-    // case may be needed for zeroing out the vector entirely to avoid numerical precision limitations.
-
-    // Alternative idea: Ret-con with the original velocity vectors. The idea is that if only the ground collision were
-    // applied first, the problem we're trying to solve likely wouldn't have occurred to begin with.
-    if vertical_correction_direction.is_facing(&collision.normal) {
-        vertical_correction_direction.add_and_apply_bound(
-            VectorBound::new_push(collision.normal, collision.normal),
-            None,
-        );
-    }
 }
 
 /// Contains info related to the average velocity over the timestep and the current velocity at
@@ -285,6 +263,7 @@ fn handle_collision(
 struct VelocityInfo {
     average_velocity: BoundVector,
     final_velocity: VectorWithErrorMargin,
+    retcon: Option<(na::Vector3<f32>, na::Vector3<f32>)>, // TODO: Use a type and name that makes sense
 }
 
 impl VelocityInfo {
@@ -442,6 +421,16 @@ mod bound_vector {
         pub fn remove_temporary_bounds(&mut self) {
             self.bounds.temporary_bounds.clear();
         }
+
+        pub fn reapply_bounds(
+            &mut self,
+            other: &BoundVector,
+            mut tagalong: Option<&mut VectorWithErrorMargin>,
+        ) {
+            for bound in other.bounds.permanent_bounds.iter() {
+                self.add_and_apply_bound(bound.clone(), tagalong.as_deref_mut());
+            }
+        }
     }
 
     #[derive(Clone)]
@@ -487,6 +476,7 @@ mod bound_vector {
         }
     }
 
+    #[derive(Clone)]
     pub struct VectorBound {
         normal: na::UnitVector3<f32>,
         push_direction: na::UnitVector3<f32>,
