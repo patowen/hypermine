@@ -259,6 +259,13 @@ fn handle_collision(
         .remaining_displacement
         .remove_temporary_bounds();
 
+    // TODO: Vertical compensation has two potential pitfalls to address.
+    // 1: The player can become slightly stuck in a corner, as horizontal momentum can be falsely attributed to the wall.
+    // 2: If the player jumps in place at the corner with a sloped wall, they can be pushed back.
+    // To resolve this, we likely need some kind of way to ret-con collisions as if the velocity was parallel to the ground
+    // to begin with. The behavior will likely have to depend on how ground_normal was set.
+    // The data structure for this ret-con might be a simple as an ordered list of applied VectorBounds, although a special
+    // case may be needed for zeroing out the vector entirely to avoid numerical precision limitations.
     if vertical_correction_direction.is_facing(&collision.normal) {
         vertical_correction_direction.add_and_apply_bound(
             VectorBound::new_push(collision.normal, collision.normal),
