@@ -383,7 +383,7 @@ mod bound_vector {
             new_bound: &VectorBound,
             mut tagalong: Option<&mut VectorWithErrorMargin>,
         ) {
-            if self.inner.vector.is_zero() {
+            if self.inner.vector.is_zero() || self.inner.check_bound(new_bound) {
                 return;
             }
 
@@ -506,7 +506,7 @@ mod bound_vector {
         // An additional margin of error is needed when the bound is checked to ensure that an
         // applied bound always passes the check.
         fn checked_distance_factor(&self) -> f32 {
-            self.target_distance_factor - 1.0
+            self.target_distance_factor - 0.5
         }
 
         fn get_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
