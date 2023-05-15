@@ -412,6 +412,9 @@ mod bound_vector {
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
             self.inner.vector.set_zero();
+            if let Some(ref mut tagalong) = tagalong {
+                tagalong.vector.set_zero();
+            }
         }
 
         pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
