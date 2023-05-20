@@ -25,11 +25,8 @@ pub fn run_character_step(
     let movement = sanitize_motion_input(input.movement);
 
     if input.no_clip {
-        // If no-clip is on, the velocity field is useless, and we don't want to accidentally
-        // save velocity from when no-clip was off.
-        *velocity = na::Vector3::zeros();
-        position.local *=
-            math::translate_along(&(movement * cfg.no_clip_movement_speed * dt_seconds));
+        *velocity = movement * cfg.no_clip_movement_speed;
+        position.local *= math::translate_along(&(*velocity * dt_seconds));
     } else {
         let collision_context = CollisionContext {
             graph,
@@ -38,7 +35,6 @@ pub fn run_character_step(
         };
 
         let up = get_relative_up(graph, position);
-        let max_slope = cfg.max_floor_slope;
 
         // Initialize ground_normal
         let mut ground_normal = None;
@@ -46,7 +42,7 @@ pub fn run_character_step(
             ground_normal = get_ground_normal(
                 &collision_context,
                 &up,
-                max_slope,
+                cfg.max_floor_slope,
                 cfg.ground_distance_tolerance,
                 position,
             );
@@ -92,13 +88,13 @@ pub fn run_character_step(
         // 2. Movement artifacts, which would occur if only the new velocity was used. One
         //    example of such an artifact is the character moving backwards slightly when they
         //    stop moving after releasing a direction key.
-        let estimated_average_velocity = (*velocity + old_velocity) * 0.5;
+        let average_velocity = (*velocity + old_velocity) * 0.5;
 
         apply_velocity(
             &collision_context,
             &up,
-            max_slope,
-            estimated_average_velocity,
+            cfg.max_floor_slope,
+            average_velocity,
             dt_seconds,
             position,
             velocity,
@@ -230,8 +226,6 @@ fn handle_collision(
 ) {
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut push_direction = &collision.normal;
-
     if collision.normal.dot(up) > min_slope_up_component {
         // TODO: Properly scale velocity with apply_ground_normal change during retcon
 
@@ -252,20 +246,24 @@ fn handle_collision(
             *velocity_info = new_velocity_info;
 
             *ground_collision_handled = true;
+        } else {
+            velocity_info.bounds.add_and_apply_bound(
+                VectorBound::new_push(collision.normal, *up),
+                &[VectorBound::new_pull(collision.normal, *up)],
+                &mut velocity_info.average_velocity,
+                Some(&mut velocity_info.final_velocity),
+            );
         }
 
         *ground_normal = Some(collision.normal);
-        push_direction = up; // TODO: Don't apply the same ground normal twice
-    }
-
-    let mut temporary_bounds = vec![];
-    if let Some(ground_normal) = ground_normal {
-        temporary_bounds.push(VectorBound::new_pull(*ground_normal, *up));
     }
 
     velocity_info.bounds.add_and_apply_bound(
-        VectorBound::new_push(collision.normal, *push_direction),
-        &temporary_bounds,
+        VectorBound::new_push(collision.normal, collision.normal),
+        &ground_normal
+            .iter()
+            .map(|n| VectorBound::new_pull(*n, *up))
+            .collect::<Vec<_>>(),
         &mut velocity_info.average_velocity,
         Some(&mut velocity_info.final_velocity),
     );
