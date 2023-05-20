@@ -165,7 +165,7 @@ fn apply_velocity(
     ground_normal: &mut Option<na::UnitVector3<f32>>,
 ) {
     // To prevent an unbounded runtime, we only allow a limited number of collisions to be processed in
-    // a single step. If the player encounters excessively complex geometry, it is possible to hit this limit,
+    // a single step. If the character encounters excessively complex geometry, it is possible to hit this limit,
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
 
@@ -308,7 +308,7 @@ fn get_ground_normal(
     // Since the character can be at a corner between a slanted wall and the ground, the first collision
     // directly below the character is not guaranteed to be part of the ground regardless of whether the
     // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
-    // parallel to walls we collide with to ensure that we find the ground if is indeed below the player.
+    // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let mut allowed_displacement = -up.into_inner() * allowed_distance;
     let mut bounds = VectorBounds::new(&allowed_displacement);
@@ -458,78 +458,91 @@ mod vector_bounds {
         }
     }
 
+    /// Represents a single constraint for a vector. `VectorBound`s alone conceptually contain
+    /// enough information to apply to a vector, but practically, one other piece of information
+    /// is needed: `error_margin`, which exists in `VectorBounds`.
     #[derive(Clone)]
     pub struct VectorBound {
         normal: na::UnitVector3<f32>,
-        push_direction: na::UnitVector3<f32>,
-        target_distance_factor: f32, // Margin of error when the bound is applied
+        projection_direction: na::UnitVector3<f32>,
+        error_margin_factor: f32, // Margin of error when the bound is applied
     }
 
     impl VectorBound {
+        /// Creates a `VectorBound` that pushes vectors away from the plane given
+        /// by the normal in `projection_direction`. After applying such a bound to
+        /// a vector, its dot product with `normal` should be positive even counting
+        /// floating point approximation limitations.
         pub fn new_push(
             normal: na::UnitVector3<f32>,
-            push_direction: na::UnitVector3<f32>,
+            projection_direction: na::UnitVector3<f32>,
         ) -> Self {
             VectorBound {
                 normal,
-                push_direction,
-                target_distance_factor: 1.0,
+                projection_direction,
+                error_margin_factor: 1.0,
             }
         }
 
+        /// Creates a `VectorBound` that pulls vectors towards the plane given
+        /// by the normal in `projection_direction`. Even after applying such a bound to
+        /// a vector, its dot product with `normal` should still be positive even counting
+        /// floating point approximation limitations. This ensures that `new_push` and
+        /// `new_pull` don't conflict with each other even with equal parameters.
         pub fn new_pull(
             normal: na::UnitVector3<f32>,
-            push_direction: na::UnitVector3<f32>,
+            projection_direction: na::UnitVector3<f32>,
         ) -> Self {
             VectorBound {
                 normal: na::UnitVector3::new_unchecked(-normal.as_ref()),
-                push_direction,
-                target_distance_factor: -1.0,
+                projection_direction,
+                error_margin_factor: -1.0,
             }
         }
 
-        // An additional margin of error is needed when the bound is checked to ensure that an
-        // applied bound always passes the check.
-        fn checked_distance_factor(&self) -> f32 {
-            self.target_distance_factor - 0.5
-        }
-
+        /// Returns a `VectorBound` that is an altered version of `self` so that it no longer interferes
+        /// with `bound`. This is achieved by altering the projection direction by a factor of
+        /// `bound`'s projection direction to be orthogonal to `bound`'s normal. If this is not
+        /// possible, returns `None`.
         fn get_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
-            const MIN_ORTHO_NORM: f32 = 1e-5;
-
-            let mut ortho_bound_push_direction = self.push_direction.into_inner();
+            let mut ortho_bound_projection_direction = self.projection_direction.into_inner();
             math::project_to_plane(
-                &mut ortho_bound_push_direction,
+                &mut ortho_bound_projection_direction,
                 &bound.normal,
-                &bound.push_direction,
+                &bound.projection_direction,
                 0.0,
             );
 
-            na::UnitVector3::try_new(ortho_bound_push_direction, MIN_ORTHO_NORM).map(|d| {
-                VectorBound {
-                    normal: self.normal,
-                    push_direction: d,
-                    target_distance_factor: self.target_distance_factor,
-                }
+            na::UnitVector3::try_new(ortho_bound_projection_direction, 1e-5).map(|d| VectorBound {
+                normal: self.normal,
+                projection_direction: d,
+                error_margin_factor: self.error_margin_factor,
             })
         }
 
+        /// Updates `subject` with a projection transformation based on the constraint given by `self`.
+        /// This function does not check whether such a constraint is needed.
         fn constrain_vector(&self, subject: &mut na::Vector3<f32>, error_margin: f32) {
             math::project_to_plane(
                 subject,
                 &self.normal,
-                &self.push_direction,
-                error_margin * self.target_distance_factor,
+                &self.projection_direction,
+                error_margin * self.error_margin_factor,
             );
         }
 
+        /// Checks whether `subject` satisfies the constraint given by `self`.
         fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
+            // An additional margin of error is needed when the bound is checked to ensure that an
+            // applied bound always passes the check.
+            let error_margin_factor_for_check = self.error_margin_factor - 0.5;
             subject.is_zero()
-                || subject.dot(&self.normal) >= error_margin * self.checked_distance_factor()
+                || subject.dot(&self.normal) >= error_margin * error_margin_factor_for_check
         }
     }
 }
 
+/// This module is used to encapsulate character collision checking
 mod collision {
     use tracing::error;
 
@@ -600,6 +613,7 @@ mod collision {
         }
     }
 
+    /// Contains information about the character and the world that is only relevant for collision checking
     pub struct CollisionContext<'a> {
         pub graph: &'a DualGraph,
         pub chunk_layout: ChunkLayout,
