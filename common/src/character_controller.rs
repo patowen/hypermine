@@ -2,7 +2,7 @@ use tracing::warn;
 
 use crate::{
     character_controller::{
-        bound_vector::{BoundVector, VectorBound},
+        bound_vector::{VectorBound, VectorBounds},
         collision::{check_collision, CollisionContext},
     },
     math,
@@ -176,14 +176,15 @@ fn apply_velocity(
     let mut remaining_dt_seconds = dt_seconds;
 
     let mut velocity_info = VelocityInfo {
-        average_velocity: BoundVector::new(average_velocity),
+        bounds: VectorBounds::new(&average_velocity),
+        average_velocity,
         final_velocity: *velocity,
         retcon: Some((average_velocity, *velocity)),
     };
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let expected_displacement = velocity_info.average_velocity.inner * remaining_dt_seconds;
+        let expected_displacement = velocity_info.average_velocity * remaining_dt_seconds;
 
         let collision_result = check_collision(collision_context, position, &expected_displacement);
         position.local *= collision_result.displacement_transform;
@@ -223,20 +224,23 @@ fn handle_collision(
         // TODO: Properly scale velocity with apply_ground_normal change during retcon
 
         if let Some(retcon) = velocity_info.retcon {
-            let mut retcon_average_velocity = BoundVector::new(retcon.0);
+            let mut retcon_average_velocity = retcon.0;
             let mut retcon_final_velocity = retcon.1;
-            retcon_average_velocity
-                .add_temporary_bound(VectorBound::new_pull(collision.normal, *up));
-            retcon_average_velocity.add_and_apply_bound(
+            let mut retcon_bounds = VectorBounds::new(&retcon_average_velocity);
+            retcon_bounds.add_temporary_bound(VectorBound::new_pull(collision.normal, *up));
+            retcon_bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
+                &mut retcon_average_velocity,
                 Some(&mut retcon_final_velocity),
             );
-            retcon_average_velocity.reapply_bounds(
-                &velocity_info.average_velocity,
+            retcon_bounds.reapply_bounds(
+                &velocity_info.bounds,
+                &mut retcon_average_velocity,
                 Some(&mut retcon_final_velocity),
             );
             velocity_info.average_velocity = retcon_average_velocity;
             velocity_info.final_velocity = retcon_final_velocity;
+            velocity_info.bounds = retcon_bounds;
             velocity_info.retcon = None;
         }
 
@@ -246,27 +250,29 @@ fn handle_collision(
 
     if let Some(ground_normal) = ground_normal {
         velocity_info
-            .average_velocity
+            .bounds
             .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
     }
-    velocity_info.average_velocity.add_and_apply_bound(
+    velocity_info.bounds.add_and_apply_bound(
         VectorBound::new_push(collision.normal, *push_direction),
+        &mut velocity_info.average_velocity,
         Some(&mut velocity_info.final_velocity),
     );
-    velocity_info.average_velocity.remove_temporary_bounds();
+    velocity_info.bounds.remove_temporary_bounds();
 }
 
 /// Contains info related to the average velocity over the timestep and the current velocity at
 /// the end of the timestep.
 struct VelocityInfo {
-    average_velocity: BoundVector,
+    bounds: VectorBounds,
+    average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
     retcon: Option<(na::Vector3<f32>, na::Vector3<f32>)>, // TODO: Use a type and name that makes sense
 }
 
 impl VelocityInfo {
     fn iter_mut(&mut self) -> impl Iterator<Item = &mut na::Vector3<f32>> {
-        [&mut self.average_velocity.inner, &mut self.final_velocity].into_iter()
+        [&mut self.average_velocity, &mut self.final_velocity].into_iter()
     }
 }
 
@@ -280,17 +286,18 @@ fn get_ground_normal(
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
-    let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
+    let mut allowed_displacement = -up.into_inner() * allowed_distance;
+    let mut bounds = VectorBounds::new(&allowed_displacement);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result =
-            check_collision(collision_context, position, &allowed_displacement.inner);
+        let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision.as_ref() {
             if collision.normal.dot(up) > min_slope_up_component {
                 return Some(collision.normal);
             }
-            allowed_displacement.add_and_apply_bound(
+            bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, collision.normal),
+                &mut allowed_displacement,
                 None,
             );
         } else {
@@ -335,105 +342,6 @@ mod bound_vector {
     use tracing::warn;
 
     use crate::math;
-
-    pub struct BoundVector {
-        pub inner: na::Vector3<f32>,
-        error_margin: f32,
-        bounds: VectorBounds,
-    }
-
-    impl BoundVector {
-        pub fn new(inner: na::Vector3<f32>) -> Self {
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-            let error_margin = inner.magnitude() * RELATIVE_EPSILON;
-
-            BoundVector {
-                inner,
-                error_margin,
-                bounds: VectorBounds {
-                    permanent_bounds: vec![],
-                    temporary_bounds: vec![],
-                },
-            }
-        }
-
-        pub fn add_and_apply_bound(
-            &mut self,
-            new_bound: VectorBound,
-            tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
-            self.apply_bound(&new_bound, tagalong);
-            self.bounds.permanent_bounds.push(new_bound);
-        }
-
-        fn apply_bound(
-            &mut self,
-            new_bound: &VectorBound,
-            mut tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
-            if self.inner.is_zero() || new_bound.check_vector(&self.inner, self.error_margin) {
-                return;
-            }
-
-            new_bound.constrain_vector(&mut self.inner, self.error_margin);
-            if let Some(ref mut tagalong) = tagalong {
-                new_bound.constrain_vector(tagalong, 0.0);
-            }
-
-            // Check if all constraints are satisfied
-            if (self.bounds.iter()).all(|b| b.check_vector(&self.inner, self.error_margin)) {
-                return;
-            }
-
-            // If not all constraints are satisfied, find the first constraint that if applied will satisfy
-            // the remaining constriants
-            for bound in
-                (self.bounds.iter()).filter(|b| !b.check_vector(&self.inner, self.error_margin))
-            {
-                let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
-                else {
-                    warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
-                    continue;
-                };
-
-                let mut candidate = self.inner;
-                ortho_bound.constrain_vector(&mut candidate, self.error_margin);
-
-                if (self.bounds.iter()).all(|b| b.check_vector(&candidate, self.error_margin)) {
-                    self.inner = candidate;
-                    if let Some(ref mut tagalong) = tagalong {
-                        ortho_bound.constrain_vector(tagalong, 0.0);
-                    }
-                    return;
-                }
-            }
-
-            // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-            self.inner.set_zero();
-            if let Some(ref mut tagalong) = tagalong {
-                tagalong.set_zero();
-            }
-        }
-
-        pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
-            self.bounds.temporary_bounds.push(new_bound);
-        }
-
-        pub fn remove_temporary_bounds(&mut self) {
-            self.bounds.temporary_bounds.clear();
-        }
-
-        pub fn reapply_bounds(
-            &mut self,
-            other: &BoundVector,
-            mut tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
-            for bound in other.bounds.permanent_bounds.iter() {
-                self.add_and_apply_bound(bound.clone(), tagalong.as_deref_mut());
-            }
-        }
-    }
 
     pub trait Constrainable: Clone {
         fn set_zero(&mut self);
@@ -507,14 +415,104 @@ mod bound_vector {
         subject.set_zero();
     }
 
-    struct VectorBounds {
+    pub struct VectorBounds {
         permanent_bounds: Vec<VectorBound>,
         temporary_bounds: Vec<VectorBound>,
+        error_margin: f32,
     }
 
     impl VectorBounds {
+        pub fn new(initial_vector: &na::Vector3<f32>) -> Self {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+            let error_margin = initial_vector.magnitude() * RELATIVE_EPSILON;
+
+            VectorBounds {
+                permanent_bounds: vec![],
+                temporary_bounds: vec![],
+                error_margin,
+            }
+        }
+
         fn iter(&self) -> impl Iterator<Item = &VectorBound> {
             self.permanent_bounds.iter().chain(&self.temporary_bounds)
+        }
+
+        pub fn add_and_apply_bound(
+            &mut self,
+            new_bound: VectorBound,
+            vector: &mut na::Vector3<f32>,
+            tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            self.apply_bound(&new_bound, vector, tagalong);
+            self.permanent_bounds.push(new_bound);
+        }
+
+        fn apply_bound(
+            &self,
+            new_bound: &VectorBound,
+            vector: &mut na::Vector3<f32>,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            if new_bound.check_vector(vector, self.error_margin) {
+                return;
+            }
+
+            new_bound.constrain_vector(vector, self.error_margin);
+            if let Some(ref mut tagalong) = tagalong {
+                new_bound.constrain_vector(tagalong, 0.0);
+            }
+
+            // Check if all constraints are satisfied
+            if (self.iter()).all(|b| b.check_vector(vector, self.error_margin)) {
+                return;
+            }
+
+            // If not all constraints are satisfied, find the first constraint that if applied will satisfy
+            // the remaining constriants
+            for bound in (self.iter()).filter(|b| !b.check_vector(vector, self.error_margin)) {
+                let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
+                else {
+                    warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
+                    continue;
+                };
+
+                let mut candidate = *vector;
+                ortho_bound.constrain_vector(&mut candidate, self.error_margin);
+
+                if (self.iter()).all(|b| b.check_vector(&candidate, self.error_margin)) {
+                    *vector = candidate;
+                    if let Some(ref mut tagalong) = tagalong {
+                        ortho_bound.constrain_vector(tagalong, 0.0);
+                    }
+                    return;
+                }
+            }
+
+            // If no choice satisfies all constraints, keep all bounds and set the vector to 0
+            vector.set_zero();
+            if let Some(ref mut tagalong) = tagalong {
+                tagalong.set_zero();
+            }
+        }
+
+        pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
+            self.temporary_bounds.push(new_bound);
+        }
+
+        pub fn remove_temporary_bounds(&mut self) {
+            self.temporary_bounds.clear();
+        }
+
+        pub fn reapply_bounds(
+            &mut self,
+            other: &VectorBounds,
+            vector: &mut na::Vector3<f32>,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
+        ) {
+            for bound in other.permanent_bounds.iter() {
+                self.add_and_apply_bound(bound.clone(), vector, tagalong.as_deref_mut());
+            }
         }
     }
 
@@ -584,8 +582,8 @@ mod bound_vector {
         }
 
         fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
-            // TODO: Include is_zero
-            subject.dot(&self.normal) >= error_margin * self.checked_distance_factor()
+            subject.is_zero()
+                || subject.dot(&self.normal) >= error_margin * self.checked_distance_factor()
         }
     }
 }
