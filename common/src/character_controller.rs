@@ -357,10 +357,6 @@ mod bound_vector {
             }
         }
 
-        pub fn is_facing(&self, vector: &na::Vector3<f32>) -> bool {
-            self.inner.vector.dot(vector) < 0.0
-        }
-
         pub fn add_and_apply_bound(
             &mut self,
             new_bound: VectorBound,
@@ -375,23 +371,29 @@ mod bound_vector {
             new_bound: &VectorBound,
             mut tagalong: Option<&mut VectorWithErrorMargin>,
         ) {
-            if self.inner.vector.is_zero() || self.inner.check_bound(new_bound) {
+            if self.inner.vector.is_zero()
+                || new_bound.check_vector(&self.inner.vector, self.inner.error_margin)
+            {
                 return;
             }
 
-            self.inner.apply_bound(new_bound);
+            new_bound.constrain_vector(&mut self.inner.vector, self.inner.error_margin);
             if let Some(ref mut tagalong) = tagalong {
-                tagalong.apply_bound(new_bound);
+                new_bound.constrain_vector(&mut tagalong.vector, 0.0);
             }
 
             // Check if all constraints are satisfied
-            if self.bounds.iter().all(|b| self.inner.check_bound(b)) {
+            if (self.bounds.iter())
+                .all(|b| b.check_vector(&self.inner.vector, self.inner.error_margin))
+            {
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in self.bounds.iter().filter(|b| !self.inner.check_bound(b)) {
+            for bound in (self.bounds.iter())
+                .filter(|b| !b.check_vector(&self.inner.vector, self.inner.error_margin))
+            {
                 let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
@@ -399,12 +401,14 @@ mod bound_vector {
                 };
 
                 let mut candidate = self.inner.clone();
-                candidate.apply_bound(&ortho_bound);
+                ortho_bound.constrain_vector(&mut candidate.vector, candidate.error_margin);
 
-                if self.bounds.iter().all(|b| candidate.check_bound(b)) {
+                if (self.bounds.iter())
+                    .all(|b| b.check_vector(&candidate.vector, candidate.error_margin))
+                {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = tagalong {
-                        tagalong.apply_bound(&ortho_bound);
+                        ortho_bound.constrain_vector(&mut tagalong.vector, 0.0);
                     }
                     return;
                 }
@@ -525,20 +529,6 @@ mod bound_vector {
                 error_margin,
             }
         }
-
-        pub fn apply_bound(&mut self, bound: &VectorBound) {
-            math::project_to_plane(
-                &mut self.vector,
-                &bound.normal,
-                &bound.push_direction,
-                self.error_margin * bound.target_distance_factor,
-            );
-        }
-
-        fn check_bound(&self, bound: &VectorBound) -> bool {
-            // TODO: Include is_zero
-            self.vector.dot(&bound.normal) >= self.error_margin * bound.checked_distance_factor()
-        }
     }
 
     struct VectorBounds {
@@ -606,6 +596,20 @@ mod bound_vector {
                     target_distance_factor: self.target_distance_factor,
                 }
             })
+        }
+
+        fn constrain_vector(&self, subject: &mut na::Vector3<f32>, error_margin: f32) {
+            math::project_to_plane(
+                subject,
+                &self.normal,
+                &self.push_direction,
+                error_margin * self.target_distance_factor,
+            );
+        }
+
+        fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
+            // TODO: Include is_zero
+            subject.dot(&self.normal) >= error_margin * self.checked_distance_factor()
         }
     }
 }
