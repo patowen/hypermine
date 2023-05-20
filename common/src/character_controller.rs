@@ -175,12 +175,14 @@ fn apply_velocity(
 
     let mut remaining_dt_seconds = dt_seconds;
 
-    let mut velocity_info = VelocityInfo {
+    let initial_velocity_info = VelocityInfo {
         bounds: VectorBounds::new(&average_velocity),
         average_velocity,
         final_velocity: *velocity,
-        retcon: Some((average_velocity, *velocity)),
     };
+    let mut velocity_info = initial_velocity_info.clone();
+
+    let mut ground_collision_handled = false;
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
@@ -195,7 +197,15 @@ fn apply_velocity(
                 - collision_result.displacement_vector.magnitude()
                     / expected_displacement.magnitude();
 
-            handle_collision(collision, up, max_slope, &mut velocity_info, ground_normal);
+            handle_collision(
+                collision,
+                up,
+                max_slope,
+                &initial_velocity_info,
+                &mut velocity_info,
+                ground_normal,
+                &mut ground_collision_handled,
+            );
         } else {
             all_collisions_resolved = true;
             break;
@@ -213,8 +223,10 @@ fn handle_collision(
     collision: Collision,
     up: &na::UnitVector3<f32>,
     max_slope: f32,
+    initial_velocity_info: &VelocityInfo,
     velocity_info: &mut VelocityInfo,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
+    ground_collision_handled: &mut bool,
 ) {
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
@@ -223,26 +235,23 @@ fn handle_collision(
     if collision.normal.dot(up) > min_slope_up_component {
         // TODO: Properly scale velocity with apply_ground_normal change during retcon
 
-        if let Some(retcon) = velocity_info.retcon {
-            let mut retcon_average_velocity = retcon.0;
-            let mut retcon_final_velocity = retcon.1;
-            let mut retcon_bounds = VectorBounds::new(&retcon_average_velocity);
-            retcon_bounds.add_and_apply_bound(
+        if !*ground_collision_handled {
+            let mut new_velocity_info = initial_velocity_info.clone();
+            new_velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
                 &[VectorBound::new_pull(collision.normal, *up)],
-                &mut retcon_average_velocity,
-                Some(&mut retcon_final_velocity),
+                &mut new_velocity_info.average_velocity,
+                Some(&mut new_velocity_info.final_velocity),
             );
-            retcon_bounds.reapply_bounds(
+            new_velocity_info.bounds.reapply_bounds(
                 &velocity_info.bounds,
                 &[VectorBound::new_pull(collision.normal, *up)],
-                &mut retcon_average_velocity,
-                Some(&mut retcon_final_velocity),
+                &mut new_velocity_info.average_velocity,
+                Some(&mut new_velocity_info.final_velocity),
             );
-            velocity_info.average_velocity = retcon_average_velocity;
-            velocity_info.final_velocity = retcon_final_velocity;
-            velocity_info.bounds = retcon_bounds;
-            velocity_info.retcon = None;
+            *velocity_info = new_velocity_info;
+
+            *ground_collision_handled = true;
         }
 
         *ground_normal = Some(collision.normal);
@@ -264,11 +273,11 @@ fn handle_collision(
 
 /// Contains info related to the average velocity over the timestep and the current velocity at
 /// the end of the timestep.
+#[derive(Clone)]
 struct VelocityInfo {
     bounds: VectorBounds,
     average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
-    retcon: Option<(na::Vector3<f32>, na::Vector3<f32>)>, // TODO: Use a type and name that makes sense
 }
 
 impl VelocityInfo {
@@ -345,6 +354,7 @@ mod bound_vector {
 
     use crate::math;
 
+    #[derive(Clone)]
     pub struct VectorBounds {
         bounds: Vec<VectorBound>,
         error_margin: f32,
