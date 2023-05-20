@@ -230,9 +230,7 @@ fn handle_collision(
     // Floor collisions will only affect vertical movement of the character, while wall collisions will
     // push the character away from the wall in a perpendicular direction. If the character is on the ground,
     // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
-    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
-
-    if collision.normal.dot(up) > min_slope_up_component {
+    if is_floor(up, max_slope, &collision.normal) {
         let stay_on_floor_bounds = [VectorBound::new_pull(collision.normal, *up)];
         if !*ground_collision_handled {
             // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
@@ -285,6 +283,11 @@ fn handle_collision(
     }
 }
 
+fn is_floor(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
+    normal.dot(up) > min_slope_up_component
+}
+
 /// Contains info related to the average velocity over the timestep and the current velocity at
 /// the end of the timestep.
 #[derive(Clone)]
@@ -302,15 +305,13 @@ fn get_ground_normal(
     position: &Position,
 ) -> Option<na::UnitVector3<f32>> {
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
-
     let mut allowed_displacement = -up.into_inner() * allowed_distance;
     let mut bounds = VectorBounds::new(&allowed_displacement);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision.as_ref() {
-            if collision.normal.dot(up) > min_slope_up_component {
+            if is_floor(up, max_slope, &collision.normal) {
                 return Some(collision.normal);
             }
             bounds.add_and_apply_bound(
