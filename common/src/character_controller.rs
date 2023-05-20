@@ -4,16 +4,14 @@ use tracing::warn;
 
 use crate::{
     character_controller::{
-        bound_vector::{VectorBound, VectorBounds},
-        collision::{check_collision, CollisionContext},
+        collision::{check_collision, Collision, CollisionContext},
+        vector_bounds::{VectorBound, VectorBounds},
     },
     math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
     sanitize_motion_input, SimConfig,
 };
-
-use self::collision::Collision;
 
 pub fn run_character_step(
     cfg: &SimConfig,
@@ -283,6 +281,7 @@ fn handle_collision(
     }
 }
 
+/// Checks whether the given normal is flat enough to be considered part of the ground
 fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
     normal.dot(up) > min_slope_up_component
@@ -297,6 +296,8 @@ struct VelocityInfo {
     final_velocity: na::Vector3<f32>,
 }
 
+/// Returns the normal corresponding to the ground below the character, up to the `allowed_distance`. If
+/// no such ground exists, returns `None`.
 fn get_ground_normal(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
@@ -304,6 +305,10 @@ fn get_ground_normal(
     allowed_distance: f32,
     position: &Position,
 ) -> Option<na::UnitVector3<f32>> {
+    // Since the character can be at a corner between a slanted wall and the ground, the first collision
+    // directly below the character is not guaranteed to be part of the ground regardless of whether the
+    // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
+    // parallel to walls we collide with to ensure that we find the ground if is indeed below the player.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let mut allowed_displacement = -up.into_inner() * allowed_distance;
     let mut bounds = VectorBounds::new(&allowed_displacement);
@@ -312,6 +317,7 @@ fn get_ground_normal(
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision.as_ref() {
             if is_ground(up, max_slope, &collision.normal) {
+                // We found the ground, so return its normal.
                 return Some(collision.normal);
             }
             bounds.add_and_apply_bound(
@@ -321,9 +327,11 @@ fn get_ground_normal(
                 None,
             );
         } else {
+            // Return `None` if we travel the whole `allowed_displacement` and don't find the ground.
             return None;
         }
     }
+    // Return `None` if we fail to find the ground after the maximum number of attempts
     None
 }
 
@@ -341,12 +349,14 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
     )
 }
 
-mod bound_vector {
+/// This module is used to transform vectors to ensure that they fit constraints discovered during collision checking.
+mod vector_bounds {
     use rand_distr::num_traits::Zero;
     use tracing::warn;
 
     use crate::math;
 
+    /// Encapsulates all the information needed to constrain a vector based on a set of `VectorBound`s.
     #[derive(Clone)]
     pub struct VectorBounds {
         bounds: Vec<VectorBound>,
@@ -354,10 +364,11 @@ mod bound_vector {
     }
 
     impl VectorBounds {
+        /// Initializes a `VectorBounds` with an empty list of bounds. The `initial_vector` is the first vector
+        /// we expect these bounds to be applied to, a hint to determine what kind of error margin is needed
+        /// to prevent floating point approximation limits from causing phantom collisions.
         pub fn new(initial_vector: &na::Vector3<f32>) -> Self {
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-            let error_margin = initial_vector.magnitude() * RELATIVE_EPSILON;
+            let error_margin = initial_vector.magnitude() * 1e-4;
 
             VectorBounds {
                 bounds: vec![],
@@ -365,10 +376,14 @@ mod bound_vector {
             }
         }
 
+        /// Returns the internal list of `VectorBound`s contained in the `VectorBounds` struct.
         pub fn bounds(&self) -> &[VectorBound] {
             &self.bounds
         }
 
+        /// Constrains `vector` with `new_bound` while keeping the existing constraints and any constraints in
+        /// `temporary_bounds` satisfied. All projection transformations applied to `vector` are also applied
+        /// to `tagalong` to allow two vectors to be transformed consistently with each other.
         pub fn add_and_apply_bound(
             &mut self,
             new_bound: VectorBound,
@@ -380,6 +395,7 @@ mod bound_vector {
             self.bounds.push(new_bound);
         }
 
+        /// Helper function to logically separate the "add" and the "apply" in `add_and_apply_bound` function.
         fn apply_bound(
             &self,
             new_bound: &VectorBound,
@@ -387,6 +403,15 @@ mod bound_vector {
             vector: &mut na::Vector3<f32>,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
+            // There likely isn't a perfect way to get a vector properly constrained with a list of bounds. The main
+            // difficulty is finding which set of linearly independent bounds need to be applied so that all bounds are
+            // satisfied. Since bounds are one-sided and not guaranteed to be linearly independent from each other, this
+            // requires some ad-hoc choices. The algorithm we choose here is to (1) assume that `new_bound` is one of these
+            // linearly independent bounds, (2) if necessary, pair it up with each existing bound to find the first such
+            // bound that allows all bounds to be satisfied, and (3) zero out the vector if no such pairing works, as we
+            // assume that we need to apply three linearly independent bounds.
+
+            // Combine existing bounds with temporary bounds into an iterator
             let bounds_iter = self.bounds.iter().chain(temporary_bounds.iter());
 
             // Apply new_bound if necessary.
