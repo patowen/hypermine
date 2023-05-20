@@ -1,3 +1,5 @@
+use std::mem::replace;
+
 use tracing::warn;
 
 use crate::{
@@ -224,27 +226,39 @@ fn handle_collision(
     ground_normal: &mut Option<na::UnitVector3<f32>>,
     ground_collision_handled: &mut bool,
 ) {
+    // Collisions are divided into two categories: Floor collisions and wall collisions.
+    // Floor collisions will only affect vertical movement of the character, while wall collisions will
+    // push the character away from the wall in a perpendicular direction. If the character is on the ground,
+    // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
     if collision.normal.dot(up) > min_slope_up_component {
         let stay_on_floor_bounds = [VectorBound::new_pull(collision.normal, *up)];
         if !*ground_collision_handled {
-            let mut new_velocity_info = initial_velocity_info.clone();
-            new_velocity_info.bounds.add_and_apply_bound(
+            // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
+            // occur if the character jumps at the corner between a floor and a slanted wall. If the wall
+            // collision is handled first, this horizontal momentum will push the character away from the wall.
+            // This can also occur if the character is on the ground and walks into a slanted wall. A single frame
+            // of downward momentum caused by gravity can turn into unwanted horizontal momentum that pushes
+            // the character away from the wall. Neither of these issues can occur if the floor collision is
+            // handled first, so when computing how the velocity vectors change, we rewrite history as if
+            // the floor collision was first. This is only necessary for the first floor collision, since
+            // afterwards, there is no more unexpected vertical momentum.
+            let old_velocity_info = replace(velocity_info, initial_velocity_info.clone());
+            velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
                 &stay_on_floor_bounds,
-                &mut new_velocity_info.average_velocity,
-                Some(&mut new_velocity_info.final_velocity),
+                &mut velocity_info.average_velocity,
+                Some(&mut velocity_info.final_velocity),
             );
-            for bound in velocity_info.bounds.bounds() {
-                new_velocity_info.bounds.add_and_apply_bound(
+            for bound in old_velocity_info.bounds.bounds() {
+                velocity_info.bounds.add_and_apply_bound(
                     bound.clone(),
                     &stay_on_floor_bounds,
-                    &mut new_velocity_info.average_velocity,
-                    Some(&mut new_velocity_info.final_velocity),
+                    &mut velocity_info.average_velocity,
+                    Some(&mut velocity_info.final_velocity),
                 );
             }
-            *velocity_info = new_velocity_info;
 
             *ground_collision_handled = true;
         } else {
