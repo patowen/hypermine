@@ -44,7 +44,7 @@ pub fn run_character_step(
             ground_normal = get_ground_normal(
                 &collision_context,
                 &up,
-                cfg.max_floor_slope,
+                cfg.max_ground_slope,
                 cfg.ground_distance_tolerance,
                 position,
             );
@@ -95,7 +95,7 @@ pub fn run_character_step(
         apply_velocity(
             &collision_context,
             &up,
-            cfg.max_floor_slope,
+            cfg.max_ground_slope,
             average_velocity,
             dt_seconds,
             position,
@@ -226,33 +226,33 @@ fn handle_collision(
     ground_normal: &mut Option<na::UnitVector3<f32>>,
     ground_collision_handled: &mut bool,
 ) {
-    // Collisions are divided into two categories: Floor collisions and wall collisions.
-    // Floor collisions will only affect vertical movement of the character, while wall collisions will
+    // Collisions are divided into two categories: Ground collisions and wall collisions.
+    // Ground collisions will only affect vertical movement of the character, while wall collisions will
     // push the character away from the wall in a perpendicular direction. If the character is on the ground,
     // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
-    if is_floor(up, max_slope, &collision.normal) {
-        let stay_on_floor_bounds = [VectorBound::new_pull(collision.normal, *up)];
+    if is_ground(up, max_slope, &collision.normal) {
+        let stay_on_ground_bounds = [VectorBound::new_pull(collision.normal, *up)];
         if !*ground_collision_handled {
             // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
-            // occur if the character jumps at the corner between a floor and a slanted wall. If the wall
+            // occur if the character jumps at the corner between the ground and a slanted wall. If the wall
             // collision is handled first, this horizontal momentum will push the character away from the wall.
             // This can also occur if the character is on the ground and walks into a slanted wall. A single frame
             // of downward momentum caused by gravity can turn into unwanted horizontal momentum that pushes
-            // the character away from the wall. Neither of these issues can occur if the floor collision is
+            // the character away from the wall. Neither of these issues can occur if the ground collision is
             // handled first, so when computing how the velocity vectors change, we rewrite history as if
-            // the floor collision was first. This is only necessary for the first floor collision, since
+            // the ground collision was first. This is only necessary for the first ground collision, since
             // afterwards, there is no more unexpected vertical momentum.
             let old_velocity_info = replace(velocity_info, initial_velocity_info.clone());
             velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
-                &stay_on_floor_bounds,
+                &stay_on_ground_bounds,
                 &mut velocity_info.average_velocity,
                 Some(&mut velocity_info.final_velocity),
             );
             for bound in old_velocity_info.bounds.bounds() {
                 velocity_info.bounds.add_and_apply_bound(
                     bound.clone(),
-                    &stay_on_floor_bounds,
+                    &stay_on_ground_bounds,
                     &mut velocity_info.average_velocity,
                     Some(&mut velocity_info.final_velocity),
                 );
@@ -262,7 +262,7 @@ fn handle_collision(
         } else {
             velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
-                &stay_on_floor_bounds,
+                &stay_on_ground_bounds,
                 &mut velocity_info.average_velocity,
                 Some(&mut velocity_info.final_velocity),
             );
@@ -270,20 +270,20 @@ fn handle_collision(
 
         *ground_normal = Some(collision.normal);
     } else {
-        let mut stay_on_floor_bounds = Vec::new();
+        let mut stay_on_ground_bounds = Vec::new();
         if let Some(ground_normal) = ground_normal {
-            stay_on_floor_bounds.push(VectorBound::new_pull(*ground_normal, *up));
+            stay_on_ground_bounds.push(VectorBound::new_pull(*ground_normal, *up));
         }
         velocity_info.bounds.add_and_apply_bound(
             VectorBound::new_push(collision.normal, collision.normal),
-            &stay_on_floor_bounds,
+            &stay_on_ground_bounds,
             &mut velocity_info.average_velocity,
             Some(&mut velocity_info.final_velocity),
         );
     }
 }
 
-fn is_floor(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
+fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
     normal.dot(up) > min_slope_up_component
 }
@@ -311,7 +311,7 @@ fn get_ground_normal(
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision.as_ref() {
-            if is_floor(up, max_slope, &collision.normal) {
+            if is_ground(up, max_slope, &collision.normal) {
                 return Some(collision.normal);
             }
             bounds.add_and_apply_bound(
