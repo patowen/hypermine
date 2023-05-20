@@ -13,6 +13,7 @@ use crate::{
     sanitize_motion_input, SimConfig,
 };
 
+/// Runs a single step of character movement
 pub fn run_character_step(
     cfg: &SimConfig,
     graph: &DualGraph,
@@ -28,6 +29,7 @@ pub fn run_character_step(
         *velocity = movement * cfg.no_clip_movement_speed;
         position.local *= math::translate_along(&(*velocity * dt_seconds));
     } else {
+        // Initialize current state
         let collision_context = CollisionContext {
             graph,
             chunk_layout: ChunkLayout::new(cfg.chunk_size as usize),
@@ -36,7 +38,6 @@ pub fn run_character_step(
 
         let up = get_relative_up(graph, position);
 
-        // Initialize ground_normal
         let mut ground_normal = None;
         if *on_ground {
             ground_normal = get_ground_normal(
@@ -48,7 +49,7 @@ pub fn run_character_step(
             );
         }
 
-        // Jump if appropriate
+        // Handle jumping
         if input.jump && ground_normal.is_some() {
             let horizontal_velocity = *velocity - *up * up.dot(velocity);
             *velocity = horizontal_velocity + *up * cfg.jump_speed;
@@ -90,6 +91,7 @@ pub fn run_character_step(
         //    stop moving after releasing a direction key.
         let average_velocity = (*velocity + old_velocity) * 0.5;
 
+        // Handle actual movement
         apply_velocity(
             &collision_context,
             &up,
@@ -113,6 +115,7 @@ pub fn run_character_step(
     }
 }
 
+/// Updates the velocity based on user input assuming the character is on the ground
 fn apply_ground_controls(
     ground_acceleration: f32,
     max_ground_speed: f32,
@@ -122,6 +125,9 @@ fn apply_ground_controls(
     ground_normal: &na::UnitVector3<f32>,
     velocity: &mut na::Vector3<f32>,
 ) {
+    // Set `target_ground_velocity` to have a consistent magnitude regardless
+    // of the movement direction, but ensure that the horizontal direction matches
+    // the horizontal direction of the intended movement direction.
     let movement_norm = movement.norm();
     let target_ground_velocity = if movement_norm < 1e-16 {
         na::Vector3::zeros()
@@ -131,8 +137,15 @@ fn apply_ground_controls(
         unit_movement.try_normalize_mut(1e-16);
         unit_movement * movement_norm * max_ground_speed
     };
+
+    // Set `ground_velocity` to be the current velocity's ground-parallel component,
+    // using a basis that contains the up vector to ensure that the result is unaffected
+    // by gravity.
     let mut ground_velocity = *velocity;
     math::project_to_plane(&mut ground_velocity, ground_normal, up, 0.0);
+
+    // Adjust the ground-parallel component of the velocity vector to be closer to the
+    // target velocity.
     let current_to_target_velocity = target_ground_velocity - ground_velocity;
     let max_delta_velocity = ground_acceleration * dt_seconds;
     if current_to_target_velocity.norm_squared() > max_delta_velocity.powi(2) {
@@ -142,6 +155,7 @@ fn apply_ground_controls(
     }
 }
 
+/// Updates the velocity based on user input assuming the character is in the air
 fn apply_air_controls(
     air_acceleration: f32,
     dt_seconds: f32,
@@ -151,9 +165,9 @@ fn apply_air_controls(
     *velocity += movement * air_acceleration * dt_seconds;
 }
 
-/// Updates the position based on the given average velocity while handling collisions. Also updates the velocity
-/// based on collisions that occur.
-#[allow(clippy::too_many_arguments)] // TODO: Reduce argument count
+/// Updates the character's position based on the given average velocity while handling collisions.
+/// Also updates the velocity and ground normal based on collisions that occur.
+#[allow(clippy::too_many_arguments)] // TODO: Reduce argument count (Peer review feedback needed on how best to organize this)
 fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
@@ -215,6 +229,7 @@ fn apply_velocity(
     *velocity = velocity_info.final_velocity;
 }
 
+/// Updates character information based on the results of a single collision
 fn handle_collision(
     collision: Collision,
     up: &na::UnitVector3<f32>,
@@ -366,7 +381,9 @@ mod vector_bounds {
     impl VectorBounds {
         /// Initializes a `VectorBounds` with an empty list of bounds. The `initial_vector` is the first vector
         /// we expect these bounds to be applied to, a hint to determine what kind of error margin is needed
-        /// to prevent floating point approximation limits from causing phantom collisions.
+        /// to prevent floating point approximation limits from causing phantom collisions. Note that this
+        /// error margin is not needed if the resulting vector is zero, since no phantom collision can occur
+        /// if the character is stopped.
         pub fn new(initial_vector: &na::Vector3<f32>) -> Self {
             let error_margin = initial_vector.magnitude() * 1e-4;
 
@@ -418,6 +435,7 @@ mod vector_bounds {
             if !new_bound.check_vector(vector, self.error_margin) {
                 new_bound.constrain_vector(vector, self.error_margin);
                 if let Some(ref mut tagalong) = tagalong {
+                    // Note: The tagalong vector does not need an error margin.
                     new_bound.constrain_vector(tagalong, 0.0);
                 }
             }
