@@ -1,4 +1,3 @@
-use rand_distr::num_traits::Zero;
 use tracing::warn;
 
 use crate::{
@@ -12,7 +11,7 @@ use crate::{
     sanitize_motion_input, SimConfig,
 };
 
-use self::{bound_vector::VectorWithErrorMargin, collision::Collision};
+use self::collision::Collision;
 
 pub fn run_character_step(
     cfg: &SimConfig,
@@ -178,14 +177,13 @@ fn apply_velocity(
 
     let mut velocity_info = VelocityInfo {
         average_velocity: BoundVector::new(average_velocity),
-        final_velocity: VectorWithErrorMargin::new(*velocity),
+        final_velocity: *velocity,
         retcon: Some((average_velocity, *velocity)),
     };
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let expected_displacement =
-            velocity_info.average_velocity.inner.vector * remaining_dt_seconds;
+        let expected_displacement = velocity_info.average_velocity.inner * remaining_dt_seconds;
 
         let collision_result = check_collision(collision_context, position, &expected_displacement);
         position.local *= collision_result.displacement_transform;
@@ -207,7 +205,7 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = velocity_info.final_velocity.vector;
+    *velocity = velocity_info.final_velocity;
 }
 
 fn handle_collision(
@@ -226,7 +224,7 @@ fn handle_collision(
 
         if let Some(retcon) = velocity_info.retcon {
             let mut retcon_average_velocity = BoundVector::new(retcon.0);
-            let mut retcon_final_velocity = VectorWithErrorMargin::new(retcon.1);
+            let mut retcon_final_velocity = retcon.1;
             retcon_average_velocity
                 .add_temporary_bound(VectorBound::new_pull(collision.normal, *up));
             retcon_average_velocity.add_and_apply_bound(
@@ -262,12 +260,12 @@ fn handle_collision(
 /// the end of the timestep.
 struct VelocityInfo {
     average_velocity: BoundVector,
-    final_velocity: VectorWithErrorMargin,
+    final_velocity: na::Vector3<f32>,
     retcon: Option<(na::Vector3<f32>, na::Vector3<f32>)>, // TODO: Use a type and name that makes sense
 }
 
 impl VelocityInfo {
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut VectorWithErrorMargin> {
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut na::Vector3<f32>> {
         [&mut self.average_velocity.inner, &mut self.final_velocity].into_iter()
     }
 }
@@ -285,11 +283,8 @@ fn get_ground_normal(
     let mut allowed_displacement = BoundVector::new(-up.into_inner() * allowed_distance);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result = check_collision(
-            collision_context,
-            position,
-            &allowed_displacement.inner.vector,
-        );
+        let collision_result =
+            check_collision(collision_context, position, &allowed_displacement.inner);
         if let Some(collision) = collision_result.collision.as_ref() {
             if collision.normal.dot(up) > min_slope_up_component {
                 return Some(collision.normal);
@@ -342,14 +337,20 @@ mod bound_vector {
     use crate::math;
 
     pub struct BoundVector {
-        pub inner: VectorWithErrorMargin,
+        pub inner: na::Vector3<f32>,
+        error_margin: f32,
         bounds: VectorBounds,
     }
 
     impl BoundVector {
         pub fn new(inner: na::Vector3<f32>) -> Self {
+            // Corrective term to ensure that normals face away from any potential collision surfaces
+            const RELATIVE_EPSILON: f32 = 1e-4;
+            let error_margin = inner.magnitude() * RELATIVE_EPSILON;
+
             BoundVector {
-                inner: VectorWithErrorMargin::new(inner),
+                inner,
+                error_margin,
                 bounds: VectorBounds {
                     permanent_bounds: vec![],
                     temporary_bounds: vec![],
@@ -360,7 +361,7 @@ mod bound_vector {
         pub fn add_and_apply_bound(
             &mut self,
             new_bound: VectorBound,
-            tagalong: Option<&mut VectorWithErrorMargin>,
+            tagalong: Option<&mut na::Vector3<f32>>,
         ) {
             self.apply_bound(&new_bound, tagalong);
             self.bounds.permanent_bounds.push(new_bound);
@@ -369,30 +370,26 @@ mod bound_vector {
         fn apply_bound(
             &mut self,
             new_bound: &VectorBound,
-            mut tagalong: Option<&mut VectorWithErrorMargin>,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
-            if self.inner.vector.is_zero()
-                || new_bound.check_vector(&self.inner.vector, self.inner.error_margin)
-            {
+            if self.inner.is_zero() || new_bound.check_vector(&self.inner, self.error_margin) {
                 return;
             }
 
-            new_bound.constrain_vector(&mut self.inner.vector, self.inner.error_margin);
+            new_bound.constrain_vector(&mut self.inner, self.error_margin);
             if let Some(ref mut tagalong) = tagalong {
-                new_bound.constrain_vector(&mut tagalong.vector, 0.0);
+                new_bound.constrain_vector(tagalong, 0.0);
             }
 
             // Check if all constraints are satisfied
-            if (self.bounds.iter())
-                .all(|b| b.check_vector(&self.inner.vector, self.inner.error_margin))
-            {
+            if (self.bounds.iter()).all(|b| b.check_vector(&self.inner, self.error_margin)) {
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in (self.bounds.iter())
-                .filter(|b| !b.check_vector(&self.inner.vector, self.inner.error_margin))
+            for bound in
+                (self.bounds.iter()).filter(|b| !b.check_vector(&self.inner, self.error_margin))
             {
                 let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
@@ -400,24 +397,22 @@ mod bound_vector {
                     continue;
                 };
 
-                let mut candidate = self.inner.clone();
-                ortho_bound.constrain_vector(&mut candidate.vector, candidate.error_margin);
+                let mut candidate = self.inner;
+                ortho_bound.constrain_vector(&mut candidate, self.error_margin);
 
-                if (self.bounds.iter())
-                    .all(|b| b.check_vector(&candidate.vector, candidate.error_margin))
-                {
+                if (self.bounds.iter()).all(|b| b.check_vector(&candidate, self.error_margin)) {
                     self.inner = candidate;
                     if let Some(ref mut tagalong) = tagalong {
-                        ortho_bound.constrain_vector(&mut tagalong.vector, 0.0);
+                        ortho_bound.constrain_vector(tagalong, 0.0);
                     }
                     return;
                 }
             }
 
             // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-            self.inner.vector.set_zero();
+            self.inner.set_zero();
             if let Some(ref mut tagalong) = tagalong {
-                tagalong.vector.set_zero();
+                tagalong.set_zero();
             }
         }
 
@@ -432,7 +427,7 @@ mod bound_vector {
         pub fn reapply_bounds(
             &mut self,
             other: &BoundVector,
-            mut tagalong: Option<&mut VectorWithErrorMargin>,
+            mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
             for bound in other.bounds.permanent_bounds.iter() {
                 self.add_and_apply_bound(bound.clone(), tagalong.as_deref_mut());
@@ -510,25 +505,6 @@ mod bound_vector {
 
         // If no choice satisfies all constraints, keep all bounds and set the vector to 0
         subject.set_zero();
-    }
-
-    #[derive(Clone)]
-    pub struct VectorWithErrorMargin {
-        pub vector: na::Vector3<f32>,
-        pub error_margin: f32,
-    }
-
-    impl VectorWithErrorMargin {
-        pub fn new(vector: na::Vector3<f32>) -> Self {
-            // Corrective term to ensure that normals face away from any potential collision surfaces
-            const RELATIVE_EPSILON: f32 = 1e-4;
-
-            let error_margin = vector.magnitude() * RELATIVE_EPSILON;
-            VectorWithErrorMargin {
-                vector,
-                error_margin,
-            }
-        }
     }
 
     struct VectorBounds {
