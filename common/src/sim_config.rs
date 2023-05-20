@@ -30,8 +30,8 @@ pub struct SimConfigRaw {
     pub max_ground_speed: Option<f32>,
     /// Character artificial speed cap to avoid overloading the server in m/s
     pub speed_cap: Option<f32>,
-    /// Maximum floor slope (0=horizontal, 1=45 degrees)
-    pub max_floor_slope: Option<f32>,
+    /// Maximum ground slope (0=horizontal, 1=45 degrees)
+    pub max_ground_slope: Option<f32>,
     /// Character acceleration while on the ground in m/s^2
     pub ground_acceleration: Option<f32>,
     /// Character acceleration while in the air in m/s^2
@@ -59,7 +59,7 @@ pub struct SimConfig {
     pub no_clip_movement_speed: f32,
     pub max_ground_speed: f32,
     pub speed_cap: f32,
-    pub max_floor_slope: f32,
+    pub max_ground_slope: f32,
     pub ground_acceleration: f32,
     pub air_acceleration: f32,
     pub gravity_acceleration: f32,
@@ -84,13 +84,14 @@ impl SimConfig {
             no_clip_movement_speed: x.no_clip_movement_speed.unwrap_or(12.0) * meters_to_absolute,
             max_ground_speed: x.max_ground_speed.unwrap_or(4.0) * meters_to_absolute,
             speed_cap: x.speed_cap.unwrap_or(30.0) * meters_to_absolute,
-            max_floor_slope: x.max_floor_slope.unwrap_or(1.73), // 60 degrees
+            max_ground_slope: x.max_ground_slope.unwrap_or(1.73), // 60 degrees
             ground_acceleration: x.ground_acceleration.unwrap_or(20.0) * meters_to_absolute,
             air_acceleration: x.air_acceleration.unwrap_or(2.0) * meters_to_absolute,
             gravity_acceleration: x.gravity_acceleration.unwrap_or(20.0) * meters_to_absolute,
             air_resistance: x.air_resistance.unwrap_or(0.2),
             jump_speed: x.jump_speed.unwrap_or(8.0) * meters_to_absolute,
-            ground_distance_tolerance: x.ground_distance_tolerance.unwrap_or(0.2) * meters_to_absolute,
+            ground_distance_tolerance: x.ground_distance_tolerance.unwrap_or(0.2)
+                * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
             meters_to_absolute,
         }
