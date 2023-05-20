@@ -227,29 +227,30 @@ fn handle_collision(
     let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
 
     if collision.normal.dot(up) > min_slope_up_component {
-        // TODO: Properly scale velocity with apply_ground_normal change during retcon
-
+        let stay_on_floor_bounds = [VectorBound::new_pull(collision.normal, *up)];
         if !*ground_collision_handled {
             let mut new_velocity_info = initial_velocity_info.clone();
             new_velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
-                &[VectorBound::new_pull(collision.normal, *up)],
+                &stay_on_floor_bounds,
                 &mut new_velocity_info.average_velocity,
                 Some(&mut new_velocity_info.final_velocity),
             );
-            new_velocity_info.bounds.reapply_bounds(
-                &velocity_info.bounds,
-                &[VectorBound::new_pull(collision.normal, *up)],
-                &mut new_velocity_info.average_velocity,
-                Some(&mut new_velocity_info.final_velocity),
-            );
+            for bound in velocity_info.bounds.bounds() {
+                new_velocity_info.bounds.add_and_apply_bound(
+                    bound.clone(),
+                    &stay_on_floor_bounds,
+                    &mut new_velocity_info.average_velocity,
+                    Some(&mut new_velocity_info.final_velocity),
+                );
+            }
             *velocity_info = new_velocity_info;
 
             *ground_collision_handled = true;
         } else {
             velocity_info.bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
-                &[VectorBound::new_pull(collision.normal, *up)],
+                &stay_on_floor_bounds,
                 &mut velocity_info.average_velocity,
                 Some(&mut velocity_info.final_velocity),
             );
@@ -276,12 +277,6 @@ struct VelocityInfo {
     bounds: VectorBounds,
     average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
-}
-
-impl VelocityInfo {
-    fn iter_mut(&mut self) -> impl Iterator<Item = &mut na::Vector3<f32>> {
-        [&mut self.average_velocity, &mut self.final_velocity].into_iter()
-    }
 }
 
 fn get_ground_normal(
@@ -330,22 +325,6 @@ fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f3
     )
 }
 
-fn apply_ground_normal_change(
-    up: &na::UnitVector3<f32>,
-    new_ground_normal: &na::UnitVector3<f32>,
-    subject: &mut na::Vector3<f32>,
-) {
-    // Try to keep the horizontal component constant. Update the vertical component to ensure
-    // the subject is parallel to the ground, and scale the vector to undo any change in magnitude.
-    let subject_norm = subject.norm();
-    if subject_norm > 1e-16 {
-        let mut unit_subject = *subject / subject_norm;
-        math::project_to_plane(&mut unit_subject, new_ground_normal, up, 0.0);
-        unit_subject.try_normalize_mut(1e-16);
-        *subject = unit_subject * subject_norm;
-    }
-}
-
 mod bound_vector {
     use rand_distr::num_traits::Zero;
     use tracing::warn;
@@ -370,6 +349,10 @@ mod bound_vector {
             }
         }
 
+        pub fn bounds(&self) -> &[VectorBound] {
+            &self.bounds
+        }
+
         pub fn add_and_apply_bound(
             &mut self,
             new_bound: VectorBound,
@@ -390,13 +373,12 @@ mod bound_vector {
         ) {
             let bounds_iter = self.bounds.iter().chain(temporary_bounds.iter());
 
-            if new_bound.check_vector(vector, self.error_margin) {
-                return;
-            }
-
-            new_bound.constrain_vector(vector, self.error_margin);
-            if let Some(ref mut tagalong) = tagalong {
-                new_bound.constrain_vector(tagalong, 0.0);
+            // Apply new_bound if necessary.
+            if !new_bound.check_vector(vector, self.error_margin) {
+                new_bound.constrain_vector(vector, self.error_margin);
+                if let Some(ref mut tagalong) = tagalong {
+                    new_bound.constrain_vector(tagalong, 0.0);
+                }
             }
 
             // Check if all constraints are satisfied
@@ -431,23 +413,6 @@ mod bound_vector {
             vector.set_zero();
             if let Some(ref mut tagalong) = tagalong {
                 tagalong.set_zero();
-            }
-        }
-
-        pub fn reapply_bounds(
-            &mut self,
-            other: &VectorBounds,
-            temporary_bounds: &[VectorBound],
-            vector: &mut na::Vector3<f32>,
-            mut tagalong: Option<&mut na::Vector3<f32>>,
-        ) {
-            for bound in other.bounds.iter() {
-                self.add_and_apply_bound(
-                    bound.clone(),
-                    temporary_bounds,
-                    vector,
-                    tagalong.as_deref_mut(),
-                );
             }
         }
     }
