@@ -227,14 +227,15 @@ fn handle_collision(
             let mut retcon_average_velocity = retcon.0;
             let mut retcon_final_velocity = retcon.1;
             let mut retcon_bounds = VectorBounds::new(&retcon_average_velocity);
-            retcon_bounds.add_temporary_bound(VectorBound::new_pull(collision.normal, *up));
             retcon_bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, *up),
+                &[VectorBound::new_pull(collision.normal, *up)],
                 &mut retcon_average_velocity,
                 Some(&mut retcon_final_velocity),
             );
             retcon_bounds.reapply_bounds(
                 &velocity_info.bounds,
+                &[VectorBound::new_pull(collision.normal, *up)],
                 &mut retcon_average_velocity,
                 Some(&mut retcon_final_velocity),
             );
@@ -248,17 +249,17 @@ fn handle_collision(
         push_direction = up; // TODO: Don't apply the same ground normal twice
     }
 
+    let mut temporary_bounds = vec![];
     if let Some(ground_normal) = ground_normal {
-        velocity_info
-            .bounds
-            .add_temporary_bound(VectorBound::new_pull(*ground_normal, *up));
+        temporary_bounds.push(VectorBound::new_pull(*ground_normal, *up));
     }
+
     velocity_info.bounds.add_and_apply_bound(
         VectorBound::new_push(collision.normal, *push_direction),
+        &temporary_bounds,
         &mut velocity_info.average_velocity,
         Some(&mut velocity_info.final_velocity),
     );
-    velocity_info.bounds.remove_temporary_bounds();
 }
 
 /// Contains info related to the average velocity over the timestep and the current velocity at
@@ -297,6 +298,7 @@ fn get_ground_normal(
             }
             bounds.add_and_apply_bound(
                 VectorBound::new_push(collision.normal, collision.normal),
+                &[],
                 &mut allowed_displacement,
                 None,
             );
@@ -416,8 +418,7 @@ mod bound_vector {
     }
 
     pub struct VectorBounds {
-        permanent_bounds: Vec<VectorBound>,
-        temporary_bounds: Vec<VectorBound>,
+        bounds: Vec<VectorBound>,
         error_margin: f32,
     }
 
@@ -428,32 +429,31 @@ mod bound_vector {
             let error_margin = initial_vector.magnitude() * RELATIVE_EPSILON;
 
             VectorBounds {
-                permanent_bounds: vec![],
-                temporary_bounds: vec![],
+                bounds: vec![],
                 error_margin,
             }
-        }
-
-        fn iter(&self) -> impl Iterator<Item = &VectorBound> {
-            self.permanent_bounds.iter().chain(&self.temporary_bounds)
         }
 
         pub fn add_and_apply_bound(
             &mut self,
             new_bound: VectorBound,
+            temporary_bounds: &[VectorBound],
             vector: &mut na::Vector3<f32>,
             tagalong: Option<&mut na::Vector3<f32>>,
         ) {
-            self.apply_bound(&new_bound, vector, tagalong);
-            self.permanent_bounds.push(new_bound);
+            self.apply_bound(&new_bound, temporary_bounds, vector, tagalong);
+            self.bounds.push(new_bound);
         }
 
         fn apply_bound(
             &self,
             new_bound: &VectorBound,
+            temporary_bounds: &[VectorBound],
             vector: &mut na::Vector3<f32>,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
+            let bounds_iter = self.bounds.iter().chain(temporary_bounds.iter());
+
             if new_bound.check_vector(vector, self.error_margin) {
                 return;
             }
@@ -464,13 +464,15 @@ mod bound_vector {
             }
 
             // Check if all constraints are satisfied
-            if (self.iter()).all(|b| b.check_vector(vector, self.error_margin)) {
+            if (bounds_iter.clone()).all(|b| b.check_vector(vector, self.error_margin)) {
                 return;
             }
 
             // If not all constraints are satisfied, find the first constraint that if applied will satisfy
             // the remaining constriants
-            for bound in (self.iter()).filter(|b| !b.check_vector(vector, self.error_margin)) {
+            for bound in
+                (bounds_iter.clone()).filter(|b| !b.check_vector(vector, self.error_margin))
+            {
                 let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
@@ -480,7 +482,7 @@ mod bound_vector {
                 let mut candidate = *vector;
                 ortho_bound.constrain_vector(&mut candidate, self.error_margin);
 
-                if (self.iter()).all(|b| b.check_vector(&candidate, self.error_margin)) {
+                if (bounds_iter.clone()).all(|b| b.check_vector(&candidate, self.error_margin)) {
                     *vector = candidate;
                     if let Some(ref mut tagalong) = tagalong {
                         ortho_bound.constrain_vector(tagalong, 0.0);
@@ -496,22 +498,20 @@ mod bound_vector {
             }
         }
 
-        pub fn add_temporary_bound(&mut self, new_bound: VectorBound) {
-            self.temporary_bounds.push(new_bound);
-        }
-
-        pub fn remove_temporary_bounds(&mut self) {
-            self.temporary_bounds.clear();
-        }
-
         pub fn reapply_bounds(
             &mut self,
             other: &VectorBounds,
+            temporary_bounds: &[VectorBound],
             vector: &mut na::Vector3<f32>,
             mut tagalong: Option<&mut na::Vector3<f32>>,
         ) {
-            for bound in other.permanent_bounds.iter() {
-                self.add_and_apply_bound(bound.clone(), vector, tagalong.as_deref_mut());
+            for bound in other.bounds.iter() {
+                self.add_and_apply_bound(
+                    bound.clone(),
+                    temporary_bounds,
+                    vector,
+                    tagalong.as_deref_mut(),
+                );
             }
         }
     }
