@@ -271,17 +271,18 @@ fn handle_collision(
         }
 
         *ground_normal = Some(collision.normal);
+    } else {
+        let mut stay_on_floor_bounds = Vec::new();
+        if let Some(ground_normal) = ground_normal {
+            stay_on_floor_bounds.push(VectorBound::new_pull(*ground_normal, *up));
+        }
+        velocity_info.bounds.add_and_apply_bound(
+            VectorBound::new_push(collision.normal, collision.normal),
+            &stay_on_floor_bounds,
+            &mut velocity_info.average_velocity,
+            Some(&mut velocity_info.final_velocity),
+        );
     }
-
-    velocity_info.bounds.add_and_apply_bound(
-        VectorBound::new_push(collision.normal, collision.normal),
-        &ground_normal
-            .iter()
-            .map(|n| VectorBound::new_pull(*n, *up))
-            .collect::<Vec<_>>(),
-        &mut velocity_info.average_velocity,
-        Some(&mut velocity_info.final_velocity),
-    );
 }
 
 /// Contains info related to the average velocity over the timestep and the current velocity at
