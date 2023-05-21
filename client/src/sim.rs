@@ -139,23 +139,6 @@ impl Sim {
         }
     }
 
-    /// Returns an orientation quaternion that is as faithful as possible to the current orientation quaternion
-    /// while being restricted to ensuring the view is level and does not look up or down.
-    fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
-        let up =
-            self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
-
-        let forward = if up.x.abs() < 0.9 {
-            // Rotate the local forward vector about the locally horizontal axis until it is horizontal
-            na::Vector3::new(0.0, -up.z, up.y)
-        } else {
-            // Project the local forward vector to the level plane
-            na::Vector3::z() - up.into_inner() * up.z
-        };
-
-        self.orientation * na::UnitQuaternion::face_towards(&forward, &up)
-    }
-
     pub fn set_movement_input(&mut self, mut raw_movement_input: na::Vector3<f32>) {
         if !self.no_clip {
             // Vertical movement keys shouldn't do anything unless no-clip is on.
@@ -486,6 +469,23 @@ impl Sim {
         }
 
         self.view_position = view_position;
+    }
+
+    /// Returns an orientation quaternion that is as faithful as possible to the current orientation quaternion
+    /// while being restricted to ensuring the view is level and does not look up or down.
+    fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
+        let up =
+            self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
+
+        let forward = if up.x.abs() < 0.9 {
+            // Rotate the local forward vector about the locally horizontal axis until it is horizontal
+            na::Vector3::new(0.0, -up.z, up.y)
+        } else {
+            // Project the local forward vector to the level plane
+            na::Vector3::z() - up.into_inner() * up.z
+        };
+
+        self.orientation * na::UnitQuaternion::face_towards(&forward, &up)
     }
 
     pub fn view(&self) -> Position {
