@@ -544,6 +544,40 @@ mod vector_bounds {
             })
         }
     }
+
+    #[cfg(test)]
+    mod tests {
+        use approx::assert_abs_diff_eq;
+
+        use super::*;
+
+        #[test]
+        fn constrain_vector_example() {
+            let normal = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 3.0, 4.0));
+            let projection_direction =
+                na::UnitVector3::new_normalize(na::Vector3::new(1.0, 2.0, 2.0));
+            let error_margin = 1e-4;
+            let bound = VectorBound::new_push(normal, projection_direction);
+
+            let initial_vector = na::Vector3::new(-4.0, -3.0, 1.0);
+
+            assert!(!bound.check_vector(&initial_vector, error_margin));
+
+            let mut constrined_vector = initial_vector;
+            bound.constrain_vector(&mut constrined_vector, error_margin);
+
+            assert!(bound.check_vector(&constrined_vector, error_margin));
+            // Check that (constrined_vector - initial_vector) faces the same direction as projection_direction.
+            // We don't care about sign, so normalizing both vectors and comparing doesn't work.
+            assert_abs_diff_eq!(
+                (constrined_vector - initial_vector)
+                    .cross(&projection_direction)
+                    .magnitude(),
+                0.0,
+                epsilon = 1e-5
+            )
+        }
+    }
 }
 
 /// This module is used to encapsulate character collision checking
