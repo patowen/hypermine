@@ -84,23 +84,20 @@ impl Sim {
         }
     }
 
-    pub fn rotate(&mut self, delta: &na::UnitQuaternion<f32>) {
-        self.orientation *= delta;
-    }
-
     /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.
-    pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32) {
+    pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32, delta_roll: f32) {
         if self.no_clip {
-            self.look_free(delta_yaw, delta_pitch);
+            self.look_free(delta_yaw, delta_pitch, delta_roll);
         } else {
             self.look_level(delta_yaw, delta_pitch);
         }
     }
 
     /// Rotates the camera's view by locally adding pitch and yaw.
-    fn look_free(&mut self, delta_yaw: f32, delta_pitch: f32) {
+    fn look_free(&mut self, delta_yaw: f32, delta_pitch: f32, delta_roll: f32) {
         self.orientation *= na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw)
-            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch);
+            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch)
+            * na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
     }
 
     /// Rotates the camera's view with standard first-person walking simulator mouse controls. This function
