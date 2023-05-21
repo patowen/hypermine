@@ -554,10 +554,61 @@ mod vector_bounds {
         use super::*;
 
         #[test]
+        fn vector_bound_group_example() {
+            let initial_vector = na::Vector3::new(-4.0, -3.0, 1.0);
+            let mut constrained_vector = initial_vector;
+
+            let mut bounds = VectorBoundGroup::new(&initial_vector);
+
+            // Add a bunch of bounds that are achievable with nonzero vectors
+            bounds.apply_and_add_bound(
+                VectorBound::new_push(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0)),
+                &[],
+                &mut constrained_vector,
+                None,
+            );
+
+            assert_ne!(constrained_vector, na::Vector3::zero());
+            assert_bounds_achieved(&bounds, &constrained_vector);
+
+            bounds.apply_and_add_bound(
+                VectorBound::new_push(unit_vector(2.0, -3.0, -4.0), unit_vector(1.0, -2.0, -1.0)),
+                &[],
+                &mut constrained_vector,
+                None,
+            );
+
+            assert_ne!(constrained_vector, na::Vector3::zero());
+            assert_bounds_achieved(&bounds, &constrained_vector);
+
+            bounds.apply_and_add_bound(
+                VectorBound::new_push(unit_vector(2.0, -3.0, -5.0), unit_vector(1.0, -2.0, -2.0)),
+                &[],
+                &mut constrained_vector,
+                None,
+            );
+
+            assert_ne!(constrained_vector, na::Vector3::zero());
+            assert_bounds_achieved(&bounds, &constrained_vector);
+
+            // Finally, add a bound that overconstrains the system
+            bounds.apply_and_add_bound(
+                VectorBound::new_push(unit_vector(-3.0, 3.0, -2.0), unit_vector(-3.0, 3.0, -2.0)),
+                &[],
+                &mut constrained_vector,
+                None,
+            );
+
+            // Using assert_eq instead of assert_ne here
+            assert_eq!(constrained_vector, na::Vector3::zero());
+            // Special logic allows bounds checking to work with the zero vector
+            assert_bounds_achieved(&bounds, &constrained_vector);
+        }
+
+        #[test]
         fn constrain_vector_example() {
-            let normal = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 3.0, 4.0));
-            let projection_direction =
-                na::UnitVector3::new_normalize(na::Vector3::new(1.0, 2.0, 2.0));
+            let normal = unit_vector(1.0, 3.0, 4.0);
+            let projection_direction = unit_vector(1.0, 2.0, 2.0);
             let error_margin = 1e-4;
             let bound = VectorBound::new_push(normal, projection_direction);
 
@@ -579,13 +630,11 @@ mod vector_bounds {
         #[test]
         fn get_self_constrained_with_bound_example() {
             // For simplicity, we test with an error margin of 0.
-            let normal0 = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 3.0, 4.0));
-            let projection_direction0 =
-                na::UnitVector3::new_normalize(na::Vector3::new(1.0, 2.0, 2.0));
+            let normal0 = unit_vector(1.0, 3.0, 4.0);
+            let projection_direction0 = unit_vector(1.0, 2.0, 2.0);
 
-            let normal1 = na::UnitVector3::new_normalize(na::Vector3::new(1.0, -4.0, 3.0));
-            let projection_direction1 =
-                na::UnitVector3::new_normalize(na::Vector3::new(1.0, -2.0, 1.0));
+            let normal1 = unit_vector(1.0, -4.0, 3.0);
+            let projection_direction1 = unit_vector(1.0, -2.0, 1.0);
 
             let bound0 = VectorBound::new_push(normal0, projection_direction0);
             let bound1 = VectorBound::new_push(normal1, projection_direction1);
@@ -612,12 +661,23 @@ mod vector_bounds {
             );
         }
 
+        fn assert_bounds_achieved(bounds: &VectorBoundGroup, subject: &na::Vector3<f32>) {
+            for bound in bounds.bounds() {
+                assert!(bound.check_vector(subject, bounds.error_margin));
+            }
+        }
+
         fn assert_collinear(v0: na::Vector3<f32>, v1: na::Vector3<f32>, epsilon: f32) {
             assert_abs_diff_eq!(
                 v0.normalize(),
                 v1.normalize() * (v0.dot(&v1)).signum(),
                 epsilon = epsilon
             );
+        }
+
+        /// Unit vector
+        fn unit_vector(x: f32, y: f32, z: f32) -> na::UnitVector3<f32> {
+            na::UnitVector3::new_normalize(na::Vector3::new(x, y, z))
         }
     }
 }
