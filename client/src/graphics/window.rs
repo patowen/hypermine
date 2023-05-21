@@ -118,7 +118,6 @@ impl Window {
         let mut up = false;
         let mut down = false;
         let mut jump = false;
-        let mut jump_sticky = false;
         let mut clockwise = false;
         let mut anticlockwise = false;
         let mut last_frame = Instant::now();
@@ -135,8 +134,7 @@ impl Window {
                         up as u8 as f32 - down as u8 as f32,
                         back as u8 as f32 - forward as u8 as f32,
                     ));
-                    self.sim.set_jump(jump || jump_sticky);
-                    jump_sticky = false;
+                    self.sim.set_jump_held(jump);
 
                     self.sim.rotate(&na::UnitQuaternion::from_axis_angle(
                         &-na::Vector3::z_axis(),
@@ -224,8 +222,10 @@ impl Window {
                             down = state == ElementState::Pressed;
                         }
                         VirtualKeyCode::Space => {
+                            if !jump {
+                                self.sim.set_jump_pressed_true();
+                            }
                             jump = state == ElementState::Pressed;
-                            jump_sticky = jump || jump_sticky;
                         }
                         VirtualKeyCode::V if state == ElementState::Pressed => {
                             self.sim.toggle_no_clip();
