@@ -256,14 +256,14 @@ fn handle_collision(
             // the ground collision was first. This is only necessary for the first ground collision, since
             // afterwards, there is no more unexpected vertical momentum.
             let old_velocity_info = replace(velocity_info, initial_velocity_info.clone());
-            velocity_info.bounds.add_and_apply_bound(
+            velocity_info.bounds.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, *up),
                 &stay_on_ground_bounds,
                 &mut velocity_info.average_velocity,
                 Some(&mut velocity_info.final_velocity),
             );
             for bound in old_velocity_info.bounds.bounds() {
-                velocity_info.bounds.add_and_apply_bound(
+                velocity_info.bounds.apply_and_add_bound(
                     bound.clone(),
                     &stay_on_ground_bounds,
                     &mut velocity_info.average_velocity,
@@ -273,7 +273,7 @@ fn handle_collision(
 
             *ground_collision_handled = true;
         } else {
-            velocity_info.bounds.add_and_apply_bound(
+            velocity_info.bounds.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, *up),
                 &stay_on_ground_bounds,
                 &mut velocity_info.average_velocity,
@@ -287,7 +287,7 @@ fn handle_collision(
         if let Some(ground_normal) = ground_normal {
             stay_on_ground_bounds.push(VectorBound::new_pull(*ground_normal, *up));
         }
-        velocity_info.bounds.add_and_apply_bound(
+        velocity_info.bounds.apply_and_add_bound(
             VectorBound::new_push(collision.normal, collision.normal),
             &stay_on_ground_bounds,
             &mut velocity_info.average_velocity,
@@ -335,7 +335,7 @@ fn get_ground_normal(
                 // We found the ground, so return its normal.
                 return Some(collision.normal);
             }
-            bounds.add_and_apply_bound(
+            bounds.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, collision.normal),
                 &[],
                 &mut allowed_displacement,
@@ -387,7 +387,7 @@ mod vector_bounds {
         /// Constrains `vector` with `new_bound` while keeping the existing constraints and any constraints in
         /// `temporary_bounds` satisfied. All projection transformations applied to `vector` are also applied
         /// to `tagalong` to allow two vectors to be transformed consistently with each other.
-        pub fn add_and_apply_bound(
+        pub fn apply_and_add_bound(
             &mut self,
             new_bound: VectorBound,
             temporary_bounds: &[VectorBound],
@@ -398,7 +398,7 @@ mod vector_bounds {
             self.bounds.push(new_bound);
         }
 
-        /// Helper function to logically separate the "add" and the "apply" in `add_and_apply_bound` function.
+        /// Helper function to logically separate the "add" and the "apply" in `apply_and_add_bound` function.
         fn apply_bound(
             &self,
             new_bound: &VectorBound,
