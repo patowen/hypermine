@@ -89,7 +89,7 @@ impl Sim {
         if self.no_clip {
             self.look_free(delta_yaw, delta_pitch);
         } else {
-            self.look_with_gravity(delta_yaw, delta_pitch);
+            self.look_level(delta_yaw, delta_pitch);
         }
     }
 
@@ -102,7 +102,7 @@ impl Sim {
     /// Rotates the camera's view with standard first-person walking simulator mouse controls. This function
     /// is designed to be flexible enough to work with any starting orientation, but it works best when the
     /// camera is level, not rolled to the left or right.
-    fn look_with_gravity(&mut self, delta_yaw: f32, delta_pitch: f32) {
+    fn look_level(&mut self, delta_yaw: f32, delta_pitch: f32) {
         let up =
             self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
 
@@ -138,17 +138,21 @@ impl Sim {
         }
     }
 
+    /// Returns an orientation quaternion that is as faithful as possible to the current orientation quaternion
+    /// while being restricted to ensuring the view is level and does not look up or down.
     fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
         let up =
             self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
 
-        if up.x.abs() < 0.9 {
-            let current_pitch = -up.z.atan2(up.y);
-            self.orientation
-                * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), -current_pitch)
+        let forward = if up.x.abs() < 0.9 {
+            // Rotate the local forward vector about the locally horizontal axis until it is horizontal
+            na::Vector3::new(0.0, -up.z, up.y)
         } else {
-            self.orientation
-        }
+            // Project the local forward vector to the level plane
+            na::Vector3::z() - up.into_inner() * up.z
+        };
+
+        self.orientation * na::UnitQuaternion::face_towards(&forward, &up)
     }
 
     pub fn set_movement_input(&mut self, mut raw_movement_input: na::Vector3<f32>) {
