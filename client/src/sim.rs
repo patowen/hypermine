@@ -8,6 +8,7 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
     graph::{Graph, NodeId},
+    math,
     node::{populate_fresh_nodes, DualGraph},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
@@ -471,9 +472,10 @@ impl Sim {
 
         // Rotate the player orientation to stay consistent with changes in gravity
         if !self.no_clip {
-            self.orientation = na::UnitQuaternion::rotation_between_axis(
+            self.orientation = math::rotation_between_axis(
                 &self.graph.get_relative_up(&self.view_position).unwrap(),
                 &self.graph.get_relative_up(&view_position).unwrap(),
+                1e-5,
             )
             .unwrap_or(na::UnitQuaternion::identity())
                 * self.orientation;
