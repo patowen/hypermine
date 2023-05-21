@@ -323,4 +323,13 @@ mod tests {
         project_to_plane(&mut subject, &normal, &projection_direction, distance);
         assert_abs_diff_eq!(normal.dot(&subject), distance, epsilon = 1.0e-5);
     }
+
+    #[test]
+    fn rotation_between_axis_example() {
+        let from = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 1.0, 3.0));
+        let to = na::UnitVector3::new_normalize(na::Vector3::new(2.0, 3.0, 2.0));
+        let expected = na::UnitQuaternion::rotation_between_axis(&from, &to).unwrap();
+        let actual = rotation_between_axis(&from, &to, 1e-5).unwrap();
+        assert_abs_diff_eq!(expected, actual, epsilon = 1.0e-5);
+    }
 }
