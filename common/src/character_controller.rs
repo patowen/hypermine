@@ -515,7 +515,9 @@ mod vector_bounds {
             );
         }
 
-        /// Checks whether `subject` satisfies the constraint given by `self`.
+        /// Checks whether `subject` satisfies the constraint given by `self`. Note that `check_vector` will
+        /// return `true` after a vector is constrained by `constrain_vector` with the same error margin, even
+        /// if it's perturbed slightly. However, that property only holds if the error margin is not too small.
         fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
             // An additional margin of error is needed when the bound is checked to ensure that an
             // applied bound always passes the check.
@@ -567,15 +569,55 @@ mod vector_bounds {
             bound.constrain_vector(&mut constrined_vector, error_margin);
 
             assert!(bound.check_vector(&constrined_vector, error_margin));
-            // Check that (constrined_vector - initial_vector) faces the same direction as projection_direction.
-            // We don't care about sign, so normalizing both vectors and comparing doesn't work.
+            assert_collinear(
+                constrined_vector - initial_vector,
+                projection_direction.into_inner(),
+                1e-5,
+            );
+        }
+
+        #[test]
+        fn get_self_constrained_with_bound_example() {
+            // For simplicity, we test with an error margin of 0.
+            let normal0 = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 3.0, 4.0));
+            let projection_direction0 =
+                na::UnitVector3::new_normalize(na::Vector3::new(1.0, 2.0, 2.0));
+
+            let normal1 = na::UnitVector3::new_normalize(na::Vector3::new(1.0, -4.0, 3.0));
+            let projection_direction1 =
+                na::UnitVector3::new_normalize(na::Vector3::new(1.0, -2.0, 1.0));
+
+            let bound0 = VectorBound::new_push(normal0, projection_direction0);
+            let bound1 = VectorBound::new_push(normal1, projection_direction1);
+
+            let initial_vector = na::Vector3::new(2.0, -1.0, -3.0);
+            let mut constrained_vector = initial_vector;
+            bound0.constrain_vector(&mut constrained_vector, 0.0);
+
+            let ortho_bound1 = bound1.get_self_constrained_with_bound(&bound0).unwrap();
+            ortho_bound1.constrain_vector(&mut constrained_vector, 0.0);
+
+            // Check that the constrained vector is on the intersection between the two bound planes
+            assert_abs_diff_eq!(constrained_vector.dot(&normal0), 0.0, epsilon = 1e-5);
+            assert_abs_diff_eq!(constrained_vector.dot(&normal1), 0.0, epsilon = 1e-5);
+
+            // Check that the delta of the constrained vector is a linear combination of the projection directions.
+            // To do this, we check whether the vector is orthogonal to the normal of the plane produced by the two
+            // projection directions.
             assert_abs_diff_eq!(
-                (constrined_vector - initial_vector)
-                    .cross(&projection_direction)
-                    .magnitude(),
+                (constrained_vector - initial_vector)
+                    .dot(&projection_direction0.cross(&projection_direction1)),
                 0.0,
                 epsilon = 1e-5
-            )
+            );
+        }
+
+        fn assert_collinear(v0: na::Vector3<f32>, v1: na::Vector3<f32>, epsilon: f32) {
+            assert_abs_diff_eq!(
+                v0.normalize(),
+                v1.normalize() * (v0.dot(&v1)).signum(),
+                epsilon = epsilon
+            );
         }
     }
 }
