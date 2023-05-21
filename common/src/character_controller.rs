@@ -115,6 +115,51 @@ pub fn run_character_step(
     }
 }
 
+/// Returns the normal corresponding to the ground below the character, up to the `allowed_distance`. If
+/// no such ground exists, returns `None`.
+fn get_ground_normal(
+    collision_context: &CollisionContext,
+    up: &na::UnitVector3<f32>,
+    max_slope: f32,
+    allowed_distance: f32,
+    position: &Position,
+) -> Option<na::UnitVector3<f32>> {
+    // Since the character can be at a corner between a slanted wall and the ground, the first collision
+    // directly below the character is not guaranteed to be part of the ground regardless of whether the
+    // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
+    // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
+    const MAX_COLLISION_ITERATIONS: u32 = 6;
+    let mut allowed_displacement = -up.into_inner() * allowed_distance;
+    let mut bounds = VectorBoundGroup::new(&allowed_displacement);
+
+    for _ in 0..MAX_COLLISION_ITERATIONS {
+        let collision_result = check_collision(collision_context, position, &allowed_displacement);
+        if let Some(collision) = collision_result.collision.as_ref() {
+            if is_ground(up, max_slope, &collision.normal) {
+                // We found the ground, so return its normal.
+                return Some(collision.normal);
+            }
+            bounds.apply_and_add_bound(
+                VectorBound::new_push(collision.normal, collision.normal),
+                &[],
+                &mut allowed_displacement,
+                None,
+            );
+        } else {
+            // Return `None` if we travel the whole `allowed_displacement` and don't find the ground.
+            return None;
+        }
+    }
+    // Return `None` if we fail to find the ground after the maximum number of attempts
+    None
+}
+
+/// Checks whether the given normal is flat enough to be considered part of the ground
+fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
+    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
+    normal.dot(up) > min_slope_up_component
+}
+
 /// Updates the velocity based on user input assuming the character is on the ground
 fn apply_ground_controls(
     ground_acceleration: f32,
@@ -296,12 +341,6 @@ fn handle_collision(
     }
 }
 
-/// Checks whether the given normal is flat enough to be considered part of the ground
-fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
-    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
-    normal.dot(up) > min_slope_up_component
-}
-
 /// Contains info related to the average velocity over the timestep and the current velocity at
 /// the end of the timestep.
 #[derive(Clone)]
@@ -309,45 +348,6 @@ struct VelocityInfo {
     bounds: VectorBoundGroup,
     average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
-}
-
-/// Returns the normal corresponding to the ground below the character, up to the `allowed_distance`. If
-/// no such ground exists, returns `None`.
-fn get_ground_normal(
-    collision_context: &CollisionContext,
-    up: &na::UnitVector3<f32>,
-    max_slope: f32,
-    allowed_distance: f32,
-    position: &Position,
-) -> Option<na::UnitVector3<f32>> {
-    // Since the character can be at a corner between a slanted wall and the ground, the first collision
-    // directly below the character is not guaranteed to be part of the ground regardless of whether the
-    // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
-    // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
-    const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let mut allowed_displacement = -up.into_inner() * allowed_distance;
-    let mut bounds = VectorBoundGroup::new(&allowed_displacement);
-
-    for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result = check_collision(collision_context, position, &allowed_displacement);
-        if let Some(collision) = collision_result.collision.as_ref() {
-            if is_ground(up, max_slope, &collision.normal) {
-                // We found the ground, so return its normal.
-                return Some(collision.normal);
-            }
-            bounds.apply_and_add_bound(
-                VectorBound::new_push(collision.normal, collision.normal),
-                &[],
-                &mut allowed_displacement,
-                None,
-            );
-        } else {
-            // Return `None` if we travel the whole `allowed_displacement` and don't find the ground.
-            return None;
-        }
-    }
-    // Return `None` if we fail to find the ground after the maximum number of attempts
-    None
 }
 
 /// This module is used to transform vectors to ensure that they fit constraints discovered during collision checking.
@@ -436,7 +436,7 @@ mod vector_bounds {
             for bound in
                 (bounds_iter.clone()).filter(|b| !b.check_vector(vector, self.error_margin))
             {
-                let Some(ortho_bound) = bound.get_constrained_with_bound(new_bound)
+                let Some(ortho_bound) = bound.get_self_constrained_with_bound(new_bound)
                 else {
                     warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                     continue;
@@ -504,26 +504,6 @@ mod vector_bounds {
             }
         }
 
-        /// Returns a `VectorBound` that is an altered version of `self` so that it no longer interferes
-        /// with `bound`. This is achieved by altering the projection direction by a factor of
-        /// `bound`'s projection direction to be orthogonal to `bound`'s normal. If this is not
-        /// possible, returns `None`.
-        fn get_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
-            let mut ortho_bound_projection_direction = self.projection_direction.into_inner();
-            math::project_to_plane(
-                &mut ortho_bound_projection_direction,
-                &bound.normal,
-                &bound.projection_direction,
-                0.0,
-            );
-
-            na::UnitVector3::try_new(ortho_bound_projection_direction, 1e-5).map(|d| VectorBound {
-                normal: self.normal,
-                projection_direction: d,
-                error_margin_factor: self.error_margin_factor,
-            })
-        }
-
         /// Updates `subject` with a projection transformation based on the constraint given by `self`.
         /// This function does not check whether such a constraint is needed.
         fn constrain_vector(&self, subject: &mut na::Vector3<f32>, error_margin: f32) {
@@ -542,6 +522,26 @@ mod vector_bounds {
             let error_margin_factor_for_check = self.error_margin_factor - 0.5;
             subject.is_zero()
                 || subject.dot(&self.normal) >= error_margin * error_margin_factor_for_check
+        }
+
+        /// Returns a `VectorBound` that is an altered version of `self` so that it no longer interferes
+        /// with `bound`. This is achieved by altering the projection direction by a factor of
+        /// `bound`'s projection direction to be orthogonal to `bound`'s normal. If this is not
+        /// possible, returns `None`.
+        fn get_self_constrained_with_bound(&self, bound: &VectorBound) -> Option<VectorBound> {
+            let mut ortho_bound_projection_direction = self.projection_direction.into_inner();
+            math::project_to_plane(
+                &mut ortho_bound_projection_direction,
+                &bound.normal,
+                &bound.projection_direction,
+                0.0,
+            );
+
+            na::UnitVector3::try_new(ortho_bound_projection_direction, 1e-5).map(|d| VectorBound {
+                normal: self.normal,
+                projection_direction: d,
+                error_margin_factor: self.error_margin_factor,
+            })
         }
     }
 }
