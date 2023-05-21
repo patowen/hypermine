@@ -36,7 +36,7 @@ pub fn run_character_step(
             radius: cfg.character_radius,
         };
 
-        let up = get_relative_up(graph, position);
+        let up = graph.get_relative_up(position).unwrap();
 
         let mut ground_normal = None;
         if *on_ground {
@@ -348,20 +348,6 @@ fn get_ground_normal(
     }
     // Return `None` if we fail to find the ground after the maximum number of attempts
     None
-}
-
-/// Returns the up-direction relative to the given position
-fn get_relative_up(graph: &DualGraph, position: &Position) -> na::UnitVector3<f32> {
-    na::UnitVector3::new_normalize(
-        (math::mtranspose(&position.local)
-            * graph
-                .get(position.node)
-                .as_ref()
-                .unwrap()
-                .state
-                .up_direction())
-        .xyz(),
-    )
 }
 
 /// This module is used to transform vectors to ensure that they fit constraints discovered during collision checking.
