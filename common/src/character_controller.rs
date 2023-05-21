@@ -5,7 +5,7 @@ use tracing::warn;
 use crate::{
     character_controller::{
         collision::{check_collision, Collision, CollisionContext},
-        vector_bounds::{VectorBound, VectorBounds},
+        vector_bounds::{VectorBound, VectorBoundGroup},
     },
     math,
     node::{ChunkLayout, DualGraph},
@@ -186,7 +186,7 @@ fn apply_velocity(
     let mut remaining_dt_seconds = dt_seconds;
 
     let initial_velocity_info = VelocityInfo {
-        bounds: VectorBounds::new(&average_velocity),
+        bounds: VectorBoundGroup::new(&average_velocity),
         average_velocity,
         final_velocity: *velocity,
     };
@@ -306,7 +306,7 @@ fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3
 /// the end of the timestep.
 #[derive(Clone)]
 struct VelocityInfo {
-    bounds: VectorBounds,
+    bounds: VectorBoundGroup,
     average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
 }
@@ -326,7 +326,7 @@ fn get_ground_normal(
     // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
     let mut allowed_displacement = -up.into_inner() * allowed_distance;
-    let mut bounds = VectorBounds::new(&allowed_displacement);
+    let mut bounds = VectorBoundGroup::new(&allowed_displacement);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
@@ -359,13 +359,13 @@ mod vector_bounds {
 
     /// Encapsulates all the information needed to constrain a vector based on a set of `VectorBound`s.
     #[derive(Clone)]
-    pub struct VectorBounds {
+    pub struct VectorBoundGroup {
         bounds: Vec<VectorBound>,
         error_margin: f32,
     }
 
-    impl VectorBounds {
-        /// Initializes a `VectorBounds` with an empty list of bounds. The `initial_vector` is the first vector
+    impl VectorBoundGroup {
+        /// Initializes a `VectorBoundGroup` with an empty list of bounds. The `initial_vector` is the first vector
         /// we expect these bounds to be applied to, a hint to determine what kind of error margin is needed
         /// to prevent floating point approximation limits from causing phantom collisions. Note that this
         /// error margin is not needed if the resulting vector is zero, since no phantom collision can occur
@@ -373,13 +373,13 @@ mod vector_bounds {
         pub fn new(initial_vector: &na::Vector3<f32>) -> Self {
             let error_margin = initial_vector.magnitude() * 1e-4;
 
-            VectorBounds {
+            VectorBoundGroup {
                 bounds: vec![],
                 error_margin,
             }
         }
 
-        /// Returns the internal list of `VectorBound`s contained in the `VectorBounds` struct.
+        /// Returns the internal list of `VectorBound`s contained in the `VectorBoundGroup` struct.
         pub fn bounds(&self) -> &[VectorBound] {
             &self.bounds
         }
@@ -464,7 +464,7 @@ mod vector_bounds {
 
     /// Represents a single constraint for a vector. `VectorBound`s alone conceptually contain
     /// enough information to apply to a vector, but practically, one other piece of information
-    /// is needed: `error_margin`, which exists in `VectorBounds`.
+    /// is needed: `error_margin`, which exists in `VectorBoundGroup`.
     #[derive(Clone)]
     pub struct VectorBound {
         normal: na::UnitVector3<f32>,
