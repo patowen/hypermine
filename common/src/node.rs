@@ -5,9 +5,10 @@ use std::ops::{Index, IndexMut};
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
+use crate::proto::Position;
 use crate::world::Material;
 use crate::worldgen::NodeState;
-use crate::Chunks;
+use crate::{math, Chunks};
 
 pub type DualGraph = Graph<Node>;
 
@@ -32,10 +33,14 @@ impl DualGraph {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
 
-    /// Returns a vector in node coordinates that, if projected to be tangent to the hyperboloid at a point,
-    /// faces the "up" direction, opposite gravity. This vector is not necessarily normalized.
-    pub fn up_direction(&self, node: NodeId) -> Option<na::Vector4<f32>> {
-        Some(self.get(node).as_ref()?.state.up_direction())
+    /// Returns the up-direction relative to the given position, or `None` if the
+    /// position is in an unpopulated node.
+    pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
+        self.get(position.node).as_ref().map(|n| {
+            na::UnitVector3::new_normalize(
+                (math::mtranspose(&position.local) * n.state.up_direction()).xyz(),
+            )
+        })
     }
 }
 

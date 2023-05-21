@@ -118,7 +118,6 @@ impl Window {
         let mut up = false;
         let mut down = false;
         let mut jump = false;
-        let mut jump_sticky = false;
         let mut clockwise = false;
         let mut anticlockwise = false;
         let mut last_frame = Instant::now();
@@ -135,15 +134,14 @@ impl Window {
                         up as u8 as f32 - down as u8 as f32,
                         back as u8 as f32 - forward as u8 as f32,
                     ));
-                    self.sim.set_jump(jump || jump_sticky);
-                    jump_sticky = false;
+                    self.sim.set_jump_held(jump);
 
-                    self.sim.rotate(&na::UnitQuaternion::from_axis_angle(
-                        &-na::Vector3::z_axis(),
-                        (clockwise as u8 as f32 - anticlockwise as u8 as f32)
-                            * 2.0
+                    self.sim.look(
+                        0.0,
+                        0.0,
+                        2.0 * (anticlockwise as u8 as f32 - clockwise as u8 as f32)
                             * dt.as_secs_f32(),
-                    ));
+                    );
 
                     let had_params = self.sim.params().is_some();
 
@@ -161,8 +159,11 @@ impl Window {
                 Event::DeviceEvent { event, .. } => match event {
                     DeviceEvent::MouseMotion { delta } if mouse_captured => {
                         const SENSITIVITY: f32 = 2e-3;
-                        self.sim
-                            .look(-delta.0 as f32 * SENSITIVITY, -delta.1 as f32 * SENSITIVITY);
+                        self.sim.look(
+                            -delta.0 as f32 * SENSITIVITY,
+                            -delta.1 as f32 * SENSITIVITY,
+                            0.0,
+                        );
                     }
                     _ => {}
                 },
@@ -236,8 +237,10 @@ impl Window {
                             down = state == ElementState::Pressed;
                         }
                         VirtualKeyCode::Space => {
+                            if !jump {
+                                self.sim.set_jump_pressed_true();
+                            }
                             jump = state == ElementState::Pressed;
-                            jump_sticky = jump || jump_sticky;
                         }
                         VirtualKeyCode::V if state == ElementState::Pressed => {
                             self.sim.toggle_no_clip();

@@ -142,14 +142,28 @@ pub fn mtranspose<N: RealField + Copy>(m: &na::Matrix4<N>) -> na::Matrix4<N> {
 /// general, only orthogonal when `normal` is equal to `projection_direction`.
 ///
 /// Precondition: For this to be possible, `projection_direction` cannot be orthogonal to `normal`.
-pub fn project_to_plane(
-    subject: &mut na::Vector3<f32>,
-    normal: &na::UnitVector3<f32>,
-    projection_direction: &na::UnitVector3<f32>,
-    distance: f32,
+pub fn project_to_plane<N: RealField + Copy>(
+    subject: &mut na::Vector3<N>,
+    normal: &na::UnitVector3<N>,
+    projection_direction: &na::UnitVector3<N>,
+    distance: N,
 ) {
     *subject += projection_direction.as_ref()
         * ((distance - subject.dot(normal)) / projection_direction.dot(normal));
+}
+
+/// Returns the UnitQuaternion that rotates the `from` vector to the `to` vector, or `None` if
+/// `from` and `to` face opposite directions such that their sum has norm less than `epsilon`.
+/// This version is more numerically stable than nalgebra's equivalent function.
+pub fn rotation_between_axis<N: RealField + Copy>(
+    from: &na::UnitVector3<N>,
+    to: &na::UnitVector3<N>,
+    epsilon: N,
+) -> Option<na::UnitQuaternion<N>> {
+    let angle_bisector = na::UnitVector3::try_new(from.into_inner() + to.into_inner(), epsilon)?;
+    Some(na::UnitQuaternion::new_unchecked(
+        na::Quaternion::from_parts(from.dot(&angle_bisector), from.cross(&angle_bisector)),
+    ))
 }
 
 fn minkowski_outer_product<N: RealField + Copy>(
@@ -308,5 +322,14 @@ mod tests {
         let mut subject = na::Vector3::new(-6.0, -3.0, 4.0);
         project_to_plane(&mut subject, &normal, &projection_direction, distance);
         assert_abs_diff_eq!(normal.dot(&subject), distance, epsilon = 1.0e-5);
+    }
+
+    #[test]
+    fn rotation_between_axis_example() {
+        let from = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 1.0, 3.0));
+        let to = na::UnitVector3::new_normalize(na::Vector3::new(2.0, 3.0, 2.0));
+        let expected = na::UnitQuaternion::rotation_between_axis(&from, &to).unwrap();
+        let actual = rotation_between_axis(&from, &to, 1e-5).unwrap();
+        assert_abs_diff_eq!(expected, actual, epsilon = 1.0e-5);
     }
 }
