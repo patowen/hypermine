@@ -26,8 +26,6 @@ pub fn run_character_step(
     input: &CharacterInput,
     dt_seconds: f32,
 ) {
-    let movement = sanitize_motion_input(input.movement);
-
     let ctx = CharacterControllerContext {
         cfg: CharacterConfig::new(sim_config),
         collision_context: CollisionContext {
@@ -42,59 +40,9 @@ pub fn run_character_step(
     };
 
     if input.no_clip {
-        *velocity = movement * ctx.cfg.no_clip_movement_speed;
-        *on_ground = false;
-        position.local *= math::translate_along(&(*velocity * dt_seconds));
+        run_no_clip_character_step(&ctx, position, velocity, on_ground);
     } else {
-        let mut ground_normal = None;
-        if *on_ground {
-            ground_normal = get_ground_normal(&ctx, position);
-        }
-
-        // Handle jumping
-        if input.jump && ground_normal.is_some() {
-            let horizontal_velocity = *velocity - *ctx.up * ctx.up.dot(velocity);
-            *velocity = horizontal_velocity + *ctx.up * ctx.cfg.jump_speed;
-            ground_normal = None;
-        }
-
-        let old_velocity = *velocity;
-
-        // Update velocity
-        if let Some(ground_normal) = ground_normal {
-            apply_ground_controls(&ctx, &movement, &ground_normal, velocity);
-        } else {
-            apply_air_controls(&ctx, &movement, velocity);
-
-            // Apply air resistance
-            *velocity *= (-ctx.cfg.air_resistance * dt_seconds).exp();
-        }
-
-        // Apply gravity
-        *velocity -= *ctx.up * ctx.cfg.gravity_acceleration * dt_seconds;
-
-        // Apply speed cap
-        *velocity = velocity.cap_magnitude(ctx.cfg.speed_cap);
-
-        // Estimate the average velocity by using the average of the old velocity and new velocity,
-        // which has the effect of modeling a velocity that changes linearly over the timestep.
-        // This is necessary to avoid the following two issues:
-        // 1. Input lag, which would occur if only the old velocity was used
-        // 2. Movement artifacts, which would occur if only the new velocity was used. One
-        //    example of such an artifact is the character moving backwards slightly when they
-        //    stop moving after releasing a direction key.
-        let average_velocity = (*velocity + old_velocity) * 0.5;
-
-        // Handle actual movement
-        apply_velocity(
-            &ctx,
-            average_velocity,
-            position,
-            velocity,
-            &mut ground_normal,
-        );
-
-        *on_ground = ground_normal.is_some();
+        run_standard_character_step(&ctx, position, velocity, on_ground);
     }
 
     // Renormalize
@@ -104,6 +52,74 @@ pub fn run_character_step(
         position.node = next_node;
         position.local = transition_xf * position.local;
     }
+}
+
+fn run_standard_character_step(
+    ctx: &CharacterControllerContext,
+    position: &mut Position,
+    velocity: &mut na::Vector3<f32>,
+    on_ground: &mut bool,
+) {
+    let mut ground_normal = None;
+    if *on_ground {
+        ground_normal = get_ground_normal(ctx, position);
+    }
+
+    // Handle jumping
+    if ctx.jump_input && ground_normal.is_some() {
+        let horizontal_velocity = *velocity - *ctx.up * ctx.up.dot(velocity);
+        *velocity = horizontal_velocity + *ctx.up * ctx.cfg.jump_speed;
+        ground_normal = None;
+    }
+
+    let old_velocity = *velocity;
+
+    // Update velocity
+    if let Some(ground_normal) = ground_normal {
+        apply_ground_controls(ctx, &ground_normal, velocity);
+    } else {
+        apply_air_controls(ctx, velocity);
+
+        // Apply air resistance
+        *velocity *= (-ctx.cfg.air_resistance * ctx.dt_seconds).exp();
+    }
+
+    // Apply gravity
+    *velocity -= *ctx.up * ctx.cfg.gravity_acceleration * ctx.dt_seconds;
+
+    // Apply speed cap
+    *velocity = velocity.cap_magnitude(ctx.cfg.speed_cap);
+
+    // Estimate the average velocity by using the average of the old velocity and new velocity,
+    // which has the effect of modeling a velocity that changes linearly over the timestep.
+    // This is necessary to avoid the following two issues:
+    // 1. Input lag, which would occur if only the old velocity was used
+    // 2. Movement artifacts, which would occur if only the new velocity was used. One
+    //    example of such an artifact is the character moving backwards slightly when they
+    //    stop moving after releasing a direction key.
+    let average_velocity = (*velocity + old_velocity) * 0.5;
+
+    // Handle actual movement
+    apply_velocity(
+        ctx,
+        average_velocity,
+        position,
+        velocity,
+        &mut ground_normal,
+    );
+
+    *on_ground = ground_normal.is_some();
+}
+
+fn run_no_clip_character_step(
+    ctx: &CharacterControllerContext,
+    position: &mut Position,
+    velocity: &mut na::Vector3<f32>,
+    on_ground: &mut bool,
+) {
+    *velocity = ctx.movement_input * ctx.cfg.no_clip_movement_speed;
+    *on_ground = false;
+    position.local *= math::translate_along(&(*velocity * ctx.dt_seconds));
 }
 
 /// Returns the normal corresponding to the ground below the character, up to the `allowed_distance`. If
@@ -152,18 +168,17 @@ fn is_ground(ctx: &CharacterControllerContext, normal: &na::UnitVector3<f32>) ->
 /// Updates the velocity based on user input assuming the character is on the ground
 fn apply_ground_controls(
     ctx: &CharacterControllerContext,
-    movement: &na::Vector3<f32>,
     ground_normal: &na::UnitVector3<f32>,
     velocity: &mut na::Vector3<f32>,
 ) {
     // Set `target_ground_velocity` to have a consistent magnitude regardless
     // of the movement direction, but ensure that the horizontal direction matches
     // the horizontal direction of the intended movement direction.
-    let movement_norm = movement.norm();
+    let movement_norm = ctx.movement_input.norm();
     let target_ground_velocity = if movement_norm < 1e-16 {
         na::Vector3::zeros()
     } else {
-        let mut unit_movement = movement / movement_norm;
+        let mut unit_movement = ctx.movement_input / movement_norm;
         math::project_to_plane(&mut unit_movement, ground_normal, &ctx.up, 0.0);
         unit_movement.try_normalize_mut(1e-16);
         unit_movement * movement_norm * ctx.cfg.max_ground_speed
@@ -187,12 +202,8 @@ fn apply_ground_controls(
 }
 
 /// Updates the velocity based on user input assuming the character is in the air
-fn apply_air_controls(
-    ctx: &CharacterControllerContext,
-    movement: &na::Vector3<f32>,
-    velocity: &mut na::Vector3<f32>,
-) {
-    *velocity += movement * ctx.cfg.air_acceleration * ctx.dt_seconds;
+fn apply_air_controls(ctx: &CharacterControllerContext, velocity: &mut na::Vector3<f32>) {
+    *velocity += ctx.movement_input * ctx.cfg.air_acceleration * ctx.dt_seconds;
 }
 
 /// Updates the character's position based on the given average velocity while handling collisions.
