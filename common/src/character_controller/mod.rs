@@ -18,7 +18,7 @@ use crate::{
 
 /// Runs a single step of character movement
 pub fn run_character_step(
-    cfg: &SimConfig,
+    sim_config: &SimConfig,
     graph: &DualGraph,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
@@ -28,14 +28,17 @@ pub fn run_character_step(
 ) {
     let movement = sanitize_motion_input(input.movement);
 
+    let cfg = CharacterConfig::new(sim_config);
+
     if input.no_clip {
         *velocity = movement * cfg.no_clip_movement_speed;
+        *on_ground = false;
         position.local *= math::translate_along(&(*velocity * dt_seconds));
     } else {
         // Initialize current state
         let collision_context = CollisionContext {
             graph,
-            chunk_layout: ChunkLayout::new(cfg.chunk_size as usize),
+            chunk_layout: ChunkLayout::new(sim_config.chunk_size as usize),
             radius: cfg.character_radius,
         };
 
@@ -43,13 +46,7 @@ pub fn run_character_step(
 
         let mut ground_normal = None;
         if *on_ground {
-            ground_normal = get_ground_normal(
-                &collision_context,
-                &up,
-                cfg.max_ground_slope,
-                cfg.ground_distance_tolerance,
-                position,
-            );
+            ground_normal = get_ground_normal(&collision_context, &up, &cfg, position);
         }
 
         // Handle jumping
@@ -63,17 +60,9 @@ pub fn run_character_step(
 
         // Update velocity
         if let Some(ground_normal) = ground_normal {
-            apply_ground_controls(
-                cfg.ground_acceleration,
-                cfg.max_ground_speed,
-                dt_seconds,
-                &movement,
-                &up,
-                &ground_normal,
-                velocity,
-            );
+            apply_ground_controls(&cfg, dt_seconds, &movement, &up, &ground_normal, velocity);
         } else {
-            apply_air_controls(cfg.air_acceleration, dt_seconds, &movement, velocity);
+            apply_air_controls(&cfg, dt_seconds, &movement, velocity);
 
             // Apply air resistance
             *velocity *= (-cfg.air_resistance * dt_seconds).exp();
@@ -98,7 +87,7 @@ pub fn run_character_step(
         apply_velocity(
             &collision_context,
             &up,
-            cfg.max_ground_slope,
+            &cfg,
             average_velocity,
             dt_seconds,
             position,
@@ -123,8 +112,7 @@ pub fn run_character_step(
 fn get_ground_normal(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope: f32,
-    allowed_distance: f32,
+    cfg: &CharacterConfig,
     position: &Position,
 ) -> Option<na::UnitVector3<f32>> {
     // Since the character can be at a corner between a slanted wall and the ground, the first collision
@@ -132,13 +120,13 @@ fn get_ground_normal(
     // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
     // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let mut allowed_displacement = -up.into_inner() * allowed_distance;
+    let mut allowed_displacement = -up.into_inner() * cfg.ground_distance_tolerance;
     let mut bounds = VectorBoundGroup::new(&allowed_displacement);
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result = check_collision(collision_context, position, &allowed_displacement);
         if let Some(collision) = collision_result.collision.as_ref() {
-            if is_ground(up, max_slope, &collision.normal) {
+            if is_ground(up, cfg, &collision.normal) {
                 // We found the ground, so return its normal.
                 return Some(collision.normal);
             }
@@ -158,15 +146,18 @@ fn get_ground_normal(
 }
 
 /// Checks whether the given normal is flat enough to be considered part of the ground
-fn is_ground(up: &na::UnitVector3<f32>, max_slope: f32, normal: &na::UnitVector3<f32>) -> bool {
-    let min_slope_up_component = 1.0 / (max_slope.powi(2) + 1.0).sqrt();
+fn is_ground(
+    up: &na::UnitVector3<f32>,
+    cfg: &CharacterConfig,
+    normal: &na::UnitVector3<f32>,
+) -> bool {
+    let min_slope_up_component = 1.0 / (cfg.max_ground_slope.powi(2) + 1.0).sqrt();
     normal.dot(up) > min_slope_up_component
 }
 
 /// Updates the velocity based on user input assuming the character is on the ground
 fn apply_ground_controls(
-    ground_acceleration: f32,
-    max_ground_speed: f32,
+    cfg: &CharacterConfig,
     dt_seconds: f32,
     movement: &na::Vector3<f32>,
     up: &na::UnitVector3<f32>,
@@ -183,7 +174,7 @@ fn apply_ground_controls(
         let mut unit_movement = movement / movement_norm;
         math::project_to_plane(&mut unit_movement, ground_normal, up, 0.0);
         unit_movement.try_normalize_mut(1e-16);
-        unit_movement * movement_norm * max_ground_speed
+        unit_movement * movement_norm * cfg.max_ground_speed
     };
 
     // Set `ground_velocity` to be the current velocity's ground-parallel component,
@@ -195,7 +186,7 @@ fn apply_ground_controls(
     // Adjust the ground-parallel component of the velocity vector to be closer to the
     // target velocity.
     let current_to_target_velocity = target_ground_velocity - ground_velocity;
-    let max_delta_velocity = ground_acceleration * dt_seconds;
+    let max_delta_velocity = cfg.ground_acceleration * dt_seconds;
     if current_to_target_velocity.norm_squared() > max_delta_velocity.powi(2) {
         *velocity += current_to_target_velocity.normalize() * max_delta_velocity;
     } else {
@@ -205,12 +196,12 @@ fn apply_ground_controls(
 
 /// Updates the velocity based on user input assuming the character is in the air
 fn apply_air_controls(
-    air_acceleration: f32,
+    cfg: &CharacterConfig,
     dt_seconds: f32,
     movement: &na::Vector3<f32>,
     velocity: &mut na::Vector3<f32>,
 ) {
-    *velocity += movement * air_acceleration * dt_seconds;
+    *velocity += movement * cfg.air_acceleration * dt_seconds;
 }
 
 /// Updates the character's position based on the given average velocity while handling collisions.
@@ -219,7 +210,7 @@ fn apply_air_controls(
 fn apply_velocity(
     collision_context: &CollisionContext,
     up: &na::UnitVector3<f32>,
-    max_slope: f32,
+    cfg: &CharacterConfig,
     average_velocity: na::Vector3<f32>,
     dt_seconds: f32,
     position: &mut Position,
@@ -258,7 +249,7 @@ fn apply_velocity(
             handle_collision(
                 collision,
                 up,
-                max_slope,
+                cfg,
                 &initial_velocity_info,
                 &mut velocity_info,
                 ground_normal,
@@ -281,7 +272,7 @@ fn apply_velocity(
 fn handle_collision(
     collision: Collision,
     up: &na::UnitVector3<f32>,
-    max_slope: f32,
+    cfg: &CharacterConfig,
     initial_velocity_info: &VelocityInfo,
     velocity_info: &mut VelocityInfo,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
@@ -291,7 +282,7 @@ fn handle_collision(
     // Ground collisions will only affect vertical movement of the character, while wall collisions will
     // push the character away from the wall in a perpendicular direction. If the character is on the ground,
     // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
-    if is_ground(up, max_slope, &collision.normal) {
+    if is_ground(up, cfg, &collision.normal) {
         let stay_on_ground_bounds = [VectorBound::new_pull(collision.normal, *up)];
         if !*ground_collision_handled {
             // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
@@ -351,4 +342,37 @@ struct VelocityInfo {
     bounds: VectorBoundGroup,
     average_velocity: na::Vector3<f32>,
     final_velocity: na::Vector3<f32>,
+}
+
+/// Contains static configuration information relevant to character physics
+struct CharacterConfig {
+    no_clip_movement_speed: f32,
+    max_ground_speed: f32,
+    speed_cap: f32,
+    max_ground_slope: f32,
+    ground_acceleration: f32,
+    air_acceleration: f32,
+    gravity_acceleration: f32,
+    air_resistance: f32,
+    jump_speed: f32,
+    ground_distance_tolerance: f32,
+    character_radius: f32,
+}
+
+impl CharacterConfig {
+    fn new(cfg: &SimConfig) -> Self {
+        CharacterConfig {
+            no_clip_movement_speed: cfg.no_clip_movement_speed,
+            max_ground_speed: cfg.max_ground_speed,
+            speed_cap: cfg.speed_cap,
+            max_ground_slope: cfg.max_ground_slope,
+            ground_acceleration: cfg.ground_acceleration,
+            air_acceleration: cfg.air_acceleration,
+            gravity_acceleration: cfg.gravity_acceleration,
+            air_resistance: cfg.air_resistance,
+            jump_speed: cfg.jump_speed,
+            ground_distance_tolerance: cfg.ground_distance_tolerance,
+            character_radius: cfg.character_radius,
+        }
+    }
 }
