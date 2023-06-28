@@ -125,7 +125,7 @@ impl LocalCharacterController {
     /// Returns an orientation quaternion that is as faithful as possible to the current orientation quaternion
     /// while being restricted to ensuring the view is level and does not look up or down. This function's main
     /// purpose is to figure out what direction the character should go when a movement key is pressed.
-    pub fn get_horizontal_orientation(&mut self) -> na::UnitQuaternion<f32> {
+    pub fn horizontal_orientation(&mut self) -> na::UnitQuaternion<f32> {
         // Get orientation-relative up
         let up = self.orientation.conjugate() * self.up;
 
@@ -142,5 +142,86 @@ impl LocalCharacterController {
 
     pub fn renormalize_orientation(&mut self) {
         self.orientation.renormalize_fast();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use approx::assert_abs_diff_eq;
+
+    use super::*;
+
+    fn assert_aligned_to_gravity(subject: &LocalCharacterController) {
+        let up = subject.orientation.conjugate() * subject.up;
+
+        // Make sure up vector doesn't point downwards, as that would mean the character is upside-down
+        assert!(up.y >= -1e-5);
+
+        // Make sure the up vector has no sideways component, as that would mean the character view is tilted
+        assert_abs_diff_eq!(up.x, 0.0, epsilon = 1.0e-5);
+    }
+
+    fn assert_yaw_and_pitch_correct(
+        base_orientation: na::UnitQuaternion<f32>,
+        yaw: f32,
+        pitch: f32,
+        actual_orientation: na::UnitQuaternion<f32>,
+    ) {
+        let expected_orientation = base_orientation
+            * na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), yaw)
+            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), pitch);
+        assert_abs_diff_eq!(expected_orientation, actual_orientation, epsilon = 1.0e-5);
+    }
+
+    #[test]
+    fn look_level_and_horizontal_orientation_examples() {
+        let mut subject = LocalCharacterController::new();
+
+        // Pick an arbitrary orientation
+        let base_orientation = na::UnitQuaternion::new(na::Vector3::new(1.3, -2.1, 0.5));
+        subject.orientation = base_orientation;
+
+        // Choose the up vector that makes the current orientation a horizontal orientation
+        subject.up = subject.orientation * na::Vector::y_axis();
+
+        let mut yaw = 0.0;
+        let mut pitch = 0.0;
+
+        // Sanity check that the setup makes sense
+        assert_aligned_to_gravity(&subject);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
+
+        // Standard look_level expression
+        subject.look_level(0.5, -0.4);
+        yaw += 0.5;
+        pitch -= 0.4;
+        assert_aligned_to_gravity(&subject);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
+
+        // Look up past the cap
+        subject.look_level(-0.2, 3.0);
+        yaw -= 0.2;
+        pitch = std::f32::consts::FRAC_PI_2;
+        assert_aligned_to_gravity(&subject);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
+
+        // Look down past the cap
+        subject.look_level(6.2, -7.2);
+        yaw += 6.2;
+        pitch = -std::f32::consts::FRAC_PI_2;
+        assert_aligned_to_gravity(&subject);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
+
+        // Go back to a less unusual orientation
+        subject.look_level(-1.2, 0.8);
+        yaw -= 1.2;
+        pitch += 0.8;
+        assert_aligned_to_gravity(&subject);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
+        assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
     }
 }

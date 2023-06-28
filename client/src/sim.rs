@@ -334,7 +334,7 @@ impl Sim {
         let orientation = if self.no_clip {
             self.local_character_controller.orientation()
         } else {
-            self.local_character_controller.get_horizontal_orientation()
+            self.local_character_controller.horizontal_orientation()
         };
         let character_input = CharacterInput {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
@@ -360,7 +360,7 @@ impl Sim {
         let orientation = if self.no_clip {
             self.local_character_controller.orientation()
         } else {
-            self.local_character_controller.get_horizontal_orientation()
+            self.local_character_controller.horizontal_orientation()
         };
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
