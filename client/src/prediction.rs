@@ -113,7 +113,8 @@ mod tests {
     #[test]
     fn wraparound() {
         let mock_cfg = SimConfig::from_raw(&common::SimConfigRaw::default());
-        let mock_graph = DualGraph::new();
+        let mut mock_graph = DualGraph::new();
+        common::node::populate_fresh_nodes(&mut mock_graph);
         let mock_character_input = CharacterInput {
             movement: na::Vector3::x(),
             jump: false,
