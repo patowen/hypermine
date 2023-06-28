@@ -182,7 +182,7 @@ mod tests {
         subject.orientation = base_orientation;
 
         // Choose the up vector that makes the current orientation a horizontal orientation
-        subject.up = subject.orientation * na::Vector::y_axis();
+        subject.up = subject.orientation * na::Vector3::y_axis();
 
         let mut yaw = 0.0;
         let mut pitch = 0.0;
@@ -223,5 +223,61 @@ mod tests {
         assert_aligned_to_gravity(&subject);
         assert_yaw_and_pitch_correct(base_orientation, yaw, pitch, subject.orientation);
         assert_yaw_and_pitch_correct(base_orientation, yaw, 0.0, subject.horizontal_orientation());
+    }
+
+    #[test]
+    fn align_to_gravity_examples() {
+        // Pick an arbitrary orientation
+        let base_orientation = na::UnitQuaternion::new(na::Vector3::new(1.3, -2.1, 0.5));
+
+        // Choose the up vector that makes the current orientation close to horizontal orientation
+        let mut subject = LocalCharacterController::new();
+        subject.orientation = base_orientation;
+        subject.up =
+            subject.orientation * na::UnitVector3::new_normalize(na::Vector3::new(0.1, 1.0, 0.2));
+        let look_direction = subject.orientation * na::Vector3::z_axis();
+
+        subject.align_to_gravity();
+
+        assert_aligned_to_gravity(&subject);
+        // The look_direction shouldn't change
+        assert_abs_diff_eq!(
+            look_direction,
+            subject.orientation * na::Vector3::z_axis(),
+            epsilon = 1e-5
+        );
+
+        // Choose the up vector that makes the current orientation close to horizontal orientation but upside-down
+        let mut subject = LocalCharacterController::new();
+        subject.orientation = base_orientation;
+        subject.up =
+            subject.orientation * na::UnitVector3::new_normalize(na::Vector3::new(0.1, -1.0, 0.2));
+        let look_direction = subject.orientation * na::Vector3::z_axis();
+
+        subject.align_to_gravity();
+
+        assert_aligned_to_gravity(&subject);
+        // The look_direction still shouldn't change
+        assert_abs_diff_eq!(
+            look_direction,
+            subject.orientation * na::Vector3::z_axis(),
+            epsilon = 1e-5
+        );
+
+        // Make the character face close to straight up
+        let mut subject = LocalCharacterController::new();
+        subject.orientation = base_orientation;
+        subject.up = subject.orientation
+            * na::UnitVector3::new_normalize(na::Vector3::new(-0.03, 0.05, 1.0));
+        subject.align_to_gravity();
+        assert_aligned_to_gravity(&subject);
+
+        // Make the character face close to straight down and be slightly upside-down
+        let mut subject = LocalCharacterController::new();
+        subject.orientation = base_orientation;
+        subject.up = subject.orientation
+            * na::UnitVector3::new_normalize(na::Vector3::new(-0.03, -0.05, -1.0));
+        subject.align_to_gravity();
+        assert_aligned_to_gravity(&subject);
     }
 }
