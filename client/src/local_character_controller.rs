@@ -280,4 +280,30 @@ mod tests {
         subject.align_to_gravity();
         assert_aligned_to_gravity(&subject);
     }
+
+    #[test]
+    fn update_position_example() {
+        // Pick an arbitrary orientation
+        let base_orientation = na::UnitQuaternion::new(na::Vector3::new(1.3, -2.1, 0.5));
+
+        let mut subject = LocalCharacterController::new();
+        subject.orientation = base_orientation;
+        subject.up =
+            subject.orientation * na::UnitVector3::new_normalize(na::Vector3::new(0.0, 1.0, 0.2));
+
+        // Sanity check setup (character should already be aligned to gravity)
+        assert_aligned_to_gravity(&subject);
+        let old_up_vector_y_component = (subject.orientation.conjugate() * subject.up).y;
+
+        subject.update_position(
+            Position::origin(),
+            na::UnitVector3::new_normalize(na::Vector3::new(0.1, 0.2, 0.5)),
+            true,
+        );
+        assert_aligned_to_gravity(&subject);
+        let new_up_vector_y_component = (subject.orientation.conjugate() * subject.up).y;
+        
+        // We don't want the camera pitch to drift as the up vector changes
+        assert_abs_diff_eq!(old_up_vector_y_component, new_up_vector_y_component, epsilon = 1e-5);
+    }
 }
