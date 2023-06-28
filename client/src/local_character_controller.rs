@@ -302,8 +302,12 @@ mod tests {
         );
         assert_aligned_to_gravity(&subject);
         let new_up_vector_y_component = (subject.orientation.conjugate() * subject.up).y;
-        
+
         // We don't want the camera pitch to drift as the up vector changes
-        assert_abs_diff_eq!(old_up_vector_y_component, new_up_vector_y_component, epsilon = 1e-5);
+        assert_abs_diff_eq!(
+            old_up_vector_y_component,
+            new_up_vector_y_component,
+            epsilon = 1e-5
+        );
     }
 }
