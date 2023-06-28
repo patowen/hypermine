@@ -4,11 +4,12 @@ use fxhash::FxHashMap;
 use hecs::Entity;
 use tracing::{debug, error, trace};
 
-use crate::{net, prediction::PredictedMotion, Net};
+use crate::{
+    local_character_controller::LocalCharacterController, net, prediction::PredictedMotion, Net,
+};
 use common::{
     character_controller,
     graph::{Graph, NodeId},
-    math,
     node::{populate_fresh_nodes, DualGraph},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
@@ -25,7 +26,6 @@ pub struct Sim {
     pub world: hecs::World,
     pub params: Option<Parameters>,
     pub local_character: Option<Entity>,
-    orientation: na::UnitQuaternion<f32>,
     step: Option<Step>,
 
     // Input state
@@ -49,9 +49,7 @@ pub struct Sim {
     /// Whether the jump button is currently held down
     jump_held: bool,
     prediction: PredictedMotion,
-    /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
-    /// orientation computations
-    view_position: Position,
+    local_character_controller: LocalCharacterController,
 }
 
 impl Sim {
@@ -65,7 +63,6 @@ impl Sim {
             world: hecs::World::new(),
             params: None,
             local_character: None,
-            orientation: na::one(),
             step: None,
 
             since_input_sent: Duration::new(0, 0),
@@ -80,62 +77,18 @@ impl Sim {
                 node: NodeId::ROOT,
                 local: na::one(),
             }),
-            view_position: Position::origin(),
+            local_character_controller: LocalCharacterController::new(),
         }
     }
 
     /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.
     pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32, delta_roll: f32) {
         if self.no_clip {
-            self.look_free(delta_yaw, delta_pitch, delta_roll);
+            self.local_character_controller
+                .look_free(delta_yaw, delta_pitch, delta_roll);
         } else {
-            self.look_level(delta_yaw, delta_pitch);
-        }
-    }
-
-    /// Rotates the camera's view by locally adding pitch and yaw.
-    fn look_free(&mut self, delta_yaw: f32, delta_pitch: f32, delta_roll: f32) {
-        self.orientation *= na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw)
-            * na::UnitQuaternion::from_axis_angle(&na::Vector3::x_axis(), delta_pitch)
-            * na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
-    }
-
-    /// Rotates the camera's view with standard first-person walking simulator mouse controls. This function
-    /// is designed to be flexible enough to work with any starting orientation, but it works best when the
-    /// camera is level, not rolled to the left or right.
-    fn look_level(&mut self, delta_yaw: f32, delta_pitch: f32) {
-        let up =
-            self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
-
-        // Handle yaw. This is as simple as rotating the view about the up vector
-        self.orientation *= na::UnitQuaternion::from_axis_angle(&up, delta_yaw);
-
-        // Handling pitch is more compicated because the view angle needs to be capped. The rotation axis
-        // is the camera's local x-axis (left-right axis). If the camera is level, this axis is perpendicular
-        // to the up vector.
-
-        // We need to know the current pitch to properly cap pitch changes, and this is only well-defined
-        // if the pitch axis is not too similar to the up vector, so we skip applying pitch changes if this
-        // isn't the case.
-        if up.x.abs() < 0.9 {
-            // Compute the current pitch by ignoring the x-component of the up vector and assuming the camera
-            // is level.
-            let current_pitch = -up.z.atan2(up.y);
-            let mut target_pitch = current_pitch + delta_pitch;
-            if delta_pitch > 0.0 {
-                target_pitch = target_pitch
-                    .min(std::f32::consts::FRAC_PI_2) // Cap the view angle at looking straight up
-                    .max(current_pitch); // But if already upside-down, don't make any corrections.
-            } else {
-                target_pitch = target_pitch
-                    .max(-std::f32::consts::FRAC_PI_2) // Cap the view angle at looking straight down
-                    .min(current_pitch); // But if already upside-down, don't make any corrections.
-            }
-
-            self.orientation *= na::UnitQuaternion::from_axis_angle(
-                &na::Vector3::x_axis(),
-                target_pitch - current_pitch,
-            );
+            self.local_character_controller
+                .look_level(delta_yaw, delta_pitch);
         }
     }
 
@@ -172,7 +125,7 @@ impl Sim {
     }
 
     pub fn step(&mut self, dt: Duration) {
-        self.orientation.renormalize_fast();
+        self.local_character_controller.renormalize_orientation();
 
         while let Ok(msg) = self.net.incoming.try_recv() {
             self.handle_net(msg);
@@ -221,32 +174,8 @@ impl Sim {
             }
             self.update_view_position();
             if !self.no_clip {
-                self.align_to_gravity();
+                self.local_character_controller.align_to_gravity();
             }
-        }
-    }
-
-    /// Instantly updates the current orientation quaternion to make the camera level. This function
-    /// is designed to be numerically stable for any camera orientation.
-    fn align_to_gravity(&mut self) {
-        let up =
-            self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
-
-        if up.z.abs() < 0.9 {
-            // If facing not too vertically, roll the camera to make it level.
-            let delta_roll = -up.x.atan2(up.y);
-            self.orientation *=
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
-        } else if up.y > 0.0 {
-            // Otherwise, if not upside-down, pan the camera to make it level.
-            let delta_yaw = (up.x / up.z).atan();
-            self.orientation *=
-                na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
-        } else {
-            // Otherwise, rotate the camera to look straight up or down.
-            self.orientation *=
-                na::UnitQuaternion::rotation_between(&(na::Vector3::z() * up.z.signum()), &up)
-                    .unwrap();
         }
     }
 
@@ -403,9 +332,9 @@ impl Sim {
     fn send_input(&mut self) {
         let params = self.params.as_ref().unwrap();
         let orientation = if self.no_clip {
-            self.orientation
+            self.local_character_controller.orientation()
         } else {
-            self.get_horizontal_orientation()
+            self.local_character_controller.get_horizontal_orientation()
         };
         let character_input = CharacterInput {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
@@ -420,7 +349,7 @@ impl Sim {
         let _ = self.net.outgoing.send(Command {
             generation,
             character_input,
-            orientation: self.orientation,
+            orientation: self.local_character_controller.orientation(),
         });
     }
 
@@ -429,9 +358,9 @@ impl Sim {
         let mut view_velocity = *self.prediction.predicted_velocity();
         let mut view_on_ground = *self.prediction.predicted_on_ground();
         let orientation = if self.no_clip {
-            self.orientation
+            self.local_character_controller.orientation()
         } else {
-            self.get_horizontal_orientation()
+            self.local_character_controller.get_horizontal_orientation()
         };
         if let Some(ref params) = self.params {
             // Apply input that hasn't been sent yet
@@ -457,42 +386,15 @@ impl Sim {
             );
         }
 
-        // Rotate the player orientation to stay consistent with changes in gravity
-        if !self.no_clip {
-            self.orientation = math::rotation_between_axis(
-                &self.graph.get_relative_up(&self.view_position).unwrap(),
-                &self.graph.get_relative_up(&view_position).unwrap(),
-                1e-5,
-            )
-            .unwrap_or(na::UnitQuaternion::identity())
-                * self.orientation;
-        }
-
-        self.view_position = view_position;
-    }
-
-    /// Returns an orientation quaternion that is as faithful as possible to the current orientation quaternion
-    /// while being restricted to ensuring the view is level and does not look up or down.
-    fn get_horizontal_orientation(&self) -> na::UnitQuaternion<f32> {
-        let up =
-            self.orientation.conjugate() * self.graph.get_relative_up(&self.view_position).unwrap();
-
-        let forward = if up.x.abs() < 0.9 {
-            // Rotate the local forward vector about the locally horizontal axis until it is horizontal
-            na::Vector3::new(0.0, -up.z, up.y)
-        } else {
-            // Project the local forward vector to the level plane
-            na::Vector3::z() - up.into_inner() * up.z
-        };
-
-        self.orientation * na::UnitQuaternion::face_towards(&forward, &up)
+        self.local_character_controller.update_position(
+            view_position,
+            self.graph.get_relative_up(&view_position).unwrap(),
+            !self.no_clip,
+        )
     }
 
     pub fn view(&self) -> Position {
-        Position {
-            node: self.view_position.node,
-            local: self.view_position.local * self.orientation.to_homogeneous(),
-        }
+        self.local_character_controller.oriented_position()
     }
 
     /// Destroy all aspects of an entity

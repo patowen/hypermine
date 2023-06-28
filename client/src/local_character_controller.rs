@@ -1,6 +1,6 @@
 use common::{math, proto::Position};
 
-pub struct LocalCharacter {
+pub struct LocalCharacterController {
     /// The last extrapolated inter-frame view position, used for rendering and gravity-specific
     /// orientation computations
     position: Position,
@@ -12,7 +12,27 @@ pub struct LocalCharacter {
     up: na::UnitVector3<f32>,
 }
 
-impl LocalCharacter {
+impl LocalCharacterController {
+    pub fn new() -> Self {
+        LocalCharacterController {
+            position: Position::origin(),
+            orientation: na::UnitQuaternion::identity(),
+            up: na::Vector::z_axis(),
+        }
+    }
+
+    /// Get the current position with orientation applied to it
+    pub fn oriented_position(&self) -> Position {
+        Position {
+            node: self.position.node,
+            local: self.position.local * self.orientation.to_homogeneous(),
+        }
+    }
+
+    pub fn orientation(&self) -> na::UnitQuaternion<f32> {
+        self.orientation
+    }
+
     /// Updates the LocalCharacter based on outside information. Note that the `up` parameter is relative
     /// only to `position`, not the character's orientation.
     pub fn update_position(
@@ -22,6 +42,7 @@ impl LocalCharacter {
         preserve_up_alignment: bool,
     ) {
         if preserve_up_alignment {
+            // Rotate the character orientation to stay consistent with changes in gravity
             self.orientation = math::rotation_between_axis(&self.up, &up, 1e-5)
                 .unwrap_or(na::UnitQuaternion::identity())
                 * self.orientation;
@@ -112,5 +133,9 @@ impl LocalCharacter {
         };
 
         self.orientation * na::UnitQuaternion::face_towards(&forward, &self.up)
+    }
+
+    pub fn renormalize_orientation(&mut self) {
+        self.orientation.renormalize_fast();
     }
 }
