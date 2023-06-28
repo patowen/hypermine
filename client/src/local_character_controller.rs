@@ -5,11 +5,11 @@ pub struct LocalCharacterController {
     /// orientation computations
     position: Position,
 
+    /// The up vector relative to position, ignoring orientation
+    up: na::UnitVector3<f32>,
+
     /// The quaternion adjustment to the character position to represent its actual apparent orientation
     orientation: na::UnitQuaternion<f32>,
-
-    /// The up vector relative to both position and orientation
-    up: na::UnitVector3<f32>,
 }
 
 impl LocalCharacterController {
@@ -49,9 +49,7 @@ impl LocalCharacterController {
         }
 
         self.position = position;
-
-        // Change of coordinates
-        self.up = self.orientation.conjugate() * up;
+        self.up = up;
     }
 
     /// Rotates the camera's view by locally adding pitch and yaw.
@@ -65,8 +63,11 @@ impl LocalCharacterController {
     /// is designed to be flexible enough to work with any starting orientation, but it works best when the
     /// camera is level, not rolled to the left or right.
     pub fn look_level(&mut self, delta_yaw: f32, delta_pitch: f32) {
+        // Get orientation-relative up
+        let up = self.orientation.conjugate() * self.up;
+
         // Handle yaw. This is as simple as rotating the view about the up vector
-        self.orientation *= na::UnitQuaternion::from_axis_angle(&self.up, delta_yaw);
+        self.orientation *= na::UnitQuaternion::from_axis_angle(&up, delta_yaw);
 
         // Handling pitch is more compicated because the view angle needs to be capped. The rotation axis
         // is the camera's local x-axis (left-right axis). If the camera is level, this axis is perpendicular
@@ -75,10 +76,10 @@ impl LocalCharacterController {
         // We need to know the current pitch to properly cap pitch changes, and this is only well-defined
         // if the pitch axis is not too similar to the up vector, so we skip applying pitch changes if this
         // isn't the case.
-        if self.up.x.abs() < 0.9 {
+        if up.x.abs() < 0.9 {
             // Compute the current pitch by ignoring the x-component of the up vector and assuming the camera
             // is level.
-            let current_pitch = -self.up.z.atan2(self.up.y);
+            let current_pitch = -up.z.atan2(up.y);
             let mut target_pitch = current_pitch + delta_pitch;
             if delta_pitch > 0.0 {
                 target_pitch = target_pitch
@@ -100,23 +101,24 @@ impl LocalCharacterController {
     /// Instantly updates the current orientation quaternion to make the camera level. This function
     /// is designed to be numerically stable for any camera orientation.
     pub fn align_to_gravity(&mut self) {
-        if self.up.z.abs() < 0.9 {
+        // Get orientation-relative up
+        let up = self.orientation.conjugate() * self.up;
+
+        if up.z.abs() < 0.9 {
             // If facing not too vertically, roll the camera to make it level.
-            let delta_roll = -self.up.x.atan2(self.up.y);
+            let delta_roll = -up.x.atan2(up.y);
             self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
-        } else if self.up.y > 0.0 {
+        } else if up.y > 0.0 {
             // Otherwise, if not upside-down, pan the camera to make it level.
-            let delta_yaw = (self.up.x / self.up.z).atan();
+            let delta_yaw = (up.x / up.z).atan();
             self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
         } else {
             // Otherwise, rotate the camera to look straight up or down.
-            self.orientation *= na::UnitQuaternion::rotation_between(
-                &(na::Vector3::z() * self.up.z.signum()),
-                &self.up,
-            )
-            .unwrap();
+            self.orientation *=
+                na::UnitQuaternion::rotation_between(&(na::Vector3::z() * up.z.signum()), &up)
+                    .unwrap();
         }
     }
 
@@ -124,15 +126,18 @@ impl LocalCharacterController {
     /// while being restricted to ensuring the view is level and does not look up or down. This function's main
     /// purpose is to figure out what direction the character should go when a movement key is pressed.
     pub fn get_horizontal_orientation(&mut self) -> na::UnitQuaternion<f32> {
-        let forward = if self.up.x.abs() < 0.9 {
+        // Get orientation-relative up
+        let up = self.orientation.conjugate() * self.up;
+
+        let forward = if up.x.abs() < 0.9 {
             // Rotate the local forward vector about the locally horizontal axis until it is horizontal
-            na::Vector3::new(0.0, -self.up.z, self.up.y)
+            na::Vector3::new(0.0, -up.z, up.y)
         } else {
             // Project the local forward vector to the level plane
-            na::Vector3::z() - self.up.into_inner() * self.up.z
+            na::Vector3::z() - up.into_inner() * up.z
         };
 
-        self.orientation * na::UnitQuaternion::face_towards(&forward, &self.up)
+        self.orientation * na::UnitQuaternion::face_towards(&forward, &up)
     }
 
     pub fn renormalize_orientation(&mut self) {
