@@ -38,7 +38,7 @@ pub struct SimConfigRaw {
     pub air_acceleration: Option<f32>,
     /// Acceleration of gravity in m/s^2
     pub gravity_acceleration: Option<f32>,
-    /// Linear air resistance in (1/e)-lives per second
+    /// Air resistance in (m/s^2) per (m/s); scales linearly with respect to speed
     pub air_resistance: Option<f32>,
     /// How fast the player jumps off the ground in m/s
     pub jump_speed: Option<f32>,

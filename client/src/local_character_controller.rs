@@ -64,7 +64,7 @@ impl LocalCharacterController {
     /// camera is level, not rolled to the left or right.
     pub fn look_level(&mut self, delta_yaw: f32, delta_pitch: f32) {
         // Get orientation-relative up
-        let up = self.orientation.conjugate() * self.up;
+        let up = self.orientation.inverse() * self.up;
 
         // Handle yaw. This is as simple as rotating the view about the up vector
         self.orientation *= na::UnitQuaternion::from_axis_angle(&up, delta_yaw);
@@ -102,7 +102,7 @@ impl LocalCharacterController {
     /// is designed to be numerically stable for any camera orientation.
     pub fn align_to_gravity(&mut self) {
         // Get orientation-relative up
-        let up = self.orientation.conjugate() * self.up;
+        let up = self.orientation.inverse() * self.up;
 
         if up.z.abs() < 0.9 {
             // If facing not too vertically, roll the camera to make it level.
@@ -110,7 +110,7 @@ impl LocalCharacterController {
             self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::z_axis(), delta_roll);
         } else if up.y > 0.0 {
-            // Otherwise, if not upside-down, pan the camera to make it level.
+            // Otherwise, if not upside-down, yaw the camera to make it level.
             let delta_yaw = (up.x / up.z).atan();
             self.orientation *=
                 na::UnitQuaternion::from_axis_angle(&na::Vector3::y_axis(), delta_yaw);
@@ -127,7 +127,7 @@ impl LocalCharacterController {
     /// purpose is to figure out what direction the character should go when a movement key is pressed.
     pub fn horizontal_orientation(&mut self) -> na::UnitQuaternion<f32> {
         // Get orientation-relative up
-        let up = self.orientation.conjugate() * self.up;
+        let up = self.orientation.inverse() * self.up;
 
         let forward = if up.x.abs() < 0.9 {
             // Rotate the local forward vector about the locally horizontal axis until it is horizontal
@@ -152,7 +152,7 @@ mod tests {
     use super::*;
 
     fn assert_aligned_to_gravity(subject: &LocalCharacterController) {
-        let up = subject.orientation.conjugate() * subject.up;
+        let up = subject.orientation.inverse() * subject.up;
 
         // Make sure up vector doesn't point downwards, as that would mean the character is upside-down
         assert!(up.y >= -1e-5);
@@ -293,7 +293,7 @@ mod tests {
 
         // Sanity check setup (character should already be aligned to gravity)
         assert_aligned_to_gravity(&subject);
-        let old_up_vector_y_component = (subject.orientation.conjugate() * subject.up).y;
+        let old_up_vector_y_component = (subject.orientation.inverse() * subject.up).y;
 
         subject.update_position(
             Position::origin(),
@@ -301,7 +301,7 @@ mod tests {
             true,
         );
         assert_aligned_to_gravity(&subject);
-        let new_up_vector_y_component = (subject.orientation.conjugate() * subject.up).y;
+        let new_up_vector_y_component = (subject.orientation.inverse() * subject.up).y;
 
         // We don't want the camera pitch to drift as the up vector changes
         assert_abs_diff_eq!(
