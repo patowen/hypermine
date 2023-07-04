@@ -133,12 +133,14 @@ fn get_ground_normal(
     // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
     // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let mut allowed_displacement = -ctx.up.into_inner() * ctx.cfg.ground_distance_tolerance;
-    let mut bounds = VectorBoundGroup::new(&allowed_displacement);
+    let mut bounds = VectorBoundGroup::new(
+        -ctx.up.into_inner() * ctx.cfg.ground_distance_tolerance,
+        None,
+    );
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
         let collision_result =
-            check_collision(&ctx.collision_context, position, &allowed_displacement);
+            check_collision(&ctx.collision_context, position, bounds.displacement());
         if let Some(collision) = collision_result.collision.as_ref() {
             if is_ground(ctx, &collision.normal) {
                 // We found the ground, so return its normal.
@@ -147,8 +149,6 @@ fn get_ground_normal(
             bounds.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, collision.normal),
                 &[],
-                &mut allowed_displacement,
-                None,
             );
         } else {
             // Return `None` if we travel the whole `allowed_displacement` and don't find the ground.
@@ -222,18 +222,14 @@ fn apply_velocity(
 
     let mut remaining_dt_seconds = ctx.dt_seconds;
 
-    let initial_velocity_info = VelocityInfo {
-        bounds: VectorBoundGroup::new(&average_velocity),
-        average_velocity,
-        final_velocity: *velocity,
-    };
+    let initial_velocity_info = VectorBoundGroup::new(average_velocity, Some(*velocity));
     let mut velocity_info = initial_velocity_info.clone();
 
     let mut ground_collision_handled = false;
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let expected_displacement = velocity_info.average_velocity * remaining_dt_seconds;
+        let expected_displacement = velocity_info.displacement() * remaining_dt_seconds;
 
         let collision_result =
             check_collision(&ctx.collision_context, position, &expected_displacement);
@@ -263,15 +259,15 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = velocity_info.final_velocity;
+    *velocity = *velocity_info.velocity().unwrap();
 }
 
 /// Updates character information based on the results of a single collision
 fn handle_collision(
     ctx: &CharacterControllerContext,
     collision: Collision,
-    initial_velocity_info: &VelocityInfo,
-    velocity_info: &mut VelocityInfo,
+    initial_velocity_info: &VectorBoundGroup,
+    velocity_info: &mut VectorBoundGroup,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
     ground_collision_handled: &mut bool,
 ) {
@@ -292,28 +288,19 @@ fn handle_collision(
             // the ground collision was first. This is only necessary for the first ground collision, since
             // afterwards, there is no more unexpected vertical momentum.
             let old_velocity_info = replace(velocity_info, initial_velocity_info.clone());
-            velocity_info.bounds.apply_and_add_bound(
+            velocity_info.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, ctx.up),
                 &stay_on_ground_bounds,
-                &mut velocity_info.average_velocity,
-                Some(&mut velocity_info.final_velocity),
             );
-            for bound in old_velocity_info.bounds.bounds() {
-                velocity_info.bounds.apply_and_add_bound(
-                    bound.clone(),
-                    &stay_on_ground_bounds,
-                    &mut velocity_info.average_velocity,
-                    Some(&mut velocity_info.final_velocity),
-                );
+            for bound in old_velocity_info.bounds() {
+                velocity_info.apply_and_add_bound(bound.clone(), &stay_on_ground_bounds);
             }
 
             *ground_collision_handled = true;
         } else {
-            velocity_info.bounds.apply_and_add_bound(
+            velocity_info.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, ctx.up),
                 &stay_on_ground_bounds,
-                &mut velocity_info.average_velocity,
-                Some(&mut velocity_info.final_velocity),
             );
         }
 
@@ -323,22 +310,11 @@ fn handle_collision(
         if let Some(ground_normal) = ground_normal {
             stay_on_ground_bounds.push(VectorBound::new_pull(*ground_normal, ctx.up));
         }
-        velocity_info.bounds.apply_and_add_bound(
+        velocity_info.apply_and_add_bound(
             VectorBound::new_push(collision.normal, collision.normal),
             &stay_on_ground_bounds,
-            &mut velocity_info.average_velocity,
-            Some(&mut velocity_info.final_velocity),
         );
     }
-}
-
-/// Contains info related to the average velocity over the timestep and the current velocity at
-/// the end of the timestep.
-#[derive(Clone)]
-struct VelocityInfo {
-    bounds: VectorBoundGroup,
-    average_velocity: na::Vector3<f32>,
-    final_velocity: na::Vector3<f32>,
 }
 
 /// Contains static configuration information relevant to character physics that generally doesn't change at all
