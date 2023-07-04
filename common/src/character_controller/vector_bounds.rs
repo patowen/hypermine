@@ -35,6 +35,12 @@ impl VectorBoundGroup {
         &self.displacement
     }
 
+    /// Scales the displacement vector without invalidating any of the `VectorBound`s
+    pub fn scale_displacement(&mut self, scale_factor: f32) {
+        self.displacement *= scale_factor;
+        self.error_margin *= scale_factor;
+    }
+
     pub fn velocity(&self) -> Option<&na::Vector3<f32>> {
         self.velocity.as_ref()
     }

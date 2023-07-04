@@ -102,7 +102,7 @@ fn run_standard_character_step(
     // Handle actual movement
     apply_velocity(
         ctx,
-        average_velocity,
+        average_velocity * ctx.dt_seconds,
         position,
         velocity,
         &mut ground_normal,
@@ -210,7 +210,7 @@ fn apply_air_controls(ctx: &CharacterControllerContext, velocity: &mut na::Vecto
 /// Also updates the velocity and ground normal based on collisions that occur.
 fn apply_velocity(
     ctx: &CharacterControllerContext,
-    average_velocity: na::Vector3<f32>,
+    expected_displacement: na::Vector3<f32>,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
@@ -220,31 +220,32 @@ fn apply_velocity(
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
 
-    let mut remaining_dt_seconds = ctx.dt_seconds;
-
-    let initial_velocity_info = VectorBoundGroup::new(average_velocity, Some(*velocity));
-    let mut velocity_info = initial_velocity_info.clone();
+    let mut velocity_info = VectorBoundGroup::new(expected_displacement, Some(*velocity));
+    let mut velocity_info_without_collisions = velocity_info.clone();
 
     let mut ground_collision_handled = false;
 
     let mut all_collisions_resolved = false;
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let expected_displacement = velocity_info.displacement() * remaining_dt_seconds;
-
-        let collision_result =
-            check_collision(&ctx.collision_context, position, &expected_displacement);
+        let collision_result = check_collision(
+            &ctx.collision_context,
+            position,
+            velocity_info.displacement(),
+        );
         position.local *= collision_result.displacement_transform;
 
         if let Some(collision) = collision_result.collision {
-            // Update the expected dt to whatever is remaining.
-            remaining_dt_seconds *= 1.0
+            // Update the expected displacement to represent a reduction in the remaining dt
+            let displacement_reduction_factor = 1.0
                 - collision_result.displacement_vector.magnitude()
                     / expected_displacement.magnitude();
+            velocity_info.scale_displacement(displacement_reduction_factor);
+            velocity_info_without_collisions.scale_displacement(displacement_reduction_factor);
 
             handle_collision(
                 ctx,
                 collision,
-                &initial_velocity_info,
+                &velocity_info_without_collisions,
                 &mut velocity_info,
                 ground_normal,
                 &mut ground_collision_handled,
@@ -266,7 +267,7 @@ fn apply_velocity(
 fn handle_collision(
     ctx: &CharacterControllerContext,
     collision: Collision,
-    initial_velocity_info: &VectorBoundGroup,
+    velocity_info_without_collisions: &VectorBoundGroup,
     velocity_info: &mut VectorBoundGroup,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
     ground_collision_handled: &mut bool,
@@ -287,7 +288,8 @@ fn handle_collision(
             // handled first, so when computing how the velocity vectors change, we rewrite history as if
             // the ground collision was first. This is only necessary for the first ground collision, since
             // afterwards, there is no more unexpected vertical momentum.
-            let old_velocity_info = replace(velocity_info, initial_velocity_info.clone());
+            let old_velocity_info =
+                replace(velocity_info, velocity_info_without_collisions.clone());
             velocity_info.apply_and_add_bound(
                 VectorBound::new_push(collision.normal, ctx.up),
                 &stay_on_ground_bounds,
