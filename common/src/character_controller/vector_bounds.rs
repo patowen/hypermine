@@ -127,38 +127,29 @@ impl VectorBoundGroup {
 pub struct VectorBound {
     normal: na::UnitVector3<f32>,
     projection_direction: na::UnitVector3<f32>,
-    error_margin_factor: f32, // Margin of error when the bound is applied
+    front_facing: bool, // Only used for `check_vector` function
 }
 
 impl VectorBound {
     /// Creates a `VectorBound` that pushes vectors away from the plane given
     /// by the normal in `projection_direction`. After applying such a bound to
-    /// a vector, its dot product with `normal` should be positive even counting
-    /// floating point approximation limitations.
-    pub fn new_push(
+    /// a vector, its dot product with `normal` should be close to zero but positive
+    /// even considering floating point error.
+    ///
+    /// The `VectorBound` will only push vectors that do not currently fulfill the bounds.
+    /// If `front_facing` is true, the bound wants the vector to be "in front" of the plane,
+    /// in the direction given by `normal`. Otherwise, the bound wants the vector to be "behind"
+    /// the plane. Error margins are set so that two planes, one front_facing and one not, with the
+    /// same `normal` and `projection_direction`, can both act on a vector without interfering.
+    pub fn new(
         normal: na::UnitVector3<f32>,
         projection_direction: na::UnitVector3<f32>,
+        front_facing: bool,
     ) -> Self {
         VectorBound {
             normal,
             projection_direction,
-            error_margin_factor: 1.0,
-        }
-    }
-
-    /// Creates a `VectorBound` that pulls vectors towards the plane given
-    /// by the normal in `projection_direction`. Even after applying such a bound to
-    /// a vector, its dot product with `normal` should still be positive even counting
-    /// floating point approximation limitations. This ensures that `new_push` and
-    /// `new_pull` don't conflict with each other even with equal parameters.
-    pub fn new_pull(
-        normal: na::UnitVector3<f32>,
-        projection_direction: na::UnitVector3<f32>,
-    ) -> Self {
-        VectorBound {
-            normal: na::UnitVector3::new_unchecked(-normal.as_ref()),
-            projection_direction,
-            error_margin_factor: -1.0,
+            front_facing,
         }
     }
 
@@ -169,7 +160,7 @@ impl VectorBound {
             subject,
             &self.normal,
             &self.projection_direction,
-            error_margin * self.error_margin_factor,
+            error_margin,
         );
     }
 
@@ -177,11 +168,21 @@ impl VectorBound {
     /// return `true` after a vector is constrained by `constrain_vector` with the same error margin, even
     /// if it's perturbed slightly. However, that property only holds if the error margin is not too small.
     fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
+        if subject.is_zero() {
+            return true;
+        }
+
         // An additional margin of error is needed when the bound is checked to ensure that an
-        // applied bound always passes the check.
-        let error_margin_factor_for_check = self.error_margin_factor - 0.5;
-        subject.is_zero()
-            || subject.dot(&self.normal) >= error_margin * error_margin_factor_for_check
+        // applied bound always passes the check. Ostensibly, for an applied bound, the dot
+        // product is equal to the error margin.
+        if self.front_facing {
+            // Using 0.5 here should ensure that the check will pass after the bound is applied, and it will fail if the
+            // dot product is too close to zero to guarantee that it won't be treated as negative during collision checking
+            subject.dot(&self.normal) >= error_margin * 0.5
+        } else {
+            // Using 1.5 here keeps the additional margin of error equivalent in magnitude to the front-facing case
+            subject.dot(&self.normal) <= error_margin * 1.5
+        }
     }
 
     /// Returns a `VectorBound` that is an altered version of `self` so that it no longer interferes
@@ -200,7 +201,7 @@ impl VectorBound {
         na::UnitVector3::try_new(ortho_bound_projection_direction, 1e-5).map(|d| VectorBound {
             normal: self.normal,
             projection_direction: d,
-            error_margin_factor: self.error_margin_factor,
+            front_facing: self.front_facing,
         })
     }
 }
@@ -217,7 +218,7 @@ mod tests {
 
         // Add a bunch of bounds that are achievable with nonzero vectors
         bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0)),
+            VectorBound::new(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0), true),
             &[],
         );
 
@@ -225,7 +226,11 @@ mod tests {
         assert_bounds_achieved(&bounds);
 
         bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(2.0, -3.0, -4.0), unit_vector(1.0, -2.0, -1.0)),
+            VectorBound::new(
+                unit_vector(2.0, -3.0, -4.0),
+                unit_vector(1.0, -2.0, -1.0),
+                true,
+            ),
             &[],
         );
 
@@ -233,7 +238,11 @@ mod tests {
         assert_bounds_achieved(&bounds);
 
         bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(2.0, -3.0, -5.0), unit_vector(1.0, -2.0, -2.0)),
+            VectorBound::new(
+                unit_vector(2.0, -3.0, -5.0),
+                unit_vector(1.0, -2.0, -2.0),
+                true,
+            ),
             &[],
         );
 
@@ -242,7 +251,11 @@ mod tests {
 
         // Finally, add a bound that overconstrains the system
         bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(-3.0, 3.0, -2.0), unit_vector(-3.0, 3.0, -2.0)),
+            VectorBound::new(
+                unit_vector(-3.0, 3.0, -2.0),
+                unit_vector(-3.0, 3.0, -2.0),
+                true,
+            ),
             &[],
         );
 
@@ -257,7 +270,7 @@ mod tests {
         let normal = unit_vector(1.0, 3.0, 4.0);
         let projection_direction = unit_vector(1.0, 2.0, 2.0);
         let error_margin = 1e-4;
-        let bound = VectorBound::new_push(normal, projection_direction);
+        let bound = VectorBound::new(normal, projection_direction, true);
 
         let initial_vector = na::Vector3::new(-4.0, -3.0, 1.0);
 
@@ -283,8 +296,8 @@ mod tests {
         let normal1 = unit_vector(1.0, -4.0, 3.0);
         let projection_direction1 = unit_vector(1.0, -2.0, 1.0);
 
-        let bound0 = VectorBound::new_push(normal0, projection_direction0);
-        let bound1 = VectorBound::new_push(normal1, projection_direction1);
+        let bound0 = VectorBound::new(normal0, projection_direction0, true);
+        let bound1 = VectorBound::new(normal1, projection_direction1, true);
 
         let initial_vector = na::Vector3::new(2.0, -1.0, -3.0);
         let mut constrained_vector = initial_vector;

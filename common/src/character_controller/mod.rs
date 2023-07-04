@@ -147,7 +147,7 @@ fn get_ground_normal(
                 return Some(collision.normal);
             }
             bounds.apply_and_add_bound(
-                VectorBound::new_push(collision.normal, collision.normal),
+                VectorBound::new(collision.normal, collision.normal, true),
                 &[],
             );
         } else {
@@ -277,7 +277,7 @@ fn handle_collision(
     // push the character away from the wall in a perpendicular direction. If the character is on the ground,
     // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
     if is_ground(ctx, &collision.normal) {
-        let stay_on_ground_bounds = [VectorBound::new_pull(collision.normal, ctx.up)];
+        let stay_on_ground_bounds = [VectorBound::new(collision.normal, ctx.up, false)];
         if !*ground_collision_handled {
             // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
             // occur if the character jumps at the corner between the ground and a slanted wall. If the wall
@@ -291,7 +291,7 @@ fn handle_collision(
             let old_velocity_info =
                 replace(velocity_info, velocity_info_without_collisions.clone());
             velocity_info.apply_and_add_bound(
-                VectorBound::new_push(collision.normal, ctx.up),
+                VectorBound::new(collision.normal, ctx.up, true),
                 &stay_on_ground_bounds,
             );
             for bound in old_velocity_info.bounds() {
@@ -301,7 +301,7 @@ fn handle_collision(
             *ground_collision_handled = true;
         } else {
             velocity_info.apply_and_add_bound(
-                VectorBound::new_push(collision.normal, ctx.up),
+                VectorBound::new(collision.normal, ctx.up, true),
                 &stay_on_ground_bounds,
             );
         }
@@ -310,10 +310,10 @@ fn handle_collision(
     } else {
         let mut stay_on_ground_bounds = Vec::new();
         if let Some(ground_normal) = ground_normal {
-            stay_on_ground_bounds.push(VectorBound::new_pull(*ground_normal, ctx.up));
+            stay_on_ground_bounds.push(VectorBound::new(*ground_normal, ctx.up, false));
         }
         velocity_info.apply_and_add_bound(
-            VectorBound::new_push(collision.normal, collision.normal),
+            VectorBound::new(collision.normal, collision.normal, true),
             &stay_on_ground_bounds,
         );
     }
