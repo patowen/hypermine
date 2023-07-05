@@ -8,7 +8,7 @@ use tracing::warn;
 use crate::{
     character_controller::{
         collision::{check_collision, Collision, CollisionContext},
-        vector_bounds::{VectorBound, VectorBoundGroup},
+        vector_bounds::{BoundedVectors, VectorBound},
     },
     math,
     node::{ChunkLayout, DualGraph},
@@ -133,20 +133,23 @@ fn get_ground_normal(
     // character is on the ground. To handle this, we repeatedly redirect the direction we search to be
     // parallel to walls we collide with to ensure that we find the ground if is indeed below the character.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
-    let mut bounds = VectorBoundGroup::new(
+    let mut allowed_displacement = BoundedVectors::new(
         -ctx.up.into_inner() * ctx.cfg.ground_distance_tolerance,
         None,
     );
 
     for _ in 0..MAX_COLLISION_ITERATIONS {
-        let collision_result =
-            check_collision(&ctx.collision_context, position, bounds.displacement());
+        let collision_result = check_collision(
+            &ctx.collision_context,
+            position,
+            allowed_displacement.displacement(),
+        );
         if let Some(collision) = collision_result.collision.as_ref() {
             if is_ground(ctx, &collision.normal) {
                 // We found the ground, so return its normal.
                 return Some(collision.normal);
             }
-            bounds.apply_and_add_bound(
+            allowed_displacement.apply_and_add_bound(
                 VectorBound::new(collision.normal, collision.normal, true),
                 &[],
             );
@@ -220,8 +223,8 @@ fn apply_velocity(
     // in which case further movement processing is delayed until the next time step.
     const MAX_COLLISION_ITERATIONS: u32 = 6;
 
-    let mut velocity_info = VectorBoundGroup::new(expected_displacement, Some(*velocity));
-    let mut velocity_info_without_collisions = velocity_info.clone();
+    let mut bounded_vectors = BoundedVectors::new(expected_displacement, Some(*velocity));
+    let mut bounded_vectors_without_collisions = bounded_vectors.clone();
 
     let mut ground_collision_handled = false;
 
@@ -230,7 +233,7 @@ fn apply_velocity(
         let collision_result = check_collision(
             &ctx.collision_context,
             position,
-            velocity_info.displacement(),
+            bounded_vectors.displacement(),
         );
         position.local *= collision_result.displacement_transform;
 
@@ -239,14 +242,14 @@ fn apply_velocity(
             let displacement_reduction_factor = 1.0
                 - collision_result.displacement_vector.magnitude()
                     / expected_displacement.magnitude();
-            velocity_info.scale_displacement(displacement_reduction_factor);
-            velocity_info_without_collisions.scale_displacement(displacement_reduction_factor);
+            bounded_vectors.scale_displacement(displacement_reduction_factor);
+            bounded_vectors_without_collisions.scale_displacement(displacement_reduction_factor);
 
             handle_collision(
                 ctx,
                 collision,
-                &velocity_info_without_collisions,
-                &mut velocity_info,
+                &bounded_vectors_without_collisions,
+                &mut bounded_vectors,
                 ground_normal,
                 &mut ground_collision_handled,
             );
@@ -260,15 +263,15 @@ fn apply_velocity(
         warn!("A character entity processed too many collisions and collision resolution was cut short.");
     }
 
-    *velocity = *velocity_info.velocity().unwrap();
+    *velocity = *bounded_vectors.velocity().unwrap();
 }
 
 /// Updates character information based on the results of a single collision
 fn handle_collision(
     ctx: &CharacterControllerContext,
     collision: Collision,
-    velocity_info_without_collisions: &VectorBoundGroup,
-    velocity_info: &mut VectorBoundGroup,
+    bounded_vectors_without_collisions: &BoundedVectors,
+    bounded_vectors: &mut BoundedVectors,
     ground_normal: &mut Option<na::UnitVector3<f32>>,
     ground_collision_handled: &mut bool,
 ) {
@@ -288,19 +291,19 @@ fn handle_collision(
             // handled first, so when computing how the velocity vectors change, we rewrite history as if
             // the ground collision was first. This is only necessary for the first ground collision, since
             // afterwards, there is no more unexpected vertical momentum.
-            let old_velocity_info =
-                replace(velocity_info, velocity_info_without_collisions.clone());
-            velocity_info.apply_and_add_bound(
+            let old_bounded_vectors =
+                replace(bounded_vectors, bounded_vectors_without_collisions.clone());
+            bounded_vectors.apply_and_add_bound(
                 VectorBound::new(collision.normal, ctx.up, true),
                 &stay_on_ground_bounds,
             );
-            for bound in old_velocity_info.bounds() {
-                velocity_info.apply_and_add_bound(bound.clone(), &stay_on_ground_bounds);
+            for bound in old_bounded_vectors.bounds() {
+                bounded_vectors.apply_and_add_bound(bound.clone(), &stay_on_ground_bounds);
             }
 
             *ground_collision_handled = true;
         } else {
-            velocity_info.apply_and_add_bound(
+            bounded_vectors.apply_and_add_bound(
                 VectorBound::new(collision.normal, ctx.up, true),
                 &stay_on_ground_bounds,
             );
@@ -312,7 +315,7 @@ fn handle_collision(
         if let Some(ground_normal) = ground_normal {
             stay_on_ground_bounds.push(VectorBound::new(*ground_normal, ctx.up, false));
         }
-        velocity_info.apply_and_add_bound(
+        bounded_vectors.apply_and_add_bound(
             VectorBound::new(collision.normal, collision.normal, true),
             &stay_on_ground_bounds,
         );

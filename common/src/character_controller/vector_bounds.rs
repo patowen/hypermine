@@ -5,25 +5,27 @@ use tracing::warn;
 
 use crate::math;
 
-/// Encapsulates all the information needed to constrain a vector based on a set of `VectorBound`s.
+/// Encapsulates all the information needed to constrain a vector (displacement) based on a set of `VectorBound`s and apply those
+/// same constraints to a secondary vector (velocity).
 #[derive(Clone)]
-pub struct VectorBoundGroup {
+pub struct BoundedVectors {
     displacement: na::Vector3<f32>,
     velocity: Option<na::Vector3<f32>>,
     bounds: Vec<VectorBound>,
     error_margin: f32,
 }
 
-impl VectorBoundGroup {
-    /// Initializes a `VectorBoundGroup` with an empty list of bounds. The `displacement` is the first vector
-    /// we expect these bounds to be applied to, a hint to determine what kind of error margin is needed
+impl BoundedVectors {
+    /// Initializes a `BoundedVectors` with an empty list of bounds. The `displacement` is the vector
+    /// we will apply the bounds to. The size of this vector also determins the error margin
     /// to prevent floating point approximation limits from causing phantom collisions. Note that this
     /// error margin is not needed if the resulting vector is zero, since no phantom collision can occur
-    /// if the character is stopped.
+    /// if the character is stopped. The `velocity` is a vector that should have similar bounds applied to
+    /// it as `displacement`, but it is not used to compute which bounds to apply.
     pub fn new(displacement: na::Vector3<f32>, velocity: Option<na::Vector3<f32>>) -> Self {
         let error_margin = displacement.magnitude() * 1e-4;
 
-        VectorBoundGroup {
+        BoundedVectors {
             displacement,
             velocity,
             bounds: vec![],
@@ -45,7 +47,7 @@ impl VectorBoundGroup {
         self.velocity.as_ref()
     }
 
-    /// Returns the internal list of `VectorBound`s contained in the `VectorBoundGroup` struct.
+    /// Returns the internal list of `VectorBound`s contained in the `BoundedVectors` struct.
     pub fn bounds(&self) -> &[VectorBound] {
         &self.bounds
     }
@@ -122,7 +124,7 @@ impl VectorBoundGroup {
 
 /// Represents a single constraint for a vector. `VectorBound`s alone conceptually contain
 /// enough information to apply to a vector, but practically, one other piece of information
-/// is needed: `error_margin`, which exists in `VectorBoundGroup`.
+/// is needed: `error_margin`, which exists in `BoundedVectors`.
 #[derive(Clone)]
 pub struct VectorBound {
     normal: na::UnitVector3<f32>,
@@ -214,18 +216,18 @@ mod tests {
 
     #[test]
     fn vector_bound_group_example() {
-        let mut bounds = VectorBoundGroup::new(na::Vector3::new(-4.0, -3.0, 1.0), None);
+        let mut bounded_vector = BoundedVectors::new(na::Vector3::new(-4.0, -3.0, 1.0), None);
 
         // Add a bunch of bounds that are achievable with nonzero vectors
-        bounds.apply_and_add_bound(
+        bounded_vector.apply_and_add_bound(
             VectorBound::new(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0), true),
             &[],
         );
 
-        assert_ne!(bounds.displacement, na::Vector3::zero());
-        assert_bounds_achieved(&bounds);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
-        bounds.apply_and_add_bound(
+        bounded_vector.apply_and_add_bound(
             VectorBound::new(
                 unit_vector(2.0, -3.0, -4.0),
                 unit_vector(1.0, -2.0, -1.0),
@@ -234,10 +236,10 @@ mod tests {
             &[],
         );
 
-        assert_ne!(bounds.displacement, na::Vector3::zero());
-        assert_bounds_achieved(&bounds);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
-        bounds.apply_and_add_bound(
+        bounded_vector.apply_and_add_bound(
             VectorBound::new(
                 unit_vector(2.0, -3.0, -5.0),
                 unit_vector(1.0, -2.0, -2.0),
@@ -246,11 +248,11 @@ mod tests {
             &[],
         );
 
-        assert_ne!(bounds.displacement, na::Vector3::zero());
-        assert_bounds_achieved(&bounds);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
         // Finally, add a bound that overconstrains the system
-        bounds.apply_and_add_bound(
+        bounded_vector.apply_and_add_bound(
             VectorBound::new(
                 unit_vector(-3.0, 3.0, -2.0),
                 unit_vector(-3.0, 3.0, -2.0),
@@ -260,9 +262,9 @@ mod tests {
         );
 
         // Using assert_eq instead of assert_ne here
-        assert_eq!(bounds.displacement, na::Vector3::zero());
+        assert_eq!(bounded_vector.displacement, na::Vector3::zero());
         // Special logic allows bounds checking to work with the zero vector
-        assert_bounds_achieved(&bounds);
+        assert_bounds_achieved(&bounded_vector);
     }
 
     #[test]
@@ -321,7 +323,7 @@ mod tests {
         );
     }
 
-    fn assert_bounds_achieved(bounds: &VectorBoundGroup) {
+    fn assert_bounds_achieved(bounds: &BoundedVectors) {
         for bound in bounds.bounds() {
             assert!(bound.check_vector(&bounds.displacement, bounds.error_margin));
         }
