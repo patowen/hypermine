@@ -241,7 +241,7 @@ fn apply_velocity(
             // Update the expected displacement to represent a reduction in the remaining dt
             let displacement_reduction_factor = 1.0
                 - collision_result.displacement_vector.magnitude()
-                    / expected_displacement.magnitude();
+                    / bounded_vectors.displacement().magnitude();
             bounded_vectors.scale_displacement(displacement_reduction_factor);
             bounded_vectors_without_collisions.scale_displacement(displacement_reduction_factor);
 
