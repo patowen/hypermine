@@ -12,6 +12,7 @@ pub struct BoundedVectors {
     displacement: na::Vector3<f32>,
     velocity: Option<na::Vector3<f32>>,
     bounds: Vec<VectorBound>,
+    temporary_bounds: Vec<VectorBound>,
     error_margin: f32,
 }
 
@@ -29,6 +30,7 @@ impl BoundedVectors {
             displacement,
             velocity,
             bounds: vec![],
+            temporary_bounds: vec![],
             error_margin,
         }
     }
@@ -52,20 +54,29 @@ impl BoundedVectors {
         &self.bounds
     }
 
-    /// Constrains `vector` with `new_bound` while keeping the existing constraints and any constraints in
-    /// `temporary_bounds` satisfied. All projection transformations applied to `vector` are also applied
-    /// to `tagalong` to allow two vectors to be transformed consistently with each other.
-    pub fn apply_and_add_bound(
-        &mut self,
-        new_bound: VectorBound,
-        temporary_bounds: &[VectorBound],
-    ) {
-        self.apply_bound(&new_bound, temporary_bounds);
+    /// Constrains `vector` with `new_bound` while keeping the existing constraints satisfied. All projection
+    /// transformations applied to `vector` are also applied to `tagalong` to allow two vectors to be transformed consistently
+    /// with each other.
+    pub fn apply_and_add_bound(&mut self, new_bound: VectorBound) {
+        self.apply_bound(&new_bound);
         self.bounds.push(new_bound);
     }
 
+    /// Temporarily constrains `vector` with `new_bound` while keeping the existing constraints satisfied. All projection
+    /// transformations applied to `vector` are also applied to `tagalong` to allow two vectors to be transformed consistently
+    /// with each other. Use `clear_temporary_bounds` to get rid of any existing temporary bounds
+    pub fn apply_and_add_temporary_bound(&mut self, new_bound: VectorBound) {
+        self.apply_bound(&new_bound);
+        self.temporary_bounds.push(new_bound);
+    }
+
+    /// Removes all temporary bounds
+    pub fn clear_temporary_bounds(&mut self) {
+        self.temporary_bounds.clear();
+    }
+
     /// Helper function to logically separate the "add" and the "apply" in `apply_and_add_bound` function.
-    fn apply_bound(&mut self, new_bound: &VectorBound, temporary_bounds: &[VectorBound]) {
+    fn apply_bound(&mut self, new_bound: &VectorBound) {
         // There likely isn't a perfect way to get a vector properly constrained with a list of bounds. The main
         // difficulty is finding which set of linearly independent bounds need to be applied so that all bounds are
         // satisfied. Since bounds are one-sided and not guaranteed to be linearly independent from each other, this
@@ -75,7 +86,7 @@ impl BoundedVectors {
         // assume that we need to apply three linearly independent bounds.
 
         // Combine existing bounds with temporary bounds into an iterator
-        let bounds_iter = self.bounds.iter().chain(temporary_bounds.iter());
+        let bounds_iter = self.bounds.iter().chain(self.temporary_bounds.iter());
 
         // Apply new_bound if necessary.
         if !new_bound.check_vector(&self.displacement, self.error_margin) {
@@ -219,47 +230,39 @@ mod tests {
         let mut bounded_vector = BoundedVectors::new(na::Vector3::new(-4.0, -3.0, 1.0), None);
 
         // Add a bunch of bounds that are achievable with nonzero vectors
-        bounded_vector.apply_and_add_bound(
-            VectorBound::new(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0), true),
-            &[],
-        );
+        bounded_vector.apply_and_add_bound(VectorBound::new(
+            unit_vector(1.0, 3.0, 4.0),
+            unit_vector(1.0, 2.0, 2.0),
+            true,
+        ));
 
         assert_ne!(bounded_vector.displacement, na::Vector3::zero());
         assert_bounds_achieved(&bounded_vector);
 
-        bounded_vector.apply_and_add_bound(
-            VectorBound::new(
-                unit_vector(2.0, -3.0, -4.0),
-                unit_vector(1.0, -2.0, -1.0),
-                true,
-            ),
-            &[],
-        );
+        bounded_vector.apply_and_add_bound(VectorBound::new(
+            unit_vector(2.0, -3.0, -4.0),
+            unit_vector(1.0, -2.0, -1.0),
+            true,
+        ));
 
         assert_ne!(bounded_vector.displacement, na::Vector3::zero());
         assert_bounds_achieved(&bounded_vector);
 
-        bounded_vector.apply_and_add_bound(
-            VectorBound::new(
-                unit_vector(2.0, -3.0, -5.0),
-                unit_vector(1.0, -2.0, -2.0),
-                true,
-            ),
-            &[],
-        );
+        bounded_vector.apply_and_add_bound(VectorBound::new(
+            unit_vector(2.0, -3.0, -5.0),
+            unit_vector(1.0, -2.0, -2.0),
+            true,
+        ));
 
         assert_ne!(bounded_vector.displacement, na::Vector3::zero());
         assert_bounds_achieved(&bounded_vector);
 
         // Finally, add a bound that overconstrains the system
-        bounded_vector.apply_and_add_bound(
-            VectorBound::new(
-                unit_vector(-3.0, 3.0, -2.0),
-                unit_vector(-3.0, 3.0, -2.0),
-                true,
-            ),
-            &[],
-        );
+        bounded_vector.apply_and_add_bound(VectorBound::new(
+            unit_vector(-3.0, 3.0, -2.0),
+            unit_vector(-3.0, 3.0, -2.0),
+            true,
+        ));
 
         // Using assert_eq instead of assert_ne here
         assert_eq!(bounded_vector.displacement, na::Vector3::zero());

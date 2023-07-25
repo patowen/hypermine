@@ -149,10 +149,11 @@ fn get_ground_normal(
                 // We found the ground, so return its normal.
                 return Some(collision.normal);
             }
-            allowed_displacement.apply_and_add_bound(
-                VectorBound::new(collision.normal, collision.normal, true),
-                &[],
-            );
+            allowed_displacement.apply_and_add_bound(VectorBound::new(
+                collision.normal,
+                collision.normal,
+                true,
+            ));
         } else {
             // Return `None` if we travel the whole `allowed_displacement` and don't find the ground.
             return None;
@@ -280,7 +281,6 @@ fn handle_collision(
     // push the character away from the wall in a perpendicular direction. If the character is on the ground,
     // we have extra logic to ensure that slanted wall collisions do not lift the character off the ground.
     if is_ground(ctx, &collision.normal) {
-        let stay_on_ground_bounds = [VectorBound::new(collision.normal, ctx.up, false)];
         if !*ground_collision_handled {
             // Wall collisions can turn vertical momentum into unwanted horizontal momentum. This can
             // occur if the character jumps at the corner between the ground and a slanted wall. If the wall
@@ -293,32 +293,43 @@ fn handle_collision(
             // afterwards, there is no more unexpected vertical momentum.
             let old_bounded_vectors =
                 replace(bounded_vectors, bounded_vectors_without_collisions.clone());
-            bounded_vectors.apply_and_add_bound(
-                VectorBound::new(collision.normal, ctx.up, true),
-                &stay_on_ground_bounds,
-            );
+            bounded_vectors.apply_and_add_temporary_bound(VectorBound::new(
+                collision.normal,
+                ctx.up,
+                false,
+            ));
+            bounded_vectors.apply_and_add_bound(VectorBound::new(collision.normal, ctx.up, true));
             for bound in old_bounded_vectors.bounds() {
-                bounded_vectors.apply_and_add_bound(bound.clone(), &stay_on_ground_bounds);
+                bounded_vectors.apply_and_add_bound(bound.clone());
             }
+            bounded_vectors.clear_temporary_bounds();
 
             *ground_collision_handled = true;
         } else {
-            bounded_vectors.apply_and_add_bound(
-                VectorBound::new(collision.normal, ctx.up, true),
-                &stay_on_ground_bounds,
-            );
+            bounded_vectors.apply_and_add_temporary_bound(VectorBound::new(
+                collision.normal,
+                ctx.up,
+                false,
+            ));
+            bounded_vectors.apply_and_add_bound(VectorBound::new(collision.normal, ctx.up, true));
+            bounded_vectors.clear_temporary_bounds();
         }
 
         *ground_normal = Some(collision.normal);
     } else {
-        let mut stay_on_ground_bounds = Vec::new();
         if let Some(ground_normal) = ground_normal {
-            stay_on_ground_bounds.push(VectorBound::new(*ground_normal, ctx.up, false));
+            bounded_vectors.apply_and_add_temporary_bound(VectorBound::new(
+                *ground_normal,
+                ctx.up,
+                false,
+            ));
         }
-        bounded_vectors.apply_and_add_bound(
-            VectorBound::new(collision.normal, collision.normal, true),
-            &stay_on_ground_bounds,
-        );
+        bounded_vectors.apply_and_add_bound(VectorBound::new(
+            collision.normal,
+            collision.normal,
+            true,
+        ));
+        bounded_vectors.clear_temporary_bounds();
     }
 }
 
