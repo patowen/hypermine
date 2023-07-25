@@ -75,7 +75,7 @@ impl BoundedVectors {
         self.temp_bounds.clear();
     }
 
-    /// Helper function to logically separate the "add" and the "apply" in `apply_and_add_bound` function.
+    /// Helper function to apply a new bound without adding it to any lists.
     fn apply_bound(&mut self, new_bound: &VectorBound) {
         // There likely isn't a perfect way to get a vector properly constrained with a list of bounds. The main
         // difficulty is finding which set of linearly independent bounds need to be applied so that all bounds are
