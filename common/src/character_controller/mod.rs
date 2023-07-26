@@ -1,5 +1,3 @@
-// TODO: Update the temporary block placing branch with the changes made here once all PR comments are resolved!
-
 mod collision;
 mod vector_bounds;
 
