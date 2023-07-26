@@ -1,3 +1,5 @@
+// TODO: Update the temporary block placing branch with the changes made here once all PR comments are resolved!
+
 mod collision;
 mod vector_bounds;
 
@@ -13,7 +15,9 @@ use crate::{
     math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
-    sanitize_motion_input, SimConfig,
+    sanitize_motion_input,
+    sim_config::CharacterConfig,
+    SimConfig,
 };
 
 /// Runs a single step of character movement
@@ -27,11 +31,11 @@ pub fn run_character_step(
     dt_seconds: f32,
 ) {
     let ctx = CharacterControllerContext {
-        cfg: CharacterConfig::new(sim_config),
+        cfg: &sim_config.character_config,
         collision_context: CollisionContext {
             graph,
             chunk_layout: ChunkLayout::new(sim_config.chunk_size as usize),
-            radius: sim_config.character_radius,
+            radius: sim_config.character_config.character_radius,
         },
         up: graph.get_relative_up(position).unwrap(),
         dt_seconds,
@@ -318,44 +322,12 @@ fn handle_collision(
     }
 }
 
-/// Contains static configuration information relevant to character physics that generally doesn't change at all
-/// for a character, even across timesteps
-struct CharacterConfig {
-    no_clip_movement_speed: f32,
-    max_ground_speed: f32,
-    speed_cap: f32,
-    max_ground_slope: f32,
-    ground_acceleration: f32,
-    air_acceleration: f32,
-    gravity_acceleration: f32,
-    air_resistance: f32,
-    jump_speed: f32,
-    ground_distance_tolerance: f32,
-}
-
-impl CharacterConfig {
-    fn new(cfg: &SimConfig) -> Self {
-        CharacterConfig {
-            no_clip_movement_speed: cfg.no_clip_movement_speed,
-            max_ground_speed: cfg.max_ground_speed,
-            speed_cap: cfg.speed_cap,
-            max_ground_slope: cfg.max_ground_slope,
-            ground_acceleration: cfg.ground_acceleration,
-            air_acceleration: cfg.air_acceleration,
-            gravity_acceleration: cfg.gravity_acceleration,
-            air_resistance: cfg.air_resistance,
-            jump_speed: cfg.jump_speed,
-            ground_distance_tolerance: cfg.ground_distance_tolerance,
-        }
-    }
-}
-
 /// Contains all information about a character that the character controller doesn't change during
 /// one of its simulation steps
 struct CharacterControllerContext<'a> {
     collision_context: CollisionContext<'a>,
     up: na::UnitVector3<f32>,
-    cfg: CharacterConfig,
+    cfg: &'a CharacterConfig,
     dt_seconds: f32,
     movement_input: na::Vector3<f32>,
     jump_input: bool,
