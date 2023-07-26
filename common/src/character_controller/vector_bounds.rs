@@ -5,55 +5,78 @@ use tracing::warn;
 
 use crate::math;
 
-/// Encapsulates all the information needed to constrain a vector based on a set of `VectorBound`s.
+/// Encapsulates all the information needed to constrain a vector (displacement) based on a set of `VectorBound`s and apply those
+/// same constraints to a secondary vector (velocity).
 #[derive(Clone)]
-pub struct VectorBoundGroup {
+pub struct BoundedVectors {
+    displacement: na::Vector3<f32>,
+    velocity: Option<na::Vector3<f32>>,
     bounds: Vec<VectorBound>,
+    temp_bounds: Vec<VectorBound>,
     error_margin: f32,
 }
 
-impl VectorBoundGroup {
-    /// Initializes a `VectorBoundGroup` with an empty list of bounds. The `initial_vector` is the first vector
-    /// we expect these bounds to be applied to, a hint to determine what kind of error margin is needed
+impl BoundedVectors {
+    /// Initializes a `BoundedVectors` with an empty list of bounds. The `displacement` is the vector
+    /// we will apply the bounds to. The size of this vector also determins the error margin
     /// to prevent floating point approximation limits from causing phantom collisions. Note that this
     /// error margin is not needed if the resulting vector is zero, since no phantom collision can occur
-    /// if the character is stopped.
-    pub fn new(initial_vector: &na::Vector3<f32>) -> Self {
-        let error_margin = initial_vector.magnitude() * 1e-4;
+    /// if the character is stopped. The `velocity` is a vector that should have similar bounds applied to
+    /// it as `displacement`, but it is not used to compute which bounds to apply.
+    pub fn new(displacement: na::Vector3<f32>, velocity: Option<na::Vector3<f32>>) -> Self {
+        let error_margin = displacement.magnitude() * 1e-4;
 
-        VectorBoundGroup {
+        BoundedVectors {
+            displacement,
+            velocity,
             bounds: vec![],
+            temp_bounds: vec![],
             error_margin,
         }
     }
 
-    /// Returns the internal list of `VectorBound`s contained in the `VectorBoundGroup` struct.
+    pub fn displacement(&self) -> &na::Vector3<f32> {
+        &self.displacement
+    }
+
+    /// Scales the displacement vector without invalidating any of the `VectorBound`s
+    pub fn scale_displacement(&mut self, scale_factor: f32) {
+        self.displacement *= scale_factor;
+        self.error_margin *= scale_factor;
+    }
+
+    pub fn velocity(&self) -> Option<&na::Vector3<f32>> {
+        self.velocity.as_ref()
+    }
+
+    /// Returns the internal list of `VectorBound`s contained in the `BoundedVectors` struct.
     pub fn bounds(&self) -> &[VectorBound] {
         &self.bounds
     }
 
-    /// Constrains `vector` with `new_bound` while keeping the existing constraints and any constraints in
-    /// `temporary_bounds` satisfied. All projection transformations applied to `vector` are also applied
-    /// to `tagalong` to allow two vectors to be transformed consistently with each other.
-    pub fn apply_and_add_bound(
-        &mut self,
-        new_bound: VectorBound,
-        temporary_bounds: &[VectorBound],
-        vector: &mut na::Vector3<f32>,
-        tagalong: Option<&mut na::Vector3<f32>>,
-    ) {
-        self.apply_bound(&new_bound, temporary_bounds, vector, tagalong);
+    /// Constrains `vector` with `new_bound` while keeping the existing constraints satisfied. All projection
+    /// transformations applied to `vector` are also applied to `tagalong` to allow two vectors to be transformed consistently
+    /// with each other.
+    pub fn add_bound(&mut self, new_bound: VectorBound) {
+        self.apply_bound(&new_bound);
         self.bounds.push(new_bound);
     }
 
-    /// Helper function to logically separate the "add" and the "apply" in `apply_and_add_bound` function.
-    fn apply_bound(
-        &self,
-        new_bound: &VectorBound,
-        temporary_bounds: &[VectorBound],
-        vector: &mut na::Vector3<f32>,
-        mut tagalong: Option<&mut na::Vector3<f32>>,
-    ) {
+    /// Temporarily constrains `vector` with `new_bound` while keeping the existing constraints satisfied. All projection
+    /// transformations applied to `vector` are also applied to `tagalong` to allow two vectors to be transformed consistently
+    /// with each other. Use `clear_temporary_bounds` to get rid of any existing temporary bounds
+    pub fn add_temp_bound(&mut self, new_bound: VectorBound) {
+        self.apply_bound(&new_bound);
+        self.temp_bounds.push(new_bound);
+    }
+
+    /// Removes all temporary bounds
+    pub fn clear_temp_bounds(&mut self) {
+        self.temp_bounds.clear();
+    }
+
+    /// Helper function to apply a new bound without adding it to any lists.
+    fn apply_bound(&mut self, new_bound: &VectorBound) {
         // There likely isn't a perfect way to get a vector properly constrained with a list of bounds. The main
         // difficulty is finding which set of linearly independent bounds need to be applied so that all bounds are
         // satisfied. Since bounds are one-sided and not guaranteed to be linearly independent from each other, this
@@ -63,90 +86,83 @@ impl VectorBoundGroup {
         // assume that we need to apply three linearly independent bounds.
 
         // Combine existing bounds with temporary bounds into an iterator
-        let bounds_iter = self.bounds.iter().chain(temporary_bounds.iter());
+        let bounds_iter = self.bounds.iter().chain(self.temp_bounds.iter());
 
         // Apply new_bound if necessary.
-        if !new_bound.check_vector(vector, self.error_margin) {
-            new_bound.constrain_vector(vector, self.error_margin);
-            if let Some(ref mut tagalong) = tagalong {
-                // Note: The tagalong vector does not need an error margin.
-                new_bound.constrain_vector(tagalong, 0.0);
+        if !new_bound.check_vector(&self.displacement, self.error_margin) {
+            new_bound.constrain_vector(&mut self.displacement, self.error_margin);
+            if let Some(ref mut velocity) = self.velocity {
+                // Note: The velocity vector does not need an error margin.
+                new_bound.constrain_vector(velocity, 0.0);
             }
         }
 
         // Check if all constraints are satisfied
-        if (bounds_iter.clone()).all(|b| b.check_vector(vector, self.error_margin)) {
+        if (bounds_iter.clone()).all(|b| b.check_vector(&self.displacement, self.error_margin)) {
             return;
         }
 
         // If not all constraints are satisfied, find the first constraint that if applied will satisfy
         // the remaining constriants
-        for bound in (bounds_iter.clone()).filter(|b| !b.check_vector(vector, self.error_margin)) {
+        for bound in
+            (bounds_iter.clone()).filter(|b| !b.check_vector(&self.displacement, self.error_margin))
+        {
             let Some(ortho_bound) = bound.get_self_constrained_with_bound(new_bound)
             else {
                 warn!("Unsatisfied existing bound is parallel to new bound. Is the character squeezed between two walls?");
                 continue;
             };
 
-            let mut candidate = *vector;
+            let mut candidate = self.displacement;
             ortho_bound.constrain_vector(&mut candidate, self.error_margin);
 
             if (bounds_iter.clone()).all(|b| b.check_vector(&candidate, self.error_margin)) {
-                *vector = candidate;
-                if let Some(ref mut tagalong) = tagalong {
-                    ortho_bound.constrain_vector(tagalong, 0.0);
+                self.displacement = candidate;
+                if let Some(ref mut velocity) = self.velocity {
+                    ortho_bound.constrain_vector(velocity, 0.0);
                 }
                 return;
             }
         }
 
         // If no choice satisfies all constraints, keep all bounds and set the vector to 0
-        vector.set_zero();
-        if let Some(ref mut tagalong) = tagalong {
-            tagalong.set_zero();
+        self.displacement.set_zero();
+        if let Some(ref mut velocity) = self.velocity {
+            velocity.set_zero();
         }
     }
 }
 
 /// Represents a single constraint for a vector. `VectorBound`s alone conceptually contain
 /// enough information to apply to a vector, but practically, one other piece of information
-/// is needed: `error_margin`, which exists in `VectorBoundGroup`.
+/// is needed: `error_margin`, which exists in `BoundedVectors`.
 #[derive(Clone)]
 pub struct VectorBound {
     normal: na::UnitVector3<f32>,
     projection_direction: na::UnitVector3<f32>,
-    error_margin_factor: f32, // Margin of error when the bound is applied
+    front_facing: bool, // Only used for `check_vector` function
 }
 
 impl VectorBound {
     /// Creates a `VectorBound` that pushes vectors away from the plane given
     /// by the normal in `projection_direction`. After applying such a bound to
-    /// a vector, its dot product with `normal` should be positive even counting
-    /// floating point approximation limitations.
-    pub fn new_push(
+    /// a vector, its dot product with `normal` should be close to zero but positive
+    /// even considering floating point error.
+    ///
+    /// The `VectorBound` will only push vectors that do not currently fulfill the bounds.
+    /// If `front_facing` is true, the bound wants the vector to be "in front" of the plane,
+    /// in the direction given by `normal`. Otherwise, the bound wants the vector to be "behind"
+    /// the plane. Error margins are set so that two planes, one front_facing and one not, with the
+    /// same `normal` and `projection_direction`, can both act on a vector without interfering.
+    pub fn new(
         normal: na::UnitVector3<f32>,
         projection_direction: na::UnitVector3<f32>,
+        front_facing: bool,
     ) -> Self {
         VectorBound {
             normal,
             projection_direction,
-            error_margin_factor: 1.0,
-        }
-    }
-
-    /// Creates a `VectorBound` that pulls vectors towards the plane given
-    /// by the normal in `projection_direction`. Even after applying such a bound to
-    /// a vector, its dot product with `normal` should still be positive even counting
-    /// floating point approximation limitations. This ensures that `new_push` and
-    /// `new_pull` don't conflict with each other even with equal parameters.
-    pub fn new_pull(
-        normal: na::UnitVector3<f32>,
-        projection_direction: na::UnitVector3<f32>,
-    ) -> Self {
-        VectorBound {
-            normal: na::UnitVector3::new_unchecked(-normal.as_ref()),
-            projection_direction,
-            error_margin_factor: -1.0,
+            front_facing,
         }
     }
 
@@ -157,7 +173,7 @@ impl VectorBound {
             subject,
             &self.normal,
             &self.projection_direction,
-            error_margin * self.error_margin_factor,
+            error_margin,
         );
     }
 
@@ -165,11 +181,21 @@ impl VectorBound {
     /// return `true` after a vector is constrained by `constrain_vector` with the same error margin, even
     /// if it's perturbed slightly. However, that property only holds if the error margin is not too small.
     fn check_vector(&self, subject: &na::Vector3<f32>, error_margin: f32) -> bool {
+        if subject.is_zero() {
+            return true;
+        }
+
         // An additional margin of error is needed when the bound is checked to ensure that an
-        // applied bound always passes the check.
-        let error_margin_factor_for_check = self.error_margin_factor - 0.5;
-        subject.is_zero()
-            || subject.dot(&self.normal) >= error_margin * error_margin_factor_for_check
+        // applied bound always passes the check. Ostensibly, for an applied bound, the dot
+        // product is equal to the error margin.
+        if self.front_facing {
+            // Using 0.5 here should ensure that the check will pass after the bound is applied, and it will fail if the
+            // dot product is too close to zero to guarantee that it won't be treated as negative during collision checking
+            subject.dot(&self.normal) >= error_margin * 0.5
+        } else {
+            // Using 1.5 here keeps the additional margin of error equivalent in magnitude to the front-facing case
+            subject.dot(&self.normal) <= error_margin * 1.5
+        }
     }
 
     /// Returns a `VectorBound` that is an altered version of `self` so that it no longer interferes
@@ -188,7 +214,7 @@ impl VectorBound {
         na::UnitVector3::try_new(ortho_bound_projection_direction, 1e-5).map(|d| VectorBound {
             normal: self.normal,
             projection_direction: d,
-            error_margin_factor: self.error_margin_factor,
+            front_facing: self.front_facing,
         })
     }
 }
@@ -201,54 +227,47 @@ mod tests {
 
     #[test]
     fn vector_bound_group_example() {
-        let initial_vector = na::Vector3::new(-4.0, -3.0, 1.0);
-        let mut constrained_vector = initial_vector;
-
-        let mut bounds = VectorBoundGroup::new(&initial_vector);
+        let mut bounded_vector = BoundedVectors::new(na::Vector3::new(-4.0, -3.0, 1.0), None);
 
         // Add a bunch of bounds that are achievable with nonzero vectors
-        bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(1.0, 3.0, 4.0), unit_vector(1.0, 2.0, 2.0)),
-            &[],
-            &mut constrained_vector,
-            None,
-        );
+        bounded_vector.add_bound(VectorBound::new(
+            unit_vector(1.0, 3.0, 4.0),
+            unit_vector(1.0, 2.0, 2.0),
+            true,
+        ));
 
-        assert_ne!(constrained_vector, na::Vector3::zero());
-        assert_bounds_achieved(&bounds, &constrained_vector);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
-        bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(2.0, -3.0, -4.0), unit_vector(1.0, -2.0, -1.0)),
-            &[],
-            &mut constrained_vector,
-            None,
-        );
+        bounded_vector.add_bound(VectorBound::new(
+            unit_vector(2.0, -3.0, -4.0),
+            unit_vector(1.0, -2.0, -1.0),
+            true,
+        ));
 
-        assert_ne!(constrained_vector, na::Vector3::zero());
-        assert_bounds_achieved(&bounds, &constrained_vector);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
-        bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(2.0, -3.0, -5.0), unit_vector(1.0, -2.0, -2.0)),
-            &[],
-            &mut constrained_vector,
-            None,
-        );
+        bounded_vector.add_bound(VectorBound::new(
+            unit_vector(2.0, -3.0, -5.0),
+            unit_vector(1.0, -2.0, -2.0),
+            true,
+        ));
 
-        assert_ne!(constrained_vector, na::Vector3::zero());
-        assert_bounds_achieved(&bounds, &constrained_vector);
+        assert_ne!(bounded_vector.displacement, na::Vector3::zero());
+        assert_bounds_achieved(&bounded_vector);
 
         // Finally, add a bound that overconstrains the system
-        bounds.apply_and_add_bound(
-            VectorBound::new_push(unit_vector(-3.0, 3.0, -2.0), unit_vector(-3.0, 3.0, -2.0)),
-            &[],
-            &mut constrained_vector,
-            None,
-        );
+        bounded_vector.add_bound(VectorBound::new(
+            unit_vector(-3.0, 3.0, -2.0),
+            unit_vector(-3.0, 3.0, -2.0),
+            true,
+        ));
 
         // Using assert_eq instead of assert_ne here
-        assert_eq!(constrained_vector, na::Vector3::zero());
+        assert_eq!(bounded_vector.displacement, na::Vector3::zero());
         // Special logic allows bounds checking to work with the zero vector
-        assert_bounds_achieved(&bounds, &constrained_vector);
+        assert_bounds_achieved(&bounded_vector);
     }
 
     #[test]
@@ -256,7 +275,7 @@ mod tests {
         let normal = unit_vector(1.0, 3.0, 4.0);
         let projection_direction = unit_vector(1.0, 2.0, 2.0);
         let error_margin = 1e-4;
-        let bound = VectorBound::new_push(normal, projection_direction);
+        let bound = VectorBound::new(normal, projection_direction, true);
 
         let initial_vector = na::Vector3::new(-4.0, -3.0, 1.0);
 
@@ -282,8 +301,8 @@ mod tests {
         let normal1 = unit_vector(1.0, -4.0, 3.0);
         let projection_direction1 = unit_vector(1.0, -2.0, 1.0);
 
-        let bound0 = VectorBound::new_push(normal0, projection_direction0);
-        let bound1 = VectorBound::new_push(normal1, projection_direction1);
+        let bound0 = VectorBound::new(normal0, projection_direction0, true);
+        let bound1 = VectorBound::new(normal1, projection_direction1, true);
 
         let initial_vector = na::Vector3::new(2.0, -1.0, -3.0);
         let mut constrained_vector = initial_vector;
@@ -307,9 +326,9 @@ mod tests {
         );
     }
 
-    fn assert_bounds_achieved(bounds: &VectorBoundGroup, subject: &na::Vector3<f32>) {
+    fn assert_bounds_achieved(bounds: &BoundedVectors) {
         for bound in bounds.bounds() {
-            assert!(bound.check_vector(subject, bounds.error_margin));
+            assert!(bound.check_vector(&bounds.displacement, bounds.error_margin));
         }
     }
 

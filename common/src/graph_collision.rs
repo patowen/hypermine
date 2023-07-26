@@ -7,7 +7,7 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph},
-    proto::{Position, BlockChange},
+    proto::{BlockChange, Position},
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`

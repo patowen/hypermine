@@ -643,7 +643,14 @@ impl Sim {
                 node,
                 vertex,
                 coords,
-                radius: self.params.as_ref().unwrap().cfg.character_radius as f64 - EPSILON,
+                radius: self
+                    .params
+                    .as_ref()
+                    .unwrap()
+                    .cfg
+                    .character_config
+                    .character_radius as f64
+                    - EPSILON,
             },
             position.node,
             &(position.local * na::Vector4::w()).cast(),

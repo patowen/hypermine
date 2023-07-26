@@ -41,10 +41,7 @@ pub fn trace_ray(
         let square_pos = chunk.vertex.node_to_dual() * transform * pos;
         let square_dir = chunk.vertex.node_to_dual() * transform * dir;
         chunk_ray_tracer.trace_ray_in_chunk(
-            VoxelDataWrapper::new(
-                voxel_data,
-                dimension,
-            ),
+            VoxelDataWrapper::new(voxel_data, dimension),
             &square_pos,
             &square_dir,
             &mut handle.dependent_handle(

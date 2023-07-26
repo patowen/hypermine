@@ -1,6 +1,8 @@
 use crate::{dodeca::Vertex, math, world::Material};
 
-use crate::block_placing_temp::chunk_ray_tracer::{ChunkRayTracer, RayTracingResultHandle, VoxelDataWrapper};
+use crate::block_placing_temp::chunk_ray_tracer::{
+    ChunkRayTracer, RayTracingResultHandle, VoxelDataWrapper,
+};
 
 pub struct PointChunkRayTracer {}
 
