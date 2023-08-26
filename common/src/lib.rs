@@ -19,6 +19,7 @@ pub mod dodeca;
 pub mod graph;
 pub mod graph_collision;
 mod graph_entities;
+mod graph_ray_casting;
 pub mod lru_slab;
 pub mod math;
 pub mod node;
