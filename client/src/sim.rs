@@ -10,9 +10,15 @@ use crate::{
 use common::{
     character_controller,
     graph::{Graph, NodeId},
-    node::{populate_fresh_nodes, DualGraph},
-    proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
-    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
+    graph_collision::Ray,
+    graph_ray_casting,
+    node::{populate_fresh_nodes, ChunkId, ChunkLayout, DualGraph},
+    proto::{
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
+    },
+    sanitize_motion_input,
+    world::Material,
+    EntityId, GraphEntities, SimConfig, Step,
 };
 
 /// Game state
@@ -48,6 +54,10 @@ pub struct Sim {
     jump_pressed: bool,
     /// Whether the jump button is currently held down
     jump_held: bool,
+    /// Whether the place-block button has been pressed since the last step
+    place_block_pressed: bool,
+    /// Whether the break-block button has been pressed since the last step
+    break_block_pressed: bool,
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
 }
@@ -73,6 +83,8 @@ impl Sim {
             is_jumping: false,
             jump_pressed: false,
             jump_held: false,
+            place_block_pressed: false,
+            break_block_pressed: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -118,6 +130,14 @@ impl Sim {
 
     pub fn set_jump_pressed_true(&mut self) {
         self.jump_pressed = true;
+    }
+
+    pub fn set_place_block_pressed_true(&mut self) {
+        self.place_block_pressed = true;
+    }
+
+    pub fn set_break_block_pressed_true(&mut self) {
+        self.break_block_pressed = true;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -340,6 +360,7 @@ impl Sim {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
             jump: self.is_jumping,
             no_clip: self.no_clip,
+            block_update: None,
         };
         let generation = self
             .prediction
@@ -374,6 +395,7 @@ impl Sim {
                         / params.cfg.step_interval.as_secs_f32()),
                 jump: self.is_jumping,
                 no_clip: self.no_clip,
+                block_update: None,
             };
             character_controller::run_character_step(
                 &params.cfg,
@@ -415,6 +437,99 @@ impl Sim {
         self.world
             .despawn(entity)
             .expect("destroyed nonexistent entity");
+    }
+
+    fn get_block_update(&self) -> Option<BlockUpdate> {
+        let placing = if self.place_block_pressed {
+            true
+        } else if self.break_block_pressed {
+            false
+        } else {
+            return None;
+        };
+        let dimension = self.params.as_ref().unwrap().cfg.chunk_size;
+
+        let view_position = self.local_character_controller.oriented_position();
+        let ray_casing_result = graph_ray_casting::ray_cast(
+            &self.graph,
+            &ChunkLayout::new(dimension as usize),
+            &view_position,
+            &Ray::new(na::Vector4::w(), -na::Vector4::z()),
+            0.5,
+        );
+
+        let Ok(ray_casting_result) = ray_casing_result else {
+            tracing::warn!("Tried to run a raycast beyond generated terrain.");
+            return None;
+        };
+
+        let hit = ray_casting_result?;
+
+        let block_pos = if placing {
+            self.get_block_neighbor(
+                hit.chunk,
+                hit.voxel_coords,
+                hit.face_axis as usize,
+                hit.face_direction as isize,
+            )?
+        } else {
+            (hit.chunk, hit.voxel_coords)
+        };
+
+        let lwm = dimension as u32 + 2;
+        let voxel_coords = (block_pos.1[0] as u32 + 1)
+            + (block_pos.1[1] as u32 + 1) * lwm
+            + (block_pos.1[2] as u32 + 1) * lwm * lwm;
+
+        let material = if placing {
+            Material::Wood
+        } else {
+            Material::Void
+        };
+
+        Some(BlockUpdate {
+            node_hash: self.graph.hash_of(block_pos.0.node),
+            vertex: block_pos.0.vertex,
+            coords: voxel_coords,
+            new_material: material,
+        })
+    }
+
+    fn get_block_neighbor(
+        &self,
+        mut chunk: ChunkId,
+        mut coords: [usize; 3],
+        coord_axis: usize,
+        coord_direction: isize,
+    ) -> Option<(ChunkId, [usize; 3])> {
+        let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
+        if coords[coord_axis] == dimension - 1 && coord_direction == 1 {
+            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
+            let coord_plane0 = (coord_axis + 1) % 3;
+            let coord_plane1 = (coord_axis + 2) % 3;
+            let mut new_coords: [usize; 3] = [0; 3];
+            for (i, new_coord) in new_coords.iter_mut().enumerate() {
+                if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
+                    *new_coord = coords[coord_plane0];
+                } else if new_vertex.canonical_sides()[i]
+                    == chunk.vertex.canonical_sides()[coord_plane1]
+                {
+                    *new_coord = coords[coord_plane1];
+                } else {
+                    *new_coord = coords[coord_axis];
+                }
+            }
+            coords = new_coords;
+            chunk.vertex = new_vertex;
+        } else if coords[coord_axis] == 0 && coord_direction == -1 {
+            chunk.node = self
+                .graph
+                .neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
+        } else {
+            coords[coord_axis] = (coords[coord_axis] as isize + coord_direction) as usize;
+        }
+
+        Some((chunk, coords))
     }
 }
 

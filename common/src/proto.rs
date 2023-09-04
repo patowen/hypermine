@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{dodeca, graph::NodeId, EntityId, SimConfig, Step};
+use crate::{
+    dodeca::{self, Vertex},
+    graph::NodeId,
+    world::Material,
+    EntityId, SimConfig, Step,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientHello {
@@ -35,6 +40,7 @@ pub struct StateDelta {
     pub latest_input: u16,
     pub positions: Vec<(EntityId, Position)>,
     pub character_states: Vec<(EntityId, CharacterState)>,
+    pub block_updates: Vec<BlockUpdate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -65,6 +71,15 @@ pub struct CharacterInput {
     pub movement: na::Vector3<f32>,
     pub jump: bool,
     pub no_clip: bool,
+    pub block_update: Option<BlockUpdate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockUpdate {
+    pub node_hash: u128,
+    pub vertex: Vertex,
+    pub coords: u32,
+    pub new_material: Material,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

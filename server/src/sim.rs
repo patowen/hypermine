@@ -143,6 +143,7 @@ impl Sim {
             movement: na::Vector3::zeros(),
             jump: false,
             no_clip: true,
+            block_update: None,
         };
         let entity = self.world.spawn((id, position, character, initial_input));
         self.graph_entities.insert(position.node, entity);
@@ -293,6 +294,7 @@ impl Sim {
                 .iter()
                 .map(|(_, (&id, ch))| (id, ch.state.clone()))
                 .collect(),
+            block_updates: vec![],
         };
 
         self.step += 1;
