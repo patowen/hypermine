@@ -5,6 +5,7 @@ use std::fmt;
 use std::num::NonZeroU32;
 
 use blake3::Hasher;
+use fxhash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -20,13 +21,18 @@ pub struct Graph<N> {
     /// This field stores implicitly added nodes to ensure that they're initialized in the correct
     /// order
     fresh: Vec<NodeId>,
+    node_by_hash: FxHashMap<u128, NodeId>,
 }
 
 impl<N> Graph<N> {
     pub fn new() -> Self {
+        let root_node = Node::new(None, 0, 0);
+        let mut node_by_hash = FxHashMap::default();
+        node_by_hash.insert(root_node.hash, NodeId::ROOT);
         Self {
-            nodes: vec![Node::new(None, 0, 0)],
+            nodes: vec![root_node],
             fresh: vec![NodeId::ROOT],
+            node_by_hash,
         }
     }
 
@@ -209,6 +215,7 @@ impl<N> Graph<N> {
         let id = NodeId::from_idx(self.nodes.len());
         let length = self.nodes[parent.idx()].length + 1;
         self.nodes.push(Node::new(Some(side), length, hash));
+        self.node_by_hash.insert(hash, id);
         self.link_neighbors(id, parent, side);
         for (side, neighbor) in shorter_neighbors {
             self.link_neighbors(id, neighbor, side);
@@ -220,6 +227,11 @@ impl<N> Graph<N> {
     #[inline]
     pub fn hash_of(&self, node: NodeId) -> u128 {
         self.nodes[node.idx()].hash
+    }
+
+    #[inline]
+    pub fn from_hash(&self, hash: u128) -> Option<NodeId> {
+        self.node_by_hash.get(&hash).copied()
     }
 
     /// Ensure all shorter neighbors of a not-yet-created child node exist and return them, excluding the given parent node

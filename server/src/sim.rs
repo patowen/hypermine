@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common::proto::BlockUpdate;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -192,6 +193,8 @@ impl Sim {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
+        let mut pending_block_updates: Vec<BlockUpdate> = vec![];
+
         // Simulate
         for (entity, (position, character, input)) in self
             .world
@@ -208,6 +211,7 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
+            pending_block_updates.extend(input.block_update.iter().cloned());
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
                 self.graph_entities.remove(prev_node, entity);
@@ -215,6 +219,31 @@ impl Sim {
             }
             self.dirty_nodes.insert(position.node);
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
+        }
+
+        let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
+
+        for block_update in pending_block_updates.into_iter() {
+            let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
+                tracing::warn!("Block update received from unknown node hash");
+                continue;
+            };
+            let Some(Chunk::Populated { voxels, .. }) = self
+                .graph
+                .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
+            else {
+                tracing::warn!("Block update received from ungenerated chunk");
+                continue;
+            };
+            let Some(voxel) = voxels
+                .data_mut(self.cfg.chunk_size)
+                .get_mut(block_update.coords as usize)
+            else {
+                tracing::warn!("Block update received for out-of-bounds block");
+                continue;
+            };
+            *voxel = block_update.new_material;
+            accepted_block_updates.push(block_update);
         }
 
         // Capture state changes for broadcast to clients
@@ -294,7 +323,7 @@ impl Sim {
                 .iter()
                 .map(|(_, (&id, ch))| (id, ch.state.clone()))
                 .collect(),
-            block_updates: vec![],
+            block_updates: accepted_block_updates,
         };
 
         self.step += 1;

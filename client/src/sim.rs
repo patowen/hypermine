@@ -12,7 +12,7 @@ use common::{
     graph::{Graph, NodeId},
     graph_collision::Ray,
     graph_ray_casting,
-    node::{populate_fresh_nodes, ChunkId, ChunkLayout, DualGraph},
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
@@ -226,6 +226,27 @@ impl Sim {
                 for &(id, ref new_state) in &msg.character_states {
                     self.update_character_state(id, new_state);
                 }
+                for block_update in msg.block_updates.into_iter() {
+                    let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
+                        tracing::warn!("Block update received from unknown node hash");
+                        continue;
+                    };
+                    let Some(Chunk::Populated { voxels, .. }) = self
+                        .graph
+                        .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
+                    else {
+                        tracing::warn!("Block update received from ungenerated chunk");
+                        continue;
+                    };
+                    let Some(voxel) = voxels
+                        .data_mut(self.params.as_ref().unwrap().cfg.chunk_size)
+                        .get_mut(block_update.coords as usize)
+                    else {
+                        tracing::warn!("Block update received for out-of-bounds block");
+                        continue;
+                    };
+                    *voxel = block_update.new_material;
+                }
                 self.reconcile_prediction(msg.latest_input);
             }
         }
@@ -360,7 +381,7 @@ impl Sim {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
             jump: self.is_jumping,
             no_clip: self.no_clip,
-            block_update: None,
+            block_update: self.get_block_update(),
         };
         let generation = self
             .prediction
