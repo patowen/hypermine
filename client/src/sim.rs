@@ -165,6 +165,8 @@ impl Sim {
 
                 // Send fresh input
                 self.send_input();
+                self.place_block_pressed = false;
+                self.break_block_pressed = false;
 
                 // Toggle no clip at the start of a new step
                 if self.toggle_no_clip {
@@ -231,7 +233,7 @@ impl Sim {
                         tracing::warn!("Block update received from unknown node hash");
                         continue;
                     };
-                    let Some(Chunk::Populated { voxels, .. }) = self
+                    let Some(Chunk::Populated { voxels, surface }) = self
                         .graph
                         .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
                     else {
@@ -246,6 +248,7 @@ impl Sim {
                         continue;
                     };
                     *voxel = block_update.new_material;
+                    *surface = None;
                 }
                 self.reconcile_prediction(msg.latest_input);
             }
@@ -498,12 +501,12 @@ impl Sim {
         };
 
         let lwm = dimension as u32 + 2;
-        let voxel_coords = (block_pos.1[0] as u32 + 1)
-            + (block_pos.1[1] as u32 + 1) * lwm
-            + (block_pos.1[2] as u32 + 1) * lwm * lwm;
+        let voxel_coords = (block_pos.1[0] as u32)
+            + (block_pos.1[1] as u32) * lwm
+            + (block_pos.1[2] as u32) * lwm * lwm;
 
         let material = if placing {
-            Material::Wood
+            Material::WoodPlanks
         } else {
             Material::Void
         };
