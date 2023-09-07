@@ -182,6 +182,7 @@ impl Sim {
                 .tree()
                 .map(|(side, parent)| FreshNode { side, parent })
                 .collect(),
+            block_updates: Vec::new(), // TODO: Transmit updated chunks
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
@@ -271,6 +272,7 @@ impl Sim {
                     })
                 })
                 .collect(),
+            block_updates: accepted_block_updates,
         };
         populate_fresh_nodes(&mut self.graph);
 
@@ -323,7 +325,6 @@ impl Sim {
                 .iter()
                 .map(|(_, (&id, ch))| (id, ch.state.clone()))
                 .collect(),
-            block_updates: accepted_block_updates,
         };
 
         self.step += 1;

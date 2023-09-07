@@ -40,7 +40,6 @@ pub struct StateDelta {
     pub latest_input: u16,
     pub positions: Vec<(EntityId, Position)>,
     pub character_states: Vec<(EntityId, CharacterState)>,
-    pub block_updates: Vec<BlockUpdate>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +55,7 @@ pub struct Spawns {
     pub spawns: Vec<(EntityId, Vec<Component>)>,
     pub despawns: Vec<EntityId>,
     pub nodes: Vec<FreshNode>,
+    pub block_updates: Vec<BlockUpdate>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

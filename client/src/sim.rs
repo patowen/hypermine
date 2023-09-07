@@ -228,28 +228,6 @@ impl Sim {
                 for &(id, ref new_state) in &msg.character_states {
                     self.update_character_state(id, new_state);
                 }
-                for block_update in msg.block_updates.into_iter() {
-                    let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
-                        tracing::warn!("Block update received from unknown node hash");
-                        continue;
-                    };
-                    let Some(Chunk::Populated { voxels, surface }) = self
-                        .graph
-                        .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
-                    else {
-                        tracing::warn!("Block update received from ungenerated chunk");
-                        continue;
-                    };
-                    let Some(voxel) = voxels
-                        .data_mut(self.params.as_ref().unwrap().cfg.chunk_size)
-                        .get_mut(block_update.coords as usize)
-                    else {
-                        tracing::warn!("Block update received for out-of-bounds block");
-                        continue;
-                    };
-                    *voxel = block_update.new_material;
-                    *surface = None;
-                }
                 self.reconcile_prediction(msg.latest_input);
             }
         }
@@ -337,6 +315,28 @@ impl Sim {
             self.graph.insert_child(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
+        for block_update in msg.block_updates.into_iter() {
+            let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
+                tracing::warn!("Block update received from unknown node hash");
+                continue;
+            };
+            let Some(Chunk::Populated { voxels, surface }) = self
+                .graph
+                .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
+            else {
+                tracing::warn!("Block update received from ungenerated chunk");
+                continue;
+            };
+            let Some(voxel) = voxels
+                .data_mut(self.params.as_ref().unwrap().cfg.chunk_size)
+                .get_mut(block_update.coords as usize)
+            else {
+                tracing::warn!("Block update received for out-of-bounds block");
+                continue;
+            };
+            *voxel = block_update.new_material;
+            *surface = None;
+        }
     }
 
     fn spawn(

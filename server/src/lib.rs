@@ -104,6 +104,7 @@ impl Server {
                 let r2 = if !spawns.spawns.is_empty()
                     || !spawns.despawns.is_empty()
                     || !spawns.nodes.is_empty()
+                    || !spawns.block_updates.is_empty()
                 {
                     handles.ordered.try_send(spawns.clone())
                 } else {
