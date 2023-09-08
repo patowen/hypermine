@@ -14,7 +14,8 @@ use common::{
     graph_ray_casting,
     node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph},
     proto::{
-        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
+        GlobalChunkId, Position,
     },
     sanitize_motion_input,
     world::Material,
@@ -316,13 +317,13 @@ impl Sim {
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
-            let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
+            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
             let Some(Chunk::Populated { voxels, surface }) = self
                 .graph
-                .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
+                .get_chunk_mut(ChunkId::new(node_id, block_update.chunk_id.vertex))
             else {
                 tracing::warn!("Block update received from ungenerated chunk");
                 continue;
@@ -512,8 +513,10 @@ impl Sim {
         };
 
         Some(BlockUpdate {
-            node_hash: self.graph.hash_of(block_pos.0.node),
-            vertex: block_pos.0.vertex,
+            chunk_id: GlobalChunkId {
+                node_hash: self.graph.hash_of(block_pos.0.node),
+                vertex: block_pos.0.vertex,
+            },
             coords: voxel_coords,
             new_material: material,
         })

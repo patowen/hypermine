@@ -83,6 +83,8 @@ async fn inner(
     .await?;
 
     let mut ordered = uni_streams.next().await.unwrap()?;
+    let mut graph_snapshot_stream = uni_streams.next().await.unwrap()?;
+
     // Handle unordered messages
     tokio::spawn(handle_unordered(incoming.clone(), uni_streams));
 

@@ -2,6 +2,8 @@
 
 use std::ops::{Index, IndexMut};
 
+use serde::{Deserialize, Serialize};
+
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
@@ -76,6 +78,31 @@ pub enum Chunk {
     },
 }
 
+/// Like `VoxelData` but designed for sending or receiving over a network where the deserialized version
+/// may fail to obey certain constriants. Its purpose is to avoid client-side crashes due to a misbehaving
+/// server
+#[derive(Serialize, Deserialize)]
+pub struct UncheckedVoxelData {
+    inner: VoxelData,
+}
+
+impl UncheckedVoxelData {
+    pub fn new(inner: VoxelData) -> Self {
+        UncheckedVoxelData { inner }
+    }
+
+    pub fn validate(self, dimension: u8) -> Option<VoxelData> {
+        match self.inner {
+            VoxelData::Solid(_) => Some(self.inner),
+            VoxelData::Dense(ref d) if d.len() == (usize::from(dimension) + 2).pow(3) => {
+                Some(self.inner)
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),

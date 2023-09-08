@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use common::proto::BlockUpdate;
+use common::node::UncheckedVoxelData;
+use common::proto::{BlockUpdate, GlobalChunkId, GraphSnapshot};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -35,6 +36,7 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
+    modified_chunks: FxHashSet<GlobalChunkId>,
 }
 
 impl Sim {
@@ -50,6 +52,7 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
+            modified_chunks: FxHashSet::default(),
         };
 
         ensure_nearby(
@@ -190,6 +193,25 @@ impl Sim {
         spawns
     }
 
+    /// Collect information about all modified chunks, for asynchronous transmission to new clients
+    pub fn graph_snapshot(&self) -> GraphSnapshot {
+        let mut modified_chunks = vec![];
+        for &chunk in &self.modified_chunks {
+            let Chunk::Populated { ref voxels, .. } = self
+                .graph
+                .get(self.graph.from_hash(chunk.node_hash).unwrap())
+                .as_ref()
+                .unwrap()
+                .chunks[chunk.vertex]
+            else {
+                panic!();
+            };
+
+            modified_chunks.push((chunk, UncheckedVoxelData::new(voxels.clone())));
+        }
+        GraphSnapshot { modified_chunks }
+    }
+
     pub fn step(&mut self) -> (Spawns, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
@@ -225,13 +247,13 @@ impl Sim {
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
 
         for block_update in pending_block_updates.into_iter() {
-            let Some(node_id) = self.graph.from_hash(block_update.node_hash) else {
+            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
             let Some(Chunk::Populated { voxels, .. }) = self
                 .graph
-                .get_chunk_mut(ChunkId::new(node_id, block_update.vertex))
+                .get_chunk_mut(ChunkId::new(node_id, block_update.chunk_id.vertex))
             else {
                 tracing::warn!("Block update received from ungenerated chunk");
                 continue;

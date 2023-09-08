@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     dodeca::{self, Vertex},
     graph::NodeId,
+    node::UncheckedVoxelData,
     world::Material,
     EntityId, SimConfig, Step,
 };
@@ -58,6 +59,11 @@ pub struct Spawns {
     pub block_updates: Vec<BlockUpdate>,
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct GraphSnapshot {
+    pub modified_chunks: Vec<(GlobalChunkId, UncheckedVoxelData)>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub generation: u16,
@@ -74,10 +80,15 @@ pub struct CharacterInput {
     pub block_update: Option<BlockUpdate>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BlockUpdate {
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct GlobalChunkId {
     pub node_hash: u128,
     pub vertex: Vertex,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockUpdate {
+    pub chunk_id: GlobalChunkId,
     pub coords: u32,
     pub new_material: Material,
 }
