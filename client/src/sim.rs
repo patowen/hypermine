@@ -61,8 +61,10 @@ pub struct Sim {
     break_block_pressed: bool,
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
+    initial_snapshot_recieved: bool,
     graph_snapshot_received: bool,
     buffered_spawns: Vec<proto::Spawns>,
+    buffered_graph_snapshot: Option<proto::GraphSnapshot>,
 }
 
 impl Sim {
@@ -93,8 +95,10 @@ impl Sim {
                 local: na::one(),
             }),
             local_character_controller: LocalCharacterController::new(),
+            initial_snapshot_recieved: false,
             graph_snapshot_received: false,
             buffered_spawns: vec![],
+            buffered_graph_snapshot: None,
         }
     }
 
@@ -221,7 +225,12 @@ impl Sim {
                 populate_fresh_nodes(&mut self.graph);
             }
             Spawns(msg) => {
-                if self.graph_snapshot_received {
+                if self.initial_snapshot_recieved {
+                    if let Some(buffered_graph_snapshot) = self.buffered_graph_snapshot.take() {
+                        self.handle_graph_snapshot(buffered_graph_snapshot);
+                    }
+                }
+                if self.graph_snapshot_received || !self.initial_snapshot_recieved {
                     self.handle_spawns(msg);
                 } else {
                     self.buffered_spawns.push(msg);
@@ -242,29 +251,11 @@ impl Sim {
                 self.reconcile_prediction(msg.latest_input);
             }
             GraphSnapshot(msg) => {
-                for (global_chunk_id, voxel_data) in msg.modified_chunks {
-                    let Some(voxel_data) =
-                        voxel_data.validate(self.params.as_ref().unwrap().cfg.chunk_size)
-                    else {
-                        tracing::error!("Voxel data received from server is invalid");
-                        continue;
-                    };
-                    let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) else {
-                        tracing::warn!("Graph snapshot includes unknown node hash");
-                        continue;
-                    };
-                    *self
-                        .graph
-                        .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
-                        .unwrap() = Chunk::Populated {
-                        voxels: voxel_data,
-                        surface: None,
-                    };
+                if self.initial_snapshot_recieved {
+                    self.handle_graph_snapshot(msg);
+                } else {
+                    self.buffered_graph_snapshot = Some(msg);
                 }
-                for spawns in std::mem::take(&mut self.buffered_spawns) {
-                    self.handle_spawns(spawns);
-                }
-                self.graph_snapshot_received = true;
             }
         }
     }
@@ -373,6 +364,33 @@ impl Sim {
             *voxel = block_update.new_material;
             *surface = None;
         }
+        self.initial_snapshot_recieved = true;
+    }
+
+    fn handle_graph_snapshot(&mut self, msg: proto::GraphSnapshot) {
+        for (global_chunk_id, voxel_data) in msg.modified_chunks {
+            let Some(voxel_data) =
+                voxel_data.validate(self.params.as_ref().unwrap().cfg.chunk_size)
+            else {
+                tracing::error!("Voxel data received from server is invalid");
+                continue;
+            };
+            let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) else {
+                tracing::warn!("Graph snapshot includes unknown node hash");
+                continue;
+            };
+            *self
+                .graph
+                .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
+                .unwrap() = Chunk::Populated {
+                voxels: voxel_data,
+                surface: None,
+            };
+        }
+        for spawns in std::mem::take(&mut self.buffered_spawns) {
+            self.handle_spawns(spawns);
+        }
+        self.graph_snapshot_received = true;
     }
 
     fn spawn(
