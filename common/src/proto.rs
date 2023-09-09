@@ -64,6 +64,12 @@ pub struct GraphSnapshot {
     pub modified_chunks: Vec<(GlobalChunkId, UncheckedVoxelData)>,
 }
 
+impl std::fmt::Debug for GraphSnapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GraphSnapshot").finish()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Command {
     pub generation: u16,

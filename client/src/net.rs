@@ -2,6 +2,7 @@ use std::{sync::Arc, thread};
 
 use anyhow::{anyhow, Error, Result};
 use futures_util::{StreamExt, TryStreamExt};
+use quinn::RecvStream;
 use tokio::sync::mpsc;
 
 use common::{codec, proto};
@@ -34,6 +35,7 @@ pub enum Message {
     Hello(proto::ServerHello),
     Spawns(proto::Spawns),
     StateDelta(proto::StateDelta),
+    GraphSnapshot(proto::GraphSnapshot),
     ConnectionLost(Error),
 }
 
@@ -83,7 +85,7 @@ async fn inner(
     .await?;
 
     let mut ordered = uni_streams.next().await.unwrap()?;
-    let mut graph_snapshot_stream = uni_streams.next().await.unwrap()?;
+    let graph_snapshot_stream = uni_streams.next().await.unwrap()?;
 
     // Handle unordered messages
     tokio::spawn(handle_unordered(incoming.clone(), uni_streams));
@@ -94,6 +96,12 @@ async fn inner(
         .ok_or_else(|| anyhow!("ordered stream closed unexpectedly"))?;
     // Forward it on
     incoming.send(Message::Hello(hello)).unwrap();
+
+    // Receive the server's graph snapshot
+    tokio::spawn(handle_graph_snapshot(
+        incoming.clone(),
+        graph_snapshot_stream,
+    ));
 
     // Receive ordered messages from the server
     loop {
@@ -135,6 +143,22 @@ async fn handle_unordered(
         let _ = incoming.send(Message::StateDelta(msg));
     }
     Ok(())
+}
+
+/// Receive initial graph snapshot from the server
+async fn handle_graph_snapshot(
+    incoming: mpsc::UnboundedSender<Message>,
+    graph_snapshot_stream: RecvStream,
+) {
+    let Ok(graph_snapshot) =
+        codec::recv_whole::<proto::GraphSnapshot>(1_000_000_000usize, graph_snapshot_stream).await
+    else {
+        // TODO: Handle errors better
+        tracing::error!("Bad graph snapshot received");
+        return;
+    };
+    // Ignore errors so we don't panic if the simulation thread goes away before reaching here
+    let _ = incoming.send(Message::GraphSnapshot(graph_snapshot));
 }
 
 struct AcceptAnyCert;

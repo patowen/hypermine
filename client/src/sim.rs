@@ -61,6 +61,8 @@ pub struct Sim {
     break_block_pressed: bool,
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
+    graph_snapshot_received: bool,
+    buffered_spawns: Vec<proto::Spawns>,
 }
 
 impl Sim {
@@ -91,6 +93,8 @@ impl Sim {
                 local: na::one(),
             }),
             local_character_controller: LocalCharacterController::new(),
+            graph_snapshot_received: false,
+            buffered_spawns: vec![],
         }
     }
 
@@ -216,7 +220,13 @@ impl Sim {
                 // Populate the root node
                 populate_fresh_nodes(&mut self.graph);
             }
-            Spawns(msg) => self.handle_spawns(msg),
+            Spawns(msg) => {
+                if self.graph_snapshot_received {
+                    self.handle_spawns(msg);
+                } else {
+                    self.buffered_spawns.push(msg);
+                }
+            }
             StateDelta(msg) => {
                 // Discard out-of-order messages, taking care to account for step counter wrapping.
                 if self.step.map_or(false, |x| x.wrapping_sub(msg.step) >= 0) {
@@ -230,6 +240,31 @@ impl Sim {
                     self.update_character_state(id, new_state);
                 }
                 self.reconcile_prediction(msg.latest_input);
+            }
+            GraphSnapshot(msg) => {
+                for (global_chunk_id, voxel_data) in msg.modified_chunks {
+                    let Some(voxel_data) =
+                        voxel_data.validate(self.params.as_ref().unwrap().cfg.chunk_size)
+                    else {
+                        tracing::error!("Voxel data received from server is invalid");
+                        continue;
+                    };
+                    let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) else {
+                        tracing::warn!("Graph snapshot includes unknown node hash");
+                        continue;
+                    };
+                    *self
+                        .graph
+                        .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
+                        .unwrap() = Chunk::Populated {
+                        voxels: voxel_data,
+                        surface: None,
+                    };
+                }
+                for spawns in std::mem::take(&mut self.buffered_spawns) {
+                    self.handle_spawns(spawns);
+                }
+                self.graph_snapshot_received = true;
             }
         }
     }
