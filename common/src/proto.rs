@@ -86,7 +86,7 @@ pub struct CharacterInput {
     pub block_update: Option<BlockUpdate>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct GlobalChunkId {
     pub node_hash: u128,
     pub vertex: Vertex,

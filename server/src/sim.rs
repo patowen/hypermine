@@ -269,6 +269,7 @@ impl Sim {
                 continue;
             };
             *voxel = block_update.new_material;
+            self.modified_chunks.insert(block_update.chunk_id);
             accepted_block_updates.push(block_update);
         }
 
