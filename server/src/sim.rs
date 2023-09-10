@@ -155,27 +155,6 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    fn load_voxel_node(&mut self, node_hash: u128, node_data: save::VoxelNode) {
-        for chunk_data in node_data.chunks {
-            let vertex = Vertex::iter()
-                .nth(chunk_data.vertex as usize)
-                .expect("vertex index in range");
-
-            let voxels: VoxelData =
-                postcard::from_bytes(&chunk_data.voxels).expect("valid voxel save data");
-
-            if let Some(node_id) = self.graph.from_hash(node_hash) {
-                self.graph.get_mut(node_id).as_mut().unwrap().chunks[vertex] = Chunk::Populated {
-                    voxels,
-                    surface: None,
-                };
-            } else {
-                self.unloaded_modified_chunks
-                    .insert(GlobalChunkId { node_hash, vertex }, voxels);
-            }
-        }
-    }
-
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
