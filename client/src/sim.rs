@@ -9,10 +9,11 @@ use crate::{
 };
 use common::{
     character_controller,
+    dodeca::Vertex,
     graph::{Graph, NodeId},
     graph_collision::Ray,
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph},
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         GlobalChunkId, Position,
@@ -28,6 +29,7 @@ pub struct Sim {
 
     // World state
     pub graph: DualGraph,
+    pub unloaded_modified_chunks: FxHashMap<GlobalChunkId, VoxelData>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -69,6 +71,7 @@ impl Sim {
             net,
 
             graph: Graph::new(),
+            unloaded_modified_chunks: FxHashMap::default(),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -316,6 +319,22 @@ impl Sim {
             self.graph.insert_child(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
+        // Upgrade any relevant unloaded_modified_chunks
+        for node in &msg.nodes {
+            let node = self.graph.neighbor(node.parent, node.side).unwrap();
+            let node_hash = self.graph.hash_of(node);
+            for vertex in Vertex::iter() {
+                if let Some(voxel_data) = self
+                    .unloaded_modified_chunks
+                    .remove(&GlobalChunkId { node_hash, vertex })
+                {
+                    self.graph.get_mut(node).as_mut().unwrap().chunks[vertex] = Chunk::Populated {
+                        voxels: voxel_data,
+                        surface: None,
+                    };
+                }
+            }
+        }
         for block_update in msg.block_updates.into_iter() {
             let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
                 tracing::warn!("Block update received from unknown node hash");
@@ -345,17 +364,18 @@ impl Sim {
                 tracing::error!("Voxel data received from server is invalid");
                 continue;
             };
-            let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) else {
-                tracing::warn!("Graph snapshot includes unknown node hash");
-                continue;
-            };
-            *self
-                .graph
-                .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
-                .unwrap() = Chunk::Populated {
-                voxels: voxel_data,
-                surface: None,
-            };
+            if let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) {
+                *self
+                    .graph
+                    .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
+                    .unwrap() = Chunk::Populated {
+                    voxels: voxel_data,
+                    surface: None,
+                };
+            } else {
+                self.unloaded_modified_chunks
+                    .insert(global_chunk_id, voxel_data);
+            }
         }
     }
 

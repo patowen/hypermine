@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common::dodeca::Vertex;
-use common::node::UncheckedVoxelData;
+use common::node::{UncheckedVoxelData, VoxelData};
 use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -38,6 +38,7 @@ pub struct Sim {
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
     modified_chunks: FxHashMap<u128, FxHashSet<Vertex>>,
+    unloaded_modified_chunks: FxHashMap<GlobalChunkId, VoxelData>,
 }
 
 impl Sim {
@@ -54,6 +55,7 @@ impl Sim {
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
             modified_chunks: FxHashMap::default(),
+            unloaded_modified_chunks: FxHashMap::default(),
         };
 
         ensure_nearby(
@@ -146,6 +148,27 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
+    fn load_voxel_node(&mut self, node_hash: u128, node_data: save::VoxelNode) {
+        for chunk_data in node_data.chunks {
+            let vertex = Vertex::iter()
+                .nth(chunk_data.vertex as usize)
+                .expect("vertex index in range");
+
+            let voxels: VoxelData =
+                postcard::from_bytes(&chunk_data.voxels).expect("valid voxel save data");
+
+            if let Some(node_id) = self.graph.from_hash(node_hash) {
+                self.graph.get_mut(node_id).as_mut().unwrap().chunks[vertex] = Chunk::Populated {
+                    voxels,
+                    surface: None,
+                };
+            } else {
+                self.unloaded_modified_chunks
+                    .insert(GlobalChunkId { node_hash, vertex }, voxels);
+            }
+        }
+    }
+
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
@@ -212,25 +235,31 @@ impl Sim {
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        for (&node_hash, &vertex) in self
-            .modified_chunks
-            .iter()
-            .flat_map(|pair| pair.1.iter().map(move |vert| (pair.0, vert)))
-        {
-            let Chunk::Populated { ref voxels, .. } = self
-                .graph
-                .get(self.graph.from_hash(node_hash).unwrap())
-                .as_ref()
-                .unwrap()
-                .chunks[vertex]
-            else {
-                panic!();
-            };
+        for global_chunk_id in self.modified_chunks.iter().flat_map(|pair| {
+            pair.1.iter().map(move |vert| GlobalChunkId {
+                node_hash: *pair.0,
+                vertex: *vert,
+            })
+        }) {
+            let voxels = self
+                .unloaded_modified_chunks
+                .get(&global_chunk_id)
+                .unwrap_or_else(|| {
+                    match self
+                        .graph
+                        .get(self.graph.from_hash(global_chunk_id.node_hash).unwrap())
+                        .as_ref()
+                        .unwrap()
+                        .chunks[global_chunk_id.vertex]
+                    {
+                        Chunk::Populated { ref voxels, .. } => voxels,
+                        _ => panic!("modified chunk not available anywhere"),
+                    }
+                });
 
-            spawns.modified_chunks.push((
-                GlobalChunkId { node_hash, vertex },
-                UncheckedVoxelData::new(voxels.clone()),
-            ));
+            spawns
+                .modified_chunks
+                .push((global_chunk_id, UncheckedVoxelData::new(voxels.clone())));
         }
         spawns
     }
@@ -339,6 +368,7 @@ impl Sim {
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
+                let node_hash = self.graph.hash_of(node);
                 for vertex in dodeca::Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
                     if let Chunk::Fresh = self
@@ -349,8 +379,12 @@ impl Sim {
                         if let Some(params) =
                             ChunkParams::new(self.cfg.chunk_size, &self.graph, chunk)
                         {
+                            let voxels = self
+                                .unloaded_modified_chunks
+                                .remove(&GlobalChunkId { node_hash, vertex })
+                                .unwrap_or(params.generate_voxels());
                             self.graph[chunk] = Chunk::Populated {
-                                voxels: params.generate_voxels(),
+                                voxels,
                                 surface: None,
                             };
                         }
