@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common::dodeca::Vertex;
-use common::node::{UncheckedVoxelData, VoxelData};
+use common::node::{UncheckedVoxelData, VoxelData, Node};
 use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -37,6 +37,7 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
+    dirty_voxel_nodes: FxHashSet<NodeId>,
     modified_chunks: FxHashMap<u128, FxHashSet<Vertex>>,
     unloaded_modified_chunks: FxHashMap<GlobalChunkId, VoxelData>,
 }
@@ -54,6 +55,7 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
+            dirty_voxel_nodes: FxHashSet::default(),
             modified_chunks: FxHashMap::default(),
             unloaded_modified_chunks: FxHashMap::default(),
         };
@@ -89,9 +91,14 @@ impl Sim {
         }
 
         let dirty_nodes = self.dirty_nodes.drain().collect::<Vec<_>>();
+        let dirty_voxel_nodes = self.dirty_voxel_nodes.drain().collect::<Vec<_>>();
         for node in dirty_nodes {
             let entities = self.snapshot_node(node);
             writer.put_entity_node(self.graph.hash_of(node), &entities)?;
+        }
+        for node in dirty_voxel_nodes {
+            let voxels = self.snapshot_voxel_node(node);
+            writer.put_voxel_node(self.graph.hash_of(node), &voxels)?;
         }
 
         drop(writer);
