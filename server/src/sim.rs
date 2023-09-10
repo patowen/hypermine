@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use common::dodeca::Vertex;
 use common::node::UncheckedVoxelData;
 use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
@@ -36,7 +37,7 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
-    modified_chunks: FxHashSet<GlobalChunkId>,
+    modified_chunks: FxHashMap<u128, FxHashSet<Vertex>>,
 }
 
 impl Sim {
@@ -52,7 +53,7 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
-            modified_chunks: FxHashSet::default(),
+            modified_chunks: FxHashMap::default(),
         };
 
         ensure_nearby(
@@ -128,6 +129,23 @@ impl Sim {
         }
     }
 
+    fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
+        let mut chunks = vec![];
+        let node_data = self.graph.get(node).as_ref().unwrap();
+        for &vertex in self.modified_chunks.get(&self.graph.hash_of(node)).unwrap() {
+            let mut serialized_voxels = Vec::new();
+            let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
+                panic!("Unknown chunk listed as modified");
+            };
+            postcard_helpers::serialize(voxels, &mut serialized_voxels).unwrap();
+            chunks.push(save::Chunk {
+                vertex: vertex as u32,
+                voxels: serialized_voxels,
+            })
+        }
+        save::VoxelNode { chunks }
+    }
+
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
@@ -194,20 +212,25 @@ impl Sim {
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        for &chunk in &self.modified_chunks {
+        for (&node_hash, &vertex) in self
+            .modified_chunks
+            .iter()
+            .flat_map(|pair| pair.1.iter().map(move |vert| (pair.0, vert)))
+        {
             let Chunk::Populated { ref voxels, .. } = self
                 .graph
-                .get(self.graph.from_hash(chunk.node_hash).unwrap())
+                .get(self.graph.from_hash(node_hash).unwrap())
                 .as_ref()
                 .unwrap()
-                .chunks[chunk.vertex]
+                .chunks[vertex]
             else {
                 panic!();
             };
 
-            spawns
-                .modified_chunks
-                .push((chunk, UncheckedVoxelData::new(voxels.clone())));
+            spawns.modified_chunks.push((
+                GlobalChunkId { node_hash, vertex },
+                UncheckedVoxelData::new(voxels.clone()),
+            ));
         }
         spawns
     }
@@ -266,7 +289,10 @@ impl Sim {
                 continue;
             };
             *voxel = block_update.new_material;
-            self.modified_chunks.insert(block_update.chunk_id);
+            self.modified_chunks
+                .entry(block_update.chunk_id.node_hash)
+                .or_default()
+                .insert(block_update.chunk_id.vertex);
             accepted_block_updates.push(block_update);
         }
 
