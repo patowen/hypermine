@@ -86,6 +86,12 @@ pub struct UncheckedVoxelData {
     inner: VoxelData,
 }
 
+impl std::fmt::Debug for UncheckedVoxelData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UncheckedVoxelData").finish()
+    }
+}
+
 impl UncheckedVoxelData {
     pub fn new(inner: VoxelData) -> Self {
         UncheckedVoxelData { inner }

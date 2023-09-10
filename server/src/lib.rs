@@ -105,6 +105,7 @@ impl Server {
                     || !spawns.despawns.is_empty()
                     || !spawns.nodes.is_empty()
                     || !spawns.block_updates.is_empty()
+                    || !spawns.modified_chunks.is_empty()
                 {
                     handles.ordered.try_send(spawns.clone())
                 } else {
@@ -141,7 +142,6 @@ impl Server {
             ClientEvent::Hello(hello) => {
                 assert!(client.handles.is_none());
                 let snapshot = Arc::new(self.sim.snapshot());
-                let graph_snapshot = self.sim.graph_snapshot();
                 let (id, entity) = self.sim.spawn_character(hello);
                 let (ordered_send, ordered_recv) = mpsc::channel(32);
                 ordered_send.try_send(snapshot).unwrap();
@@ -158,14 +158,8 @@ impl Server {
                 };
                 tokio::spawn(async move {
                     // Errors will be handled by recv task
-                    let _ = drive_send(
-                        connection,
-                        server_hello,
-                        graph_snapshot,
-                        unordered_recv,
-                        ordered_recv,
-                    )
-                    .await;
+                    let _ =
+                        drive_send(connection, server_hello, unordered_recv, ordered_recv).await;
                 });
             }
             ClientEvent::Lost(e) => {
@@ -247,18 +241,11 @@ async fn drive_recv(
 async fn drive_send(
     conn: quinn::Connection,
     hello: proto::ServerHello,
-    graph_snapshot: proto::GraphSnapshot,
     unordered: mpsc::Receiver<Unordered>,
     ordered: mpsc::Receiver<Ordered>,
 ) -> Result<()> {
     let mut stream = conn.open_uni().await?;
     codec::send(&mut stream, &hello).await?;
-
-    let graph_snapshot_stream = conn.open_uni().await?;
-    tokio::spawn(async move {
-        // Errors will be handled by recv task
-        let _ = codec::send_whole(graph_snapshot_stream, &graph_snapshot).await;
-    });
 
     tokio::spawn(async move {
         // Errors will be handled by recv task

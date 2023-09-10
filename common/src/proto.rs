@@ -57,17 +57,7 @@ pub struct Spawns {
     pub despawns: Vec<EntityId>,
     pub nodes: Vec<FreshNode>,
     pub block_updates: Vec<BlockUpdate>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct GraphSnapshot {
     pub modified_chunks: Vec<(GlobalChunkId, UncheckedVoxelData)>,
-}
-
-impl std::fmt::Debug for GraphSnapshot {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GraphSnapshot").finish()
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

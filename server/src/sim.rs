@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common::node::UncheckedVoxelData;
-use common::proto::{BlockUpdate, GlobalChunkId, GraphSnapshot};
+use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -188,17 +188,12 @@ impl Sim {
                 .tree()
                 .map(|(side, parent)| FreshNode { side, parent })
                 .collect(),
-            block_updates: Vec::new(), // TODO: Transmit updated chunks
+            block_updates: Vec::new(),
+            modified_chunks: Vec::new(),
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        spawns
-    }
-
-    /// Collect information about all modified chunks, for asynchronous transmission to new clients
-    pub fn graph_snapshot(&self) -> GraphSnapshot {
-        let mut modified_chunks = vec![];
         for &chunk in &self.modified_chunks {
             let Chunk::Populated { ref voxels, .. } = self
                 .graph
@@ -210,9 +205,11 @@ impl Sim {
                 panic!();
             };
 
-            modified_chunks.push((chunk, UncheckedVoxelData::new(voxels.clone())));
+            spawns
+                .modified_chunks
+                .push((chunk, UncheckedVoxelData::new(voxels.clone())));
         }
-        GraphSnapshot { modified_chunks }
+        spawns
     }
 
     pub fn step(&mut self) -> (Spawns, StateDelta) {
@@ -299,6 +296,7 @@ impl Sim {
                 })
                 .collect(),
             block_updates: accepted_block_updates,
+            modified_chunks: vec![],
         };
         populate_fresh_nodes(&mut self.graph);
 
