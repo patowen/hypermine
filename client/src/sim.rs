@@ -321,7 +321,7 @@ impl Sim {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
-            let Some(Chunk::Populated { voxels, surface }) = self
+            let Some(Chunk::Populated { voxels, surface, invalidated }) = self
                 .graph
                 .get_chunk_mut(ChunkId::new(node_id, block_update.chunk_id.vertex))
             else {
@@ -336,7 +336,7 @@ impl Sim {
                 continue;
             };
             *voxel = block_update.new_material;
-            *surface = None;
+            *invalidated = true;
         }
         for (global_chunk_id, voxel_data) in msg.modified_chunks {
             let Some(voxel_data) =
@@ -352,6 +352,7 @@ impl Sim {
                     .unwrap() = Chunk::Populated {
                     voxels: voxel_data,
                     surface: None,
+                    invalidated: true,
                 };
             } else {
                 tracing::error!("Voxel data received from server for unloaded chunk");

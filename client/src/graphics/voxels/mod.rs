@@ -104,6 +104,7 @@ impl Voxels {
                 Chunk::Populated {
                     surface: None,
                     voxels: chunk.voxels,
+                    invalidated: true,
                 };
         }
 
@@ -170,9 +171,10 @@ impl Voxels {
                     }
                     Populated {
                         ref mut surface,
+                        ref mut invalidated,
                         ref voxels,
-                    } => match (surface, voxels) {
-                        (&mut Some(slot), _) => {
+                    } => {
+                        if let &mut Some(slot) = surface {
                             // Render an already-extracted surface
                             self.states.get_mut(slot).refcount += 1;
                             frame.drawn.push(slot);
@@ -180,7 +182,7 @@ impl Voxels {
                             frame.surface.transforms_mut()[slot.0 as usize] =
                                 node_transform * vertex.chunk_to_node().map(|x| x as f32);
                         }
-                        (&mut ref mut surface @ None, &VoxelData::Dense(ref data)) => {
+                        if let (true, &VoxelData::Dense(ref data)) = (&invalidated, voxels) {
                             // Extract a surface so it can be drawn in future frames
                             if frame.extracted.len() == self.config.chunk_load_parallelism as usize
                             {
@@ -203,16 +205,22 @@ impl Voxels {
                                 chunk: vertex,
                                 refcount: 0,
                             });
+                            if let Some(&old_surface) = surface.as_ref() {
+                                self.states.remove(old_surface);
+                            }
                             *surface = Some(slot);
+                            *invalidated = false;
                             let storage = self.extraction_scratch.storage(scratch_slot);
                             storage.copy_from_slice(&data[..]);
                             if let Some(lru) = removed {
                                 if let Populated {
-                                    ref mut surface, ..
+                                    ref mut surface, ref mut invalidated, ..
                                 } =
                                     sim.graph.get_mut(lru.node).as_mut().unwrap().chunks[lru.chunk]
                                 {
+                                    // Remove references to old slot IDs
                                     *surface = None;
+                                    *invalidated = true;
                                 }
                             }
                             let node_is_odd = sim.graph.length(node) & 1 != 0;
@@ -224,8 +232,7 @@ impl Voxels {
                                 reverse_winding: vertex.parity() ^ node_is_odd,
                             });
                         }
-                        (None, &VoxelData::Solid(_)) => continue,
-                    },
+                    }
                 }
             }
         }

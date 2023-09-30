@@ -271,6 +271,7 @@ mod tests {
                     graph[ChunkId::new(node, vertex)] = Chunk::Populated {
                         voxels: VoxelData::Solid(Material::Void),
                         surface: None,
+                        invalidated: false,
                     };
                 }
             }
@@ -543,6 +544,7 @@ mod tests {
                 graph[ChunkId::new(node, vertex)] = Chunk::Populated {
                     voxels: VoxelData::Solid(Material::Void),
                     surface: None,
+                    invalidated: false,
                 };
             }
         }

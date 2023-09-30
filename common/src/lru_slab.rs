@@ -106,7 +106,7 @@ impl<T> LruSlab<T> {
         }
     }
 
-    pub fn remove(&mut self, slot: SlotId) -> T {
+    pub fn remove(&mut self, slot: SlotId) -> T { // TODO: Fix offsets for neighboring chunk in a node (random gaps)
         self.unlink(slot);
         self.slots[slot.0 as usize].next = self.free;
         self.slots[slot.0 as usize].prev = SlotId::NONE;
