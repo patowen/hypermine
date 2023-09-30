@@ -75,7 +75,7 @@ pub enum Chunk {
     Populated {
         voxels: VoxelData,
         surface: Option<SlotId>,
-        invalidated: bool,
+        old_surface: Option<SlotId>,
     },
 }
 

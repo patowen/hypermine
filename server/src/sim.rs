@@ -360,7 +360,7 @@ impl Sim {
                             self.graph[chunk] = Chunk::Populated {
                                 voxels: params.generate_voxels(),
                                 surface: None,
-                                invalidated: false,
+                                old_surface: None,
                             };
                         }
                     }
