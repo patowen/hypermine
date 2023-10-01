@@ -554,7 +554,7 @@ impl Sim {
         coord_direction: isize,
     ) -> Option<(ChunkId, [usize; 3])> {
         let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
-        if coords[coord_axis] == dimension - 1 && coord_direction == 1 {
+        if coords[coord_axis] == dimension && coord_direction == 1 {
             let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
             let coord_plane0 = (coord_axis + 1) % 3;
             let coord_plane1 = (coord_axis + 2) % 3;
@@ -572,7 +572,7 @@ impl Sim {
             }
             coords = new_coords;
             chunk.vertex = new_vertex;
-        } else if coords[coord_axis] == 0 && coord_direction == -1 {
+        } else if coords[coord_axis] == 1 && coord_direction == -1 {
             chunk.node = self
                 .graph
                 .neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
