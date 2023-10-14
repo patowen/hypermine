@@ -35,6 +35,8 @@ impl DualGraph {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
 
+    // TODO: Centralize update method, also handling adjacent chunk margins
+
     /// Returns the up-direction relative to the given position, or `None` if the
     /// position is in an unpopulated node.
     pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
@@ -120,7 +122,17 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(ref mut d) => d,
             VoxelData::Solid(mat) => {
-                *self = VoxelData::Dense(vec![mat; (usize::from(dimension) + 2).pow(3)].into());
+                let lwm = usize::from(dimension) + 2;
+                let mut data = vec![Material::Void; lwm.pow(3)];
+
+                // Populate all blocks except the margins, as margins are not fully implemented yet.
+                for i in 1..(lwm - 1) {
+                    for j in 1..(lwm - 1) {
+                        for k in 1..(lwm - 1) {
+                            data[i + j * lwm + k * lwm.pow(2)] = mat;
+                        }
+                    }
+                }
                 self.data_mut(dimension)
             }
         }
