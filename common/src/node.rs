@@ -35,7 +35,118 @@ impl DualGraph {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
 
-    // TODO: Centralize update method, also handling adjacent chunk margins
+    pub fn get_chunk_neighbor(
+        &self,
+        chunk: ChunkId,
+        coord_axis: usize,
+        coord_direction: isize,
+    ) -> Option<ChunkId> {
+        if coord_direction == 1 {
+            Some(ChunkId::new(
+                chunk.node,
+                chunk.vertex.adjacent_vertices()[coord_axis],
+            ))
+        } else {
+            Some(ChunkId::new(
+                self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?,
+                chunk.vertex,
+            ))
+        }
+    }
+
+    pub fn get_block_neighbor(
+        &self,
+        dimension: usize,
+        mut chunk: ChunkId,
+        mut coords: [usize; 3],
+        coord_axis: usize,
+        coord_direction: isize,
+    ) -> Option<(ChunkId, [usize; 3])> {
+        if coords[coord_axis] == dimension && coord_direction == 1 {
+            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
+            let coord_plane0 = (coord_axis + 1) % 3;
+            let coord_plane1 = (coord_axis + 2) % 3;
+            let mut new_coords: [usize; 3] = [0; 3];
+            for (i, new_coord) in new_coords.iter_mut().enumerate() {
+                if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
+                    *new_coord = coords[coord_plane0];
+                } else if new_vertex.canonical_sides()[i]
+                    == chunk.vertex.canonical_sides()[coord_plane1]
+                {
+                    *new_coord = coords[coord_plane1];
+                } else {
+                    *new_coord = coords[coord_axis];
+                }
+            }
+            coords = new_coords;
+            chunk.vertex = new_vertex;
+        } else if coords[coord_axis] == 1 && coord_direction == -1 {
+            chunk.node = self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
+        } else {
+            coords[coord_axis] = (coords[coord_axis] as isize + coord_direction) as usize;
+        }
+
+        Some((chunk, coords))
+    }
+
+    pub fn update_block(
+        &mut self,
+        dimension: usize,
+        chunk: ChunkId,
+        coords: [usize; 3],
+        new_material: Material,
+    ) {
+        let Some(Chunk::Populated {
+            voxels,
+            surface,
+            old_surface,
+        }) = self.get_chunk_mut(chunk)
+        else {
+            panic!("Tried to update block in nonexistent chunk");
+        };
+        let lwm = dimension + 2;
+        let voxel = voxels
+            .data_mut(dimension as u8)
+            .get_mut(coords[0] + coords[1] * lwm + coords[2] * lwm * lwm)
+            .expect("coords are in-bounds");
+
+        *voxel = new_material;
+        *old_surface = surface.take().or(*old_surface);
+
+        // Remove margins from any adjacent chunks
+        for (coord_axis, &coord) in coords.iter().enumerate() {
+            if coord == dimension {
+                self.remove_margins(
+                    dimension,
+                    self.get_chunk_neighbor(chunk, coord_axis, 1)
+                        .expect("neighboring chunk exists"),
+                );
+            }
+            if coord == 1 {
+                self.remove_margins(
+                    dimension,
+                    self.get_chunk_neighbor(chunk, coord_axis, -1)
+                        .expect("neighboring chunk exists"),
+                );
+            }
+        }
+    }
+
+    fn remove_margins(&mut self, dimension: usize, chunk: ChunkId) {
+        let Some(Chunk::Populated {
+            voxels,
+            surface,
+            old_surface,
+        }) = self.get_chunk_mut(chunk)
+        else {
+            panic!("Tried to remove margins of unpopulated chunk");
+        };
+
+        if voxels.is_solid() {
+            voxels.data_mut(dimension as u8);
+            *old_surface = surface.take().or(*old_surface);
+        }
+    }
 
     /// Returns the up-direction relative to the given position, or `None` if the
     /// position is in an unpopulated node.
@@ -142,6 +253,13 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(ref d) => d[index],
             VoxelData::Solid(mat) => mat,
+        }
+    }
+
+    pub fn is_solid(&self) -> bool {
+        match *self {
+            VoxelData::Dense(_) => false,
+            VoxelData::Solid(_) => true,
         }
     }
 }
