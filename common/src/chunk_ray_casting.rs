@@ -1,7 +1,7 @@
 use crate::{
     graph_collision::Ray,
     math,
-    node::{ChunkLayout, VoxelData},
+    node::{ChunkLayout, Coords, VoxelData},
     world::Material,
 };
 
@@ -10,14 +10,14 @@ pub struct ChunkCastHit {
     pub tanh_distance: f32,
 
     /// The coordinates of the block that was hit, including margins.
-    pub voxel_coords: [usize; 3],
+    pub voxel_coords: Coords,
 
     /// Which of the three axes is orthogonal to the face of the block that was hit.
     pub face_axis: u32,
 
     // Either +1 or -1, depending on whether the outside of the face that was hit was in the positive or
     // negative direction in `face_axis`.
-    pub face_direction: i32,
+    pub face_direction: i8,
 }
 
 /// Performs sphere casting (swept collision query) against the voxels in the chunk with the given `voxel_data`
@@ -114,9 +114,12 @@ fn find_face_collision(
         // A collision was found. Update the hit.
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
-            voxel_coords: tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
+            voxel_coords: Coords(tuv_to_xyz(
+                t_axis,
+                [voxel_t as u8, voxel_u as u8, voxel_v as u8],
+            )),
             face_axis: t_axis as u32,
-            face_direction: collision_side as i32,
+            face_direction: collision_side as i8,
         });
     }
 

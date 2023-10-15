@@ -282,18 +282,10 @@ impl Sim {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
-            let dimension = self.cfg.chunk_size as usize;
-            let lwm = dimension + 2;
-            let coords = block_update.coords as usize;
-            let coords: [usize; 3] = [
-                coords % lwm,
-                (coords / lwm) % lwm,
-                (coords / lwm / lwm) % lwm,
-            ];
             self.graph.update_block(
-                dimension,
+                self.cfg.chunk_size,
                 ChunkId::new(node_id, block_update.chunk_id.vertex),
-                coords,
+                block_update.coords,
                 block_update.new_material,
             );
             self.modified_chunks

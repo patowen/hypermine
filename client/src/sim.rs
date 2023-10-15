@@ -321,18 +321,10 @@ impl Sim {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
-            let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
-            let lwm = dimension + 2;
-            let coords = block_update.coords as usize;
-            let coords: [usize; 3] = [
-                coords % lwm,
-                (coords / lwm) % lwm,
-                (coords / lwm / lwm) % lwm,
-            ];
             self.graph.update_block(
-                dimension,
+                self.params.as_ref().unwrap().cfg.chunk_size,
                 ChunkId::new(node_id, block_update.chunk_id.vertex),
-                coords,
+                block_update.coords,
                 block_update.new_material,
             )
         }
@@ -490,12 +482,12 @@ impl Sim {
         } else {
             return None;
         };
-        let dimension = self.params.as_ref().unwrap().cfg.chunk_size;
+        let chunk_size = self.params.as_ref().unwrap().cfg.chunk_size;
 
         let view_position = self.local_character_controller.oriented_position();
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
-            &ChunkLayout::new(dimension as usize),
+            &ChunkLayout::new(chunk_size as usize),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
             0.5,
@@ -510,20 +502,15 @@ impl Sim {
 
         let block_pos = if placing {
             self.graph.get_block_neighbor(
-                dimension as usize,
+                chunk_size,
                 hit.chunk,
                 hit.voxel_coords,
                 hit.face_axis as usize,
-                hit.face_direction as isize,
+                hit.face_direction,
             )?
         } else {
             (hit.chunk, hit.voxel_coords)
         };
-
-        let lwm = dimension as u32 + 2;
-        let voxel_coords = (block_pos.1[0] as u32)
-            + (block_pos.1[1] as u32) * lwm
-            + (block_pos.1[2] as u32) * lwm * lwm;
 
         let material = if placing {
             Material::WoodPlanks
@@ -536,7 +523,7 @@ impl Sim {
                 node_hash: self.graph.hash_of(block_pos.0.node),
                 vertex: block_pos.0.vertex,
             },
-            coords: voxel_coords,
+            coords: hit.voxel_coords,
             new_material: material,
         })
     }

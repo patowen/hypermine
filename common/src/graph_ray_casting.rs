@@ -7,7 +7,7 @@ use crate::{
     dodeca::Vertex,
     graph_collision::Ray,
     math,
-    node::{Chunk, ChunkId, ChunkLayout, DualGraph},
+    node::{Chunk, ChunkId, ChunkLayout, Coords, DualGraph},
     proto::Position,
 };
 
@@ -140,12 +140,12 @@ pub struct GraphCastHit {
     pub chunk: ChunkId,
 
     /// The coordinates of the block that was hit, including margins.
-    pub voxel_coords: [usize; 3],
+    pub voxel_coords: Coords,
 
     /// Which of the three axes is orthogonal to the face of the block that was hit.
     pub face_axis: u32,
 
     // Either +1 or -1, depending on whether the outside of the face that was hit was in the positive or
     // negative direction in `face_axis`.
-    pub face_direction: i32,
+    pub face_direction: i8,
 }

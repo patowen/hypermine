@@ -39,7 +39,7 @@ impl DualGraph {
         &self,
         chunk: ChunkId,
         coord_axis: usize,
-        coord_direction: isize,
+        coord_direction: i8,
     ) -> Option<ChunkId> {
         if coord_direction == 1 {
             Some(ChunkId::new(
@@ -56,26 +56,26 @@ impl DualGraph {
 
     pub fn get_block_neighbor(
         &self,
-        dimension: usize,
+        chunk_size: u8,
         mut chunk: ChunkId,
-        mut coords: [usize; 3],
+        mut coords: Coords,
         coord_axis: usize,
-        coord_direction: isize,
-    ) -> Option<(ChunkId, [usize; 3])> {
-        if coords[coord_axis] == dimension && coord_direction == 1 {
+        coord_direction: i8,
+    ) -> Option<(ChunkId, Coords)> {
+        if coords[coord_axis] == chunk_size && coord_direction == 1 {
             let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
             let coord_plane0 = (coord_axis + 1) % 3;
             let coord_plane1 = (coord_axis + 2) % 3;
-            let mut new_coords: [usize; 3] = [0; 3];
-            for (i, new_coord) in new_coords.iter_mut().enumerate() {
+            let mut new_coords = Coords([0; 3]);
+            for i in 0..3 {
                 if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
-                    *new_coord = coords[coord_plane0];
+                    new_coords[i] = coords[coord_plane0];
                 } else if new_vertex.canonical_sides()[i]
                     == chunk.vertex.canonical_sides()[coord_plane1]
                 {
-                    *new_coord = coords[coord_plane1];
+                    new_coords[i] = coords[coord_plane1];
                 } else {
-                    *new_coord = coords[coord_axis];
+                    new_coords[i] = coords[coord_axis];
                 }
             }
             coords = new_coords;
@@ -83,7 +83,7 @@ impl DualGraph {
         } else if coords[coord_axis] == 1 && coord_direction == -1 {
             chunk.node = self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
         } else {
-            coords[coord_axis] = (coords[coord_axis] as isize + coord_direction) as usize;
+            coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_direction);
         }
 
         Some((chunk, coords))
@@ -91,9 +91,9 @@ impl DualGraph {
 
     pub fn update_block(
         &mut self,
-        dimension: usize,
+        chunk_size: u8,
         chunk: ChunkId,
-        coords: [usize; 3],
+        coords: Coords,
         new_material: Material,
     ) {
         let Some(Chunk::Populated {
@@ -104,27 +104,26 @@ impl DualGraph {
         else {
             panic!("Tried to update block in nonexistent chunk");
         };
-        let lwm = dimension + 2;
         let voxel = voxels
-            .data_mut(dimension as u8)
-            .get_mut(coords[0] + coords[1] * lwm + coords[2] * lwm * lwm)
+            .data_mut(chunk_size)
+            .get_mut(coords.to_index(chunk_size))
             .expect("coords are in-bounds");
 
         *voxel = new_material;
         *old_surface = surface.take().or(*old_surface);
 
         // Remove margins from any adjacent chunks
-        for (coord_axis, &coord) in coords.iter().enumerate() {
-            if coord == dimension {
+        for coord_axis in 0..3 {
+            if coords[coord_axis] == chunk_size - 1 {
                 self.remove_margins(
-                    dimension,
+                    chunk_size,
                     self.get_chunk_neighbor(chunk, coord_axis, 1)
                         .expect("neighboring chunk exists"),
                 );
             }
-            if coord == 1 {
+            if coords[coord_axis] == 0 {
                 self.remove_margins(
-                    dimension,
+                    chunk_size,
                     self.get_chunk_neighbor(chunk, coord_axis, -1)
                         .expect("neighboring chunk exists"),
                 );
@@ -132,7 +131,7 @@ impl DualGraph {
         }
     }
 
-    fn remove_margins(&mut self, dimension: usize, chunk: ChunkId) {
+    fn remove_margins(&mut self, chunk_size: u8, chunk: ChunkId) {
         let Some(Chunk::Populated {
             voxels,
             surface,
@@ -143,7 +142,7 @@ impl DualGraph {
         };
 
         if voxels.is_solid() {
-            voxels.data_mut(dimension as u8);
+            voxels.data_mut(chunk_size);
             *old_surface = surface.take().or(*old_surface);
         }
     }
@@ -170,6 +169,33 @@ impl Index<ChunkId> for DualGraph {
 impl IndexMut<ChunkId> for DualGraph {
     fn index_mut(&mut self, chunk: ChunkId) -> &mut Chunk {
         self.get_chunk_mut(chunk).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Coords(pub [u8; 3]);
+
+impl Coords {
+    /// Returns the array index corresponding to these coordinates, including margins
+    pub fn to_index(&self, chunk_size: u8) -> usize {
+        let chunk_size_with_margin = chunk_size as usize + 2;
+        (self.0[0] as usize + 1)
+            + (self.0[1] as usize + 1) * chunk_size_with_margin
+            + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
+    }
+}
+
+impl Index<usize> for Coords {
+    type Output = u8;
+
+    fn index(&self, coord_axis: usize) -> &u8 {
+        self.0.index(coord_axis)
+    }
+}
+
+impl IndexMut<usize> for Coords {
+    fn index_mut(&mut self, coord_axis: usize) -> &mut u8 {
+        self.0.index_mut(coord_axis)
     }
 }
 
