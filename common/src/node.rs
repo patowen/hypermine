@@ -244,6 +244,7 @@ impl VoxelData {
                         }
                     }
                 }
+                *self = VoxelData::Dense(data.into_boxed_slice());
                 self.data_mut(dimension)
             }
         }
