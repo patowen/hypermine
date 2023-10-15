@@ -282,21 +282,20 @@ impl Sim {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
-            let Some(Chunk::Populated { voxels, .. }) = self
-                .graph
-                .get_chunk_mut(ChunkId::new(node_id, block_update.chunk_id.vertex))
-            else {
-                tracing::warn!("Block update received from ungenerated chunk");
-                continue;
-            };
-            let Some(voxel) = voxels
-                .data_mut(self.cfg.chunk_size)
-                .get_mut(block_update.coords as usize)
-            else {
-                tracing::warn!("Block update received for out-of-bounds block");
-                continue;
-            };
-            *voxel = block_update.new_material;
+            let dimension = self.cfg.chunk_size as usize;
+            let lwm = dimension + 2;
+            let coords = block_update.coords as usize;
+            let coords: [usize; 3] = [
+                coords % lwm,
+                (coords / lwm) % lwm,
+                (coords / lwm / lwm) % lwm,
+            ];
+            self.graph.update_block(
+                dimension,
+                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                coords,
+                block_update.new_material,
+            );
             self.modified_chunks
                 .entry(block_update.chunk_id.node_hash)
                 .or_default()

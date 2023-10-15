@@ -321,26 +321,20 @@ impl Sim {
                 tracing::warn!("Block update received from unknown node hash");
                 continue;
             };
-            let Some(Chunk::Populated {
-                voxels,
-                surface,
-                old_surface,
-            }) = self
-                .graph
-                .get_chunk_mut(ChunkId::new(node_id, block_update.chunk_id.vertex))
-            else {
-                tracing::warn!("Block update received from ungenerated chunk");
-                continue;
-            };
-            let Some(voxel) = voxels
-                .data_mut(self.params.as_ref().unwrap().cfg.chunk_size)
-                .get_mut(block_update.coords as usize)
-            else {
-                tracing::warn!("Block update received for out-of-bounds block");
-                continue;
-            };
-            *voxel = block_update.new_material;
-            *old_surface = surface.take();
+            let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
+            let lwm = dimension + 2;
+            let coords = block_update.coords as usize;
+            let coords: [usize; 3] = [
+                coords % lwm,
+                (coords / lwm) % lwm,
+                (coords / lwm / lwm) % lwm,
+            ];
+            self.graph.update_block(
+                dimension,
+                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                coords,
+                block_update.new_material,
+            )
         }
         for (global_chunk_id, voxel_data) in msg.modified_chunks {
             let Some(voxel_data) =
@@ -515,7 +509,8 @@ impl Sim {
         let hit = ray_casting_result?;
 
         let block_pos = if placing {
-            self.get_block_neighbor(
+            self.graph.get_block_neighbor(
+                dimension as usize,
                 hit.chunk,
                 hit.voxel_coords,
                 hit.face_axis as usize,
@@ -544,43 +539,6 @@ impl Sim {
             coords: voxel_coords,
             new_material: material,
         })
-    }
-
-    fn get_block_neighbor(
-        &self,
-        mut chunk: ChunkId,
-        mut coords: [usize; 3],
-        coord_axis: usize,
-        coord_direction: isize,
-    ) -> Option<(ChunkId, [usize; 3])> {
-        let dimension = self.params.as_ref().unwrap().cfg.chunk_size as usize;
-        if coords[coord_axis] == dimension && coord_direction == 1 {
-            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
-            let coord_plane0 = (coord_axis + 1) % 3;
-            let coord_plane1 = (coord_axis + 2) % 3;
-            let mut new_coords: [usize; 3] = [0; 3];
-            for (i, new_coord) in new_coords.iter_mut().enumerate() {
-                if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
-                    *new_coord = coords[coord_plane0];
-                } else if new_vertex.canonical_sides()[i]
-                    == chunk.vertex.canonical_sides()[coord_plane1]
-                {
-                    *new_coord = coords[coord_plane1];
-                } else {
-                    *new_coord = coords[coord_axis];
-                }
-            }
-            coords = new_coords;
-            chunk.vertex = new_vertex;
-        } else if coords[coord_axis] == 1 && coord_direction == -1 {
-            chunk.node = self
-                .graph
-                .neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
-        } else {
-            coords[coord_axis] = (coords[coord_axis] as isize + coord_direction) as usize;
-        }
-
-        Some((chunk, coords))
     }
 }
 
