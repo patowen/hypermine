@@ -272,7 +272,7 @@ mod tests {
     fn sphere_cast_examples() {
         // Basic test case
         SphereCastExampleTestCase {
-            chosen_voxel: VoxelLocation::new(&[Side::G], Vertex::I, [3, 4, 6]),
+            chosen_voxel: VoxelLocation::new(&[Side::G], Vertex::I, [2, 3, 5]),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [2.5, 3.5, 5.5],
@@ -287,7 +287,7 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::B.canonical_sides()[0]],
                 Vertex::B,
-                [1, 12, 12],
+                [0, 11, 11],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -303,7 +303,7 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::B.canonical_sides()[0]],
                 Vertex::B,
-                [1, 12, 12],
+                [0, 11, 11],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -325,8 +325,8 @@ mod tests {
                 .iter()
                 .position(|side| !Vertex::A.canonical_sides().contains(side))
                 .unwrap();
-            let mut chosen_voxel_coords = [1, 1, 1];
-            chosen_voxel_coords[corresponding_axis] = 12;
+            let mut chosen_voxel_coords = [0, 0, 0];
+            chosen_voxel_coords[corresponding_axis] = 11;
             let mut grid_ray_end = [0.0, 0.0, 0.0];
             grid_ray_end[corresponding_axis] = 12.0;
             SphereCastExampleTestCase {
@@ -350,7 +350,7 @@ mod tests {
                     Vertex::D.canonical_sides()[2],
                 ],
                 Vertex::D,
-                [1, 1, 1],
+                [0, 0, 0],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -366,9 +366,9 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::A.canonical_sides()[0]],
                 Vertex::A,
-                [1, 5, 5],
+                [0, 4, 4],
             ),
-            additional_populated_voxels: &[VoxelLocation::new(&[], Vertex::A, [1, 6, 5])],
+            additional_populated_voxels: &[VoxelLocation::new(&[], Vertex::A, [0, 5, 4])],
             // Because we use the "A" vertex, the two coordinate systems below coincide for x = 0.0
             start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
             chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
@@ -380,11 +380,11 @@ mod tests {
 
         // Colliding with the center node's voxel before a neighboring node's voxel
         SphereCastExampleTestCase {
-            chosen_voxel: VoxelLocation::new(&[], Vertex::A, [1, 5, 5]),
+            chosen_voxel: VoxelLocation::new(&[], Vertex::A, [0, 4, 4]),
             additional_populated_voxels: &[VoxelLocation::new(
                 &[Vertex::A.canonical_sides()[0]],
                 Vertex::A,
-                [1, 6, 5],
+                [0, 5, 4],
             )],
             start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
             chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
