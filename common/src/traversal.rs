@@ -133,7 +133,7 @@ impl<'a> RayTraverser<'a> {
 
         let node_origin = {
             let x = Vertex::chunk_to_dual_factor() as f32;
-            na::Vector4::new(x, x, x, 1.0)
+            math::lorentz_normalize(&na::Vector4::new(x, x, x, 1.0))
         };
 
         Self {
@@ -190,7 +190,8 @@ impl<'a> RayTraverser<'a> {
                     // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
                     // because the AABB check can have false positives.
                     let ray_node_distance =
-                        math::mip(&(next_transform * self.ray.position), &self.node_origin).acosh();
+                        (-math::mip(&(next_transform * self.ray.position), &self.node_origin))
+                            .acosh();
                     let ray_length = tanh_distance.atanh();
                     if ray_node_distance - ray_length - self.radius
                         > dodeca::BOUNDING_SPHERE_RADIUS as f32
