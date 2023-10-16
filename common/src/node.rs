@@ -62,7 +62,7 @@ impl DualGraph {
         coord_axis: usize,
         coord_direction: i8,
     ) -> Option<(ChunkId, Coords)> {
-        if coords[coord_axis] == chunk_size && coord_direction == 1 {
+        if coords[coord_axis] == chunk_size - 1 && coord_direction == 1 {
             let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
             let coord_plane0 = (coord_axis + 1) % 3;
             let coord_plane1 = (coord_axis + 2) % 3;
@@ -80,7 +80,7 @@ impl DualGraph {
             }
             coords = new_coords;
             chunk.vertex = new_vertex;
-        } else if coords[coord_axis] == 1 && coord_direction == -1 {
+        } else if coords[coord_axis] == 0 && coord_direction == -1 {
             chunk.node = self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
         } else {
             coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_direction);

@@ -523,7 +523,7 @@ impl Sim {
                 node_hash: self.graph.hash_of(block_pos.0.node),
                 vertex: block_pos.0.vertex,
             },
-            coords: hit.voxel_coords,
+            coords: block_pos.1,
             new_material: material,
         })
     }
