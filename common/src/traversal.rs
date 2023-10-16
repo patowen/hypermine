@@ -93,13 +93,11 @@ pub struct RayTraverser<'a> {
     /// Chunks that have already been added to `iterator_queue` and shouldn't be added again
     visited_chunks: FxHashSet<ChunkId>,
     /// Chunks that should be returned by `next` in the future
-    iterator_queue: VecDeque<(Option<ChunkId>, na::Matrix4<f32>)>,
+    iterator_queue: VecDeque<(Option<NodeId>, Vertex, na::Matrix4<f32>)>,
     /// Chunks whose neighbors should be queried in the future
-    search_queue: VecDeque<(Option<ChunkId>, na::Matrix4<f32>)>,
+    search_queue: VecDeque<(Option<NodeId>, Vertex, na::Matrix4<f32>)>,
     klein_lower_boundary: f32,
     klein_upper_boundary: f32,
-    /// Origin of a node in dual coordinates
-    node_origin: na::Vector4<f32>,
 }
 
 impl<'a> RayTraverser<'a> {
@@ -115,26 +113,18 @@ impl<'a> RayTraverser<'a> {
                 closest_vertex_cosh_distance = vertex_cosh_distance;
             }
         }
-        let start_chunk = ChunkId::new(position.node, closest_vertex);
+        let start_vertex = closest_vertex;
 
         let mut visited_chunks = FxHashSet::<ChunkId>::default();
-        visited_chunks.insert(start_chunk);
-        let mut iterator_queue: VecDeque<(Option<ChunkId>, na::Matrix4<f32>)> = VecDeque::new();
-        iterator_queue.push_back((
-            Some(start_chunk),
-            start_chunk.vertex.node_to_dual().cast::<f32>() * position.local,
-        ));
+        visited_chunks.insert(ChunkId::new(position.node, start_vertex));
+        let mut iterator_queue = VecDeque::new();
+        iterator_queue.push_back((Some(position.node), start_vertex, position.local));
 
         // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
         // the corresponding neighboring chunk will also be used for collision checking.
         let klein_lower_boundary = radius.tanh();
         let klein_upper_boundary =
             ((Vertex::chunk_to_dual_factor() as f32).atanh() - radius).tanh();
-
-        let node_origin = {
-            let x = Vertex::chunk_to_dual_factor() as f32;
-            math::lorentz_normalize(&na::Vector4::new(x, x, x, 1.0))
-        };
 
         Self {
             graph,
@@ -145,26 +135,29 @@ impl<'a> RayTraverser<'a> {
             search_queue: VecDeque::new(),
             klein_lower_boundary,
             klein_upper_boundary,
-            node_origin,
         }
     }
 
     pub fn next(&mut self, tanh_distance: f32) -> Option<(Option<ChunkId>, na::Matrix4<f32>)> {
         loop {
             // Return the next entry that's queued up
-            if let Some(result) = self.iterator_queue.pop_front() {
-                self.search_queue.push_back(result);
-                return Some(result);
+            if let Some(entry @ (node, vertex, node_transform)) = self.iterator_queue.pop_front() {
+                self.search_queue.push_back(entry);
+                // Combine node and vertex, and convert node transform to chunk transform
+                return Some((
+                    node.map(|node| ChunkId::new(node, vertex)),
+                    vertex.node_to_dual().cast::<f32>() * node_transform,
+                ));
             }
 
             // If no entries are queued up, continue the breadth-first search to queue up new entries.
-            let (chunk, transform) = self.search_queue.pop_front()?;
-            let Some(chunk) = chunk else {
+            let (node, vertex, node_transform) = self.search_queue.pop_front()?;
+            let Some(node) = node else {
                 // Cannot branch from chunks that are outside the graph
                 continue;
             };
 
-            let local_ray = transform * self.ray;
+            let local_ray = vertex.node_to_dual().cast::<f32>() * node_transform * self.ray;
 
             // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
             // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
@@ -179,19 +172,13 @@ impl<'a> RayTraverser<'a> {
                 if klein_ray_start[axis] <= self.klein_lower_boundary
                     || klein_ray_end[axis] <= self.klein_lower_boundary
                 {
-                    let side = chunk.vertex.canonical_sides()[axis];
-
-                    let mut reflection: na::Matrix4<f32> = na::Matrix4::identity();
-                    reflection[(axis, axis)] = -1.0;
-                    let next_transform = reflection * transform;
-
+                    let side = vertex.canonical_sides()[axis];
+                    let next_node_transform = side.reflection().cast::<f32>() * node_transform;
                     // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                     // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
                     // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
                     // because the AABB check can have false positives.
-                    let ray_node_distance =
-                        (-math::mip(&(next_transform * self.ray.position), &self.node_origin))
-                            .acosh();
+                    let ray_node_distance = (next_node_transform * self.ray.position).w.acosh();
                     let ray_length = tanh_distance.atanh();
                     if ray_node_distance - ray_length - self.radius
                         > dodeca::BOUNDING_SPHERE_RADIUS as f32
@@ -200,11 +187,18 @@ impl<'a> RayTraverser<'a> {
                         continue;
                     }
                     // Add the new chunk to the queue.
-                    let next_chunk = (self.graph.neighbor(chunk.node, side))
-                        .map(|neighbor| ChunkId::new(neighbor, chunk.vertex));
-                    if next_chunk.map_or(true, |next_chunk| self.visited_chunks.insert(next_chunk))
-                    {
-                        self.iterator_queue.push_back((next_chunk, next_transform));
+                    if let Some(neighbor) = self.graph.neighbor(node, side) {
+                        if self.visited_chunks.insert(ChunkId::new(neighbor, vertex)) {
+                            self.iterator_queue.push_back((
+                                Some(neighbor),
+                                vertex,
+                                next_node_transform,
+                            ));
+                        }
+                    } else {
+                        // There's `NodeId` for the requested chunk, so substitute `None`.
+                        self.iterator_queue
+                            .push_back((None, vertex, next_node_transform));
                     }
                 }
 
@@ -212,13 +206,10 @@ impl<'a> RayTraverser<'a> {
                 if klein_ray_start[axis] >= self.klein_upper_boundary
                     || klein_ray_end[axis] >= self.klein_upper_boundary
                 {
-                    let vertex = chunk.vertex.adjacent_vertices()[axis];
-                    let next_chunk = ChunkId::new(chunk.node, vertex);
-                    let next_transform = next_chunk.vertex.node_to_dual().cast::<f32>()
-                        * (chunk.vertex.dual_to_node().cast::<f32>() * transform);
-                    if self.visited_chunks.insert(next_chunk) {
+                    let next_vertex = vertex.adjacent_vertices()[axis];
+                    if self.visited_chunks.insert(ChunkId::new(node, next_vertex)) {
                         self.iterator_queue
-                            .push_back((Some(next_chunk), next_transform));
+                            .push_back((Some(node), next_vertex, node_transform));
                     }
                 }
             }
