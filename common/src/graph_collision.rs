@@ -1,13 +1,10 @@
-use std::collections::VecDeque;
-
-use fxhash::FxHashSet;
-
 use crate::{
     chunk_collision::chunk_sphere_cast,
-    dodeca::{self, Vertex},
+    collision_math::Ray,
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph},
-    proto::Position, collision_math::Ray,
+    proto::Position,
+    traversal::RayTraverser,
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
@@ -25,39 +22,18 @@ pub fn sphere_cast(
     layout: &ChunkLayout,
     position: &Position,
     ray: &Ray,
-    tanh_distance: f32,
+    mut tanh_distance: f32,
 ) -> Result<Option<GraphCastHit>, SphereCastError> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `hit` variable gets updated over time before being returned.
     let mut hit: Option<GraphCastHit> = None;
 
-    // Pick the vertex closest to position.local as the vertex of the chunk to use to start collision checking
-    let start_vertex = Vertex::iter()
-        .map(|v| {
-            (
-                v,
-                (v.node_to_dual().cast::<f32>() * position.local * math::origin()).w,
-            )
-        })
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-        .unwrap()
-        .0;
-
-    // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
-    // The `chunk_queue` contains ordered pairs containing the `ChunkId` and the transformation needed to switch
-    // from the original node coordinates to the current chunk's node coordinates.
-    let mut visited_chunks = FxHashSet::<ChunkId>::default();
-    let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
-    chunk_queue.push_back((ChunkId::new(position.node, start_vertex), position.local));
-
-    // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
-    // the corresponding neighboring chunk will also be used for collision checking.
-    let klein_lower_boundary = collider_radius.tanh();
-    let klein_upper_boundary =
-        ((Vertex::chunk_to_dual_factor() as f32).atanh() - collider_radius).tanh();
-
-    // Breadth-first search loop
-    while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
+    let mut traverser = RayTraverser::new(graph, *position, ray, collider_radius);
+    while let Some((chunk, transform)) = traverser.next(tanh_distance) {
+        let Some(chunk) = chunk else {
+            // Collision checking on chunk outside of graph
+            return Err(SphereCastError::OutOfBounds);
+        };
         let Chunk::Populated {
             voxels: ref voxel_data,
             ..
@@ -66,77 +42,23 @@ pub fn sphere_cast(
             // Collision checking on unpopulated chunk
             return Err(SphereCastError::OutOfBounds);
         };
-        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
         // Check collision within a single chunk
-        let current_tanh_distance = hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance);
         hit = chunk_sphere_cast(
             collider_radius,
             voxel_data,
             layout,
-            &local_ray,
-            current_tanh_distance,
+            &(transform * ray),
+            tanh_distance,
         )
         .map_or(hit, |hit| {
+            tanh_distance = hit.tanh_distance;
             Some(GraphCastHit {
                 tanh_distance: hit.tanh_distance,
                 chunk,
-                normal: math::mtranspose(&node_transform)
-                    * chunk.vertex.dual_to_node().cast()
-                    * hit.normal,
+                normal: math::mtranspose(&transform) * hit.normal,
             })
         });
-
-        // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
-        // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
-        // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
-        let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
-        let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.ray_point(current_tanh_distance)).unwrap();
-
-        // Add neighboring chunks as necessary based on a conservative AABB check, using one coordinate at a time.
-        for axis in 0..3 {
-            // Check for neighboring nodes
-            if klein_ray_start[axis] <= klein_lower_boundary
-                || klein_ray_end[axis] <= klein_lower_boundary
-            {
-                let side = chunk.vertex.canonical_sides()[axis];
-                let next_node_transform = side.reflection().cast::<f32>() * node_transform;
-                // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
-                // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
-                // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
-                // because the AABB check can have false positives.
-                let ray_node_distance = (next_node_transform * ray.position).w.acosh();
-                let ray_length = current_tanh_distance.atanh();
-                if ray_node_distance - ray_length - collider_radius
-                    > dodeca::BOUNDING_SPHERE_RADIUS as f32
-                {
-                    // Ray cannot intersect node
-                    continue;
-                }
-                // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
-                let Some(neighbor) = graph.neighbor(chunk.node, side) else {
-                    // Collision checking on nonexistent node
-                    return Err(SphereCastError::OutOfBounds);
-                };
-                // Assuming everything goes well, add the new chunk to the queue.
-                let next_chunk = ChunkId::new(neighbor, chunk.vertex);
-                if visited_chunks.insert(next_chunk) {
-                    chunk_queue.push_back((next_chunk, next_node_transform));
-                }
-            }
-
-            // Check for neighboring chunks within the same node
-            if klein_ray_start[axis] >= klein_upper_boundary
-                || klein_ray_end[axis] >= klein_upper_boundary
-            {
-                let vertex = chunk.vertex.adjacent_vertices()[axis];
-                let next_chunk = ChunkId::new(chunk.node, vertex);
-                if visited_chunks.insert(next_chunk) {
-                    chunk_queue.push_back((next_chunk, node_transform));
-                }
-            }
-        }
     }
 
     Ok(hit)
@@ -165,12 +87,13 @@ pub struct GraphCastHit {
 #[cfg(test)]
 mod tests {
     use crate::{
-        dodeca::{Side, Vertex},
+        collision_math::Ray,
+        dodeca::{self, Side, Vertex},
         graph::NodeId,
         node::{populate_fresh_nodes, Coords, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
-        world::Material, collision_math::Ray,
+        world::Material,
     };
 
     use super::*;

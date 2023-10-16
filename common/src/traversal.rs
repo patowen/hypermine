@@ -120,7 +120,10 @@ impl<'a> RayTraverser<'a> {
         let mut visited_chunks = FxHashSet::<ChunkId>::default();
         visited_chunks.insert(start_chunk);
         let mut iterator_queue: VecDeque<(Option<ChunkId>, na::Matrix4<f32>)> = VecDeque::new();
-        iterator_queue.push_back((Some(start_chunk), position.local));
+        iterator_queue.push_back((
+            Some(start_chunk),
+            start_chunk.vertex.node_to_dual().cast::<f32>() * position.local,
+        ));
 
         // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
         // the corresponding neighboring chunk will also be used for collision checking.
