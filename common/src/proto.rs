@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     dodeca::{self, Vertex},
     graph::NodeId,
-    node::{Coords, UncheckedVoxelData},
+    node::Coords,
     world::Material,
     EntityId, SimConfig, Step,
 };
@@ -57,7 +57,7 @@ pub struct Spawns {
     pub despawns: Vec<EntityId>,
     pub nodes: Vec<FreshNode>,
     pub block_updates: Vec<BlockUpdate>,
-    pub modified_chunks: Vec<(GlobalChunkId, UncheckedVoxelData)>,
+    pub modified_chunks: Vec<(GlobalChunkId, SerializableVoxelData)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +87,11 @@ pub struct BlockUpdate {
     pub chunk_id: GlobalChunkId,
     pub coords: Coords,
     pub new_material: Material,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SerializableVoxelData {
+    pub voxels: Vec<Material>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

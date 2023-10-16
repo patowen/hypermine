@@ -12,7 +12,7 @@ use common::{
     collision_math::Ray,
     graph::{Graph, NodeId},
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph},
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         GlobalChunkId, Position,
@@ -329,9 +329,10 @@ impl Sim {
             )
         }
         for (global_chunk_id, voxel_data) in msg.modified_chunks {
-            let Some(voxel_data) =
-                voxel_data.validate(self.params.as_ref().unwrap().cfg.chunk_size)
-            else {
+            let Some(voxel_data) = VoxelData::from_serializable(
+                &voxel_data,
+                self.params.as_ref().unwrap().cfg.chunk_size,
+            ) else {
                 tracing::error!("Voxel data received from server is invalid");
                 continue;
             };

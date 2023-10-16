@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use common::dodeca::Vertex;
-use common::node::UncheckedVoxelData;
 use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -144,7 +143,11 @@ impl Sim {
             let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
                 panic!("Unknown chunk listed as modified");
             };
-            postcard_helpers::serialize(voxels, &mut serialized_voxels).unwrap();
+            postcard_helpers::serialize(
+                &voxels.to_serializable(self.cfg.chunk_size),
+                &mut serialized_voxels,
+            )
+            .unwrap();
             chunks.push(save::Chunk {
                 vertex: vertex as u32,
                 voxels: serialized_voxels,
@@ -238,7 +241,7 @@ impl Sim {
 
             spawns
                 .modified_chunks
-                .push((global_chunk_id, UncheckedVoxelData::new(voxels.clone())));
+                .push((global_chunk_id, voxels.to_serializable(self.cfg.chunk_size)));
         }
         spawns
     }

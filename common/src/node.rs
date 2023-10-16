@@ -8,7 +8,7 @@ use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
-use crate::proto::Position;
+use crate::proto::{Position, SerializableVoxelData};
 use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::{math, Chunks};
@@ -219,37 +219,7 @@ pub enum Chunk {
     },
 }
 
-/// Like `VoxelData` but designed for sending or receiving over a network where the deserialized version
-/// may fail to obey certain constriants. Its purpose is to avoid client-side crashes due to a misbehaving
-/// server
-#[derive(Serialize, Deserialize)]
-pub struct UncheckedVoxelData {
-    inner: VoxelData,
-}
-
-impl std::fmt::Debug for UncheckedVoxelData {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("UncheckedVoxelData").finish()
-    }
-}
-
-impl UncheckedVoxelData {
-    pub fn new(inner: VoxelData) -> Self {
-        UncheckedVoxelData { inner }
-    }
-
-    pub fn validate(self, dimension: u8) -> Option<VoxelData> {
-        match self.inner {
-            VoxelData::Solid(_) => Some(self.inner),
-            VoxelData::Dense(ref d) if d.len() == (usize::from(dimension) + 2).pow(3) => {
-                Some(self.inner)
-            }
-            _ => None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),
@@ -288,6 +258,44 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(_) => false,
             VoxelData::Solid(_) => true,
+        }
+    }
+
+    pub fn from_serializable(serializable: &SerializableVoxelData, dimension: u8) -> Option<Self> {
+        if serializable.voxels.len() != usize::from(dimension).pow(3) {
+            return None;
+        }
+
+        let mut data = vec![Material::Void; (usize::from(dimension) + 2).pow(3)];
+        let mut input_index = 0;
+        for x in 0..dimension {
+            for y in 0..dimension {
+                for z in 0..dimension {
+                    data[Coords([x, y, z]).to_index(dimension)] = serializable.voxels[input_index];
+                    input_index += 1;
+                }
+            }
+        }
+        Some(VoxelData::Dense(data.into_boxed_slice()))
+    }
+
+    pub fn to_serializable(&self, dimension: u8) -> SerializableVoxelData {
+        let VoxelData::Dense(data) = self else {
+            panic!("Only dense chunks can be serialized.");
+        };
+
+        let mut serializable: Vec<Material> = Vec::with_capacity(usize::from(dimension).pow(3));
+        let mut output_index = 0;
+        for x in 0..dimension {
+            for y in 0..dimension {
+                for z in 0..dimension {
+                    serializable[output_index] = data[Coords([x, y, z]).to_index(dimension)];
+                    output_index += 1;
+                }
+            }
+        }
+        SerializableVoxelData {
+            voxels: serializable,
         }
     }
 }
