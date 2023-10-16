@@ -20,7 +20,7 @@ pub struct ChunkCastHit {
     pub face_direction: i8,
 }
 
-/// Performs sphere casting (swept collision query) against the voxels in the chunk with the given `voxel_data`
+/// Performs ray casting against the voxels in the chunk with the given `voxel_data`
 ///
 /// The `ray` parameter is given and any resulting hit normals are given in the chunk's dual coordinate system.
 ///
