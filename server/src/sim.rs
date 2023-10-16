@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use common::dodeca::Vertex;
+use common::proto::{BlockUpdate, GlobalChunkId};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -34,6 +36,8 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
+    dirty_voxel_nodes: FxHashSet<NodeId>,
+    modified_chunks: FxHashMap<u128, FxHashSet<Vertex>>,
 }
 
 impl Sim {
@@ -49,6 +53,8 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
+            dirty_voxel_nodes: FxHashSet::default(),
+            modified_chunks: FxHashMap::default(),
         };
 
         ensure_nearby(
@@ -82,9 +88,14 @@ impl Sim {
         }
 
         let dirty_nodes = self.dirty_nodes.drain().collect::<Vec<_>>();
+        let dirty_voxel_nodes = self.dirty_voxel_nodes.drain().collect::<Vec<_>>();
         for node in dirty_nodes {
             let entities = self.snapshot_node(node);
             writer.put_entity_node(self.graph.hash_of(node), &entities)?;
+        }
+        for node in dirty_voxel_nodes {
+            let voxels = self.snapshot_voxel_node(node);
+            writer.put_voxel_node(self.graph.hash_of(node), &voxels)?;
         }
 
         drop(writer);
@@ -124,6 +135,27 @@ impl Sim {
         }
     }
 
+    fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
+        let mut chunks = vec![];
+        let node_data = self.graph.get(node).as_ref().unwrap();
+        for &vertex in self.modified_chunks.get(&self.graph.hash_of(node)).unwrap() {
+            let mut serialized_voxels = Vec::new();
+            let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
+                panic!("Unknown chunk listed as modified");
+            };
+            postcard_helpers::serialize(
+                &voxels.to_serializable(self.cfg.chunk_size),
+                &mut serialized_voxels,
+            )
+            .unwrap();
+            chunks.push(save::Chunk {
+                vertex: vertex as u32,
+                voxels: serialized_voxels,
+            })
+        }
+        save::VoxelNode { chunks }
+    }
+
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
@@ -141,6 +173,7 @@ impl Sim {
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
             no_clip: true,
+            block_update: None,
         };
         let entity = self.world.spawn((id, position, character, initial_input));
         self.graph_entities.insert(position.node, entity);
@@ -181,9 +214,32 @@ impl Sim {
                 .tree()
                 .map(|(side, parent)| FreshNode { side, parent })
                 .collect(),
+            block_updates: Vec::new(),
+            modified_chunks: Vec::new(),
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
+        }
+        for global_chunk_id in self.modified_chunks.iter().flat_map(|pair| {
+            pair.1.iter().map(move |vert| GlobalChunkId {
+                node_hash: *pair.0,
+                vertex: *vert,
+            })
+        }) {
+            let voxels = match self
+                .graph
+                .get(self.graph.from_hash(global_chunk_id.node_hash).unwrap())
+                .as_ref()
+                .unwrap()
+                .chunks[global_chunk_id.vertex]
+            {
+                Chunk::Populated { ref voxels, .. } => voxels,
+                _ => panic!("modified chunk not available anywhere"),
+            };
+
+            spawns
+                .modified_chunks
+                .push((global_chunk_id, voxels.to_serializable(self.cfg.chunk_size)));
         }
         spawns
     }
@@ -191,6 +247,8 @@ impl Sim {
     pub fn step(&mut self) -> (Spawns, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
+
+        let mut pending_block_updates: Vec<BlockUpdate> = vec![];
 
         // Simulate
         for (entity, (position, character, input)) in self
@@ -207,6 +265,7 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
+            pending_block_updates.extend(input.block_update.iter().cloned());
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
                 self.graph_entities.remove(prev_node, entity);
@@ -214,6 +273,26 @@ impl Sim {
             }
             self.dirty_nodes.insert(position.node);
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
+        }
+
+        let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
+
+        for block_update in pending_block_updates.into_iter() {
+            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
+                tracing::warn!("Block update received from unknown node hash");
+                continue;
+            };
+            self.graph.update_block(
+                self.cfg.chunk_size,
+                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                block_update.coords,
+                block_update.new_material,
+            );
+            self.modified_chunks
+                .entry(block_update.chunk_id.node_hash)
+                .or_default()
+                .insert(block_update.chunk_id.vertex);
+            accepted_block_updates.push(block_update);
         }
 
         // Capture state changes for broadcast to clients
@@ -241,6 +320,8 @@ impl Sim {
                     })
                 })
                 .collect(),
+            block_updates: accepted_block_updates,
+            modified_chunks: vec![],
         };
         populate_fresh_nodes(&mut self.graph);
 
@@ -270,6 +351,7 @@ impl Sim {
                             self.graph[chunk] = Chunk::Populated {
                                 voxels: params.generate_voxels(),
                                 surface: None,
+                                old_surface: None,
                             };
                         }
                     }

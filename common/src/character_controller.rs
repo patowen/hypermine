@@ -1,6 +1,7 @@
 use tracing::{error, warn};
 
 use crate::{
+    collision_math::Ray,
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
@@ -135,13 +136,13 @@ impl CharacterControllerPass<'_> {
         let displacement_norm = displacement_sqr.sqrt();
         let displacement_normalized = relative_displacement / displacement_norm;
 
-        let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
+        let ray = Ray::new(math::origin(), displacement_normalized);
         let tanh_distance = displacement_norm.tanh();
 
         let cast_hit = graph_collision::sphere_cast(
             self.cfg.character_radius,
             self.graph,
-            &ChunkLayout::new(self.cfg.chunk_size as usize),
+            &ChunkLayout::new(self.cfg.chunk_size),
             self.position,
             &ray,
             tanh_distance,

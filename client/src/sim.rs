@@ -7,10 +7,17 @@ use tracing::{debug, error, trace};
 use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
+    collision_math::Ray,
     graph::{Graph, NodeId},
-    node::{populate_fresh_nodes, DualGraph},
-    proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
-    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
+    graph_ray_casting,
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
+    proto::{
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
+        GlobalChunkId, Position,
+    },
+    sanitize_motion_input,
+    world::Material,
+    EntityId, GraphEntities, SimConfig, Step,
 };
 
 /// Game state
@@ -41,6 +48,10 @@ pub struct Sim {
     no_clip: bool,
     /// Whether no_clip will be toggled next step
     toggle_no_clip: bool,
+    /// Whether the place-block button has been pressed since the last step
+    place_block_pressed: bool,
+    /// Whether the break-block button has been pressed since the last step
+    break_block_pressed: bool,
     prediction: PredictedMotion,
 }
 
@@ -63,6 +74,8 @@ impl Sim {
             average_movement_input: na::zero(),
             no_clip: true,
             toggle_no_clip: false,
+            place_block_pressed: false,
+            break_block_pressed: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -83,6 +96,14 @@ impl Sim {
         // there would be a discontinuity when predicting the player's position within a given step,
         // causing an undesirable jolt.
         self.toggle_no_clip = true;
+    }
+
+    pub fn set_place_block_pressed_true(&mut self) {
+        self.place_block_pressed = true;
+    }
+
+    pub fn set_break_block_pressed_true(&mut self) {
+        self.break_block_pressed = true;
     }
 
     pub fn params(&self) -> Option<&Parameters> {
@@ -110,6 +131,8 @@ impl Sim {
 
                 // Send fresh input
                 self.send_input();
+                self.place_block_pressed = false;
+                self.break_block_pressed = false;
 
                 // Toggle no clip at the start of a new step
                 if self.toggle_no_clip {
@@ -250,6 +273,39 @@ impl Sim {
             self.graph.insert_child(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
+        for block_update in msg.block_updates.into_iter() {
+            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
+                tracing::warn!("Block update received from unknown node hash");
+                continue;
+            };
+            self.graph.update_block(
+                self.params.as_ref().unwrap().cfg.chunk_size,
+                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                block_update.coords,
+                block_update.new_material,
+            )
+        }
+        for (global_chunk_id, voxel_data) in msg.modified_chunks {
+            let Some(voxel_data) = VoxelData::from_serializable(
+                &voxel_data,
+                self.params.as_ref().unwrap().cfg.chunk_size,
+            ) else {
+                tracing::error!("Voxel data received from server is invalid");
+                continue;
+            };
+            if let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) {
+                *self
+                    .graph
+                    .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
+                    .unwrap() = Chunk::Populated {
+                    voxels: voxel_data,
+                    surface: None,
+                    old_surface: None,
+                };
+            } else {
+                tracing::error!("Voxel data received from server for unloaded chunk");
+            }
+        }
     }
 
     fn spawn(
@@ -291,6 +347,7 @@ impl Sim {
         let character_input = CharacterInput {
             movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
+            block_update: self.get_block_update(),
         };
         let generation = self
             .prediction
@@ -318,6 +375,7 @@ impl Sim {
                     / (self.since_input_sent.as_secs_f32()
                         / params.cfg.step_interval.as_secs_f32()),
                 no_clip: self.no_clip,
+                block_update: None,
             };
             character_controller::run_character_step(
                 &params.cfg,
@@ -350,6 +408,60 @@ impl Sim {
         self.world
             .despawn(entity)
             .expect("destroyed nonexistent entity");
+    }
+
+    fn get_block_update(&self) -> Option<BlockUpdate> {
+        let placing = if self.place_block_pressed {
+            true
+        } else if self.break_block_pressed {
+            false
+        } else {
+            return None;
+        };
+        let chunk_size = self.params.as_ref().unwrap().cfg.chunk_size;
+
+        let view_position = self.view();
+        let ray_casing_result = graph_ray_casting::ray_cast(
+            &self.graph,
+            &ChunkLayout::new(chunk_size),
+            &view_position,
+            &Ray::new(na::Vector4::w(), -na::Vector4::z()),
+            0.5,
+        );
+
+        let Ok(ray_casting_result) = ray_casing_result else {
+            tracing::warn!("Tried to run a raycast beyond generated terrain.");
+            return None;
+        };
+
+        let hit = ray_casting_result?;
+
+        let block_pos = if placing {
+            self.graph.get_block_neighbor(
+                chunk_size,
+                hit.chunk,
+                hit.voxel_coords,
+                hit.face_axis as usize,
+                hit.face_direction,
+            )?
+        } else {
+            (hit.chunk, hit.voxel_coords)
+        };
+
+        let material = if placing {
+            Material::WoodPlanks
+        } else {
+            Material::Void
+        };
+
+        Some(BlockUpdate {
+            chunk_id: GlobalChunkId {
+                node_hash: self.graph.hash_of(block_pos.0.node),
+                vertex: block_pos.0.vertex,
+            },
+            coords: block_pos.1,
+            new_material: material,
+        })
     }
 }
 

@@ -1,13 +1,10 @@
-use std::collections::VecDeque;
-
-use fxhash::FxHashSet;
-
 use crate::{
     chunk_collision::chunk_sphere_cast,
-    dodeca::{self, Vertex},
+    collision_math::Ray,
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph},
     proto::Position,
+    traversal::RayTraverser,
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
@@ -25,39 +22,18 @@ pub fn sphere_cast(
     layout: &ChunkLayout,
     position: &Position,
     ray: &Ray,
-    tanh_distance: f32,
+    mut tanh_distance: f32,
 ) -> Result<Option<GraphCastHit>, SphereCastError> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `hit` variable gets updated over time before being returned.
     let mut hit: Option<GraphCastHit> = None;
 
-    // Pick the vertex closest to position.local as the vertex of the chunk to use to start collision checking
-    let start_vertex = Vertex::iter()
-        .map(|v| {
-            (
-                v,
-                (v.node_to_dual().cast::<f32>() * position.local * math::origin()).w,
-            )
-        })
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
-        .unwrap()
-        .0;
-
-    // Start a breadth-first search of the graph's chunks, performing collision checks in each relevant chunk.
-    // The `chunk_queue` contains ordered pairs containing the `ChunkId` and the transformation needed to switch
-    // from the original node coordinates to the current chunk's node coordinates.
-    let mut visited_chunks = FxHashSet::<ChunkId>::default();
-    let mut chunk_queue: VecDeque<(ChunkId, na::Matrix4<f32>)> = VecDeque::new();
-    chunk_queue.push_back((ChunkId::new(position.node, start_vertex), position.local));
-
-    // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
-    // the corresponding neighboring chunk will also be used for collision checking.
-    let klein_lower_boundary = collider_radius.tanh();
-    let klein_upper_boundary =
-        ((Vertex::chunk_to_dual_factor() as f32).atanh() - collider_radius).tanh();
-
-    // Breadth-first search loop
-    while let Some((chunk, node_transform)) = chunk_queue.pop_front() {
+    let mut traverser = RayTraverser::new(graph, *position, ray, collider_radius);
+    while let Some((chunk, transform)) = traverser.next(tanh_distance) {
+        let Some(chunk) = chunk else {
+            // Collision checking on chunk outside of graph
+            return Err(SphereCastError::OutOfBounds);
+        };
         let Chunk::Populated {
             voxels: ref voxel_data,
             ..
@@ -66,77 +42,23 @@ pub fn sphere_cast(
             // Collision checking on unpopulated chunk
             return Err(SphereCastError::OutOfBounds);
         };
-        let local_ray = chunk.vertex.node_to_dual().cast::<f32>() * node_transform * ray;
 
         // Check collision within a single chunk
-        let current_tanh_distance = hit.as_ref().map_or(tanh_distance, |hit| hit.tanh_distance);
         hit = chunk_sphere_cast(
             collider_radius,
             voxel_data,
             layout,
-            &local_ray,
-            current_tanh_distance,
+            &(transform * ray),
+            tanh_distance,
         )
         .map_or(hit, |hit| {
+            tanh_distance = hit.tanh_distance;
             Some(GraphCastHit {
                 tanh_distance: hit.tanh_distance,
                 chunk,
-                normal: math::mtranspose(&node_transform)
-                    * chunk.vertex.dual_to_node().cast()
-                    * hit.normal,
+                normal: math::mtranspose(&transform) * hit.normal,
             })
         });
-
-        // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
-        // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
-        // bounded by `klein_lower_boundary` and `klein_upper_boundary`.
-        let klein_ray_start = na::Point3::from_homogeneous(local_ray.position).unwrap();
-        let klein_ray_end =
-            na::Point3::from_homogeneous(local_ray.ray_point(current_tanh_distance)).unwrap();
-
-        // Add neighboring chunks as necessary based on a conservative AABB check, using one coordinate at a time.
-        for axis in 0..3 {
-            // Check for neighboring nodes
-            if klein_ray_start[axis] <= klein_lower_boundary
-                || klein_ray_end[axis] <= klein_lower_boundary
-            {
-                let side = chunk.vertex.canonical_sides()[axis];
-                let next_node_transform = side.reflection().cast::<f32>() * node_transform;
-                // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
-                // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
-                // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
-                // because the AABB check can have false positives.
-                let ray_node_distance = (next_node_transform * ray.position).w.acosh();
-                let ray_length = current_tanh_distance.atanh();
-                if ray_node_distance - ray_length - collider_radius
-                    > dodeca::BOUNDING_SPHERE_RADIUS as f32
-                {
-                    // Ray cannot intersect node
-                    continue;
-                }
-                // If we have to do collision checking on nodes that don't exist in the graph, we cannot have a conclusive result.
-                let Some(neighbor) = graph.neighbor(chunk.node, side) else {
-                    // Collision checking on nonexistent node
-                    return Err(SphereCastError::OutOfBounds);
-                };
-                // Assuming everything goes well, add the new chunk to the queue.
-                let next_chunk = ChunkId::new(neighbor, chunk.vertex);
-                if visited_chunks.insert(next_chunk) {
-                    chunk_queue.push_back((next_chunk, next_node_transform));
-                }
-            }
-
-            // Check for neighboring chunks within the same node
-            if klein_ray_start[axis] >= klein_upper_boundary
-                || klein_ray_end[axis] >= klein_upper_boundary
-            {
-                let vertex = chunk.vertex.adjacent_vertices()[axis];
-                let next_chunk = ChunkId::new(chunk.node, vertex);
-                if visited_chunks.insert(next_chunk) {
-                    chunk_queue.push_back((next_chunk, node_transform));
-                }
-            }
-        }
     }
 
     Ok(hit)
@@ -162,47 +84,13 @@ pub struct GraphCastHit {
     pub normal: na::Vector4<f32>,
 }
 
-/// A ray in hyperbolic space. The fields must be lorentz normalized, with `mip(position, position) == -1`,
-/// `mip(direction, direction) == 1`, and `mip(position, direction) == 0`.
-#[derive(Debug)]
-pub struct Ray {
-    pub position: na::Vector4<f32>,
-    pub direction: na::Vector4<f32>,
-}
-
-impl Ray {
-    pub fn new(position: na::Vector4<f32>, direction: na::Vector4<f32>) -> Ray {
-        Ray {
-            position,
-            direction,
-        }
-    }
-
-    /// Returns a point along this ray `atanh(tanh_distance)` units away from the origin. This point
-    /// is _not_ lorentz normalized.
-    pub fn ray_point(&self, tanh_distance: f32) -> na::Vector4<f32> {
-        self.position + self.direction * tanh_distance
-    }
-}
-
-impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
-    type Output = Ray;
-
-    #[inline]
-    fn mul(self, rhs: &Ray) -> Self::Output {
-        Ray {
-            position: self * rhs.position,
-            direction: self * rhs.direction,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
-        dodeca::{Side, Vertex},
+        collision_math::Ray,
+        dodeca::{self, Side, Vertex},
         graph::NodeId,
-        node::{populate_fresh_nodes, VoxelData},
+        node::{populate_fresh_nodes, Coords, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
         world::Material,
@@ -218,16 +106,16 @@ mod tests {
         /// Which chunk in the given node the voxel is in
         vertex: Vertex,
 
-        /// The coordinates of the voxel, including margins
-        coords: [usize; 3],
+        /// The coordinates of the voxel
+        coords: Coords,
     }
 
     impl VoxelLocation<'_> {
-        fn new(node_path: &[Side], vertex: Vertex, coords: [usize; 3]) -> VoxelLocation<'_> {
+        fn new(node_path: &[Side], vertex: Vertex, coords: [u8; 3]) -> VoxelLocation<'_> {
             VoxelLocation {
                 node_path,
                 vertex,
-                coords,
+                coords: Coords(coords),
             }
         }
     }
@@ -258,7 +146,7 @@ mod tests {
 
     impl SphereCastExampleTestCase<'_> {
         fn execute(self) {
-            let dimension: usize = 12;
+            let dimension: u8 = 12;
             let layout = ChunkLayout::new(dimension);
             let mut graph = DualGraph::new();
             let graph_radius = 3.0;
@@ -271,6 +159,7 @@ mod tests {
                     graph[ChunkId::new(node, vertex)] = Chunk::Populated {
                         voxels: VoxelData::Solid(Material::Void),
                         surface: None,
+                        old_surface: None,
                     };
                 }
             }
@@ -342,7 +231,7 @@ mod tests {
             }
         }
 
-        fn populate_voxel(graph: &mut DualGraph, dimension: usize, voxel_location: &VoxelLocation) {
+        fn populate_voxel(graph: &mut DualGraph, dimension: u8, voxel_location: &VoxelLocation) {
             // Find the ChunkId of the given chunk
             let chunk = ChunkId::new(
                 voxel_location
@@ -361,9 +250,8 @@ mod tests {
             };
 
             // Populate the given voxel with dirt.
-            voxel_data.data_mut(dimension as u8)[voxel_location.coords[0]
-                + voxel_location.coords[1] * (dimension + 2)
-                + voxel_location.coords[2] * (dimension + 2).pow(2)] = Material::Dirt;
+            voxel_data.data_mut(dimension)[voxel_location.coords.to_index(dimension)] =
+                Material::Dirt;
         }
 
         fn get_voxel_chunk(graph: &DualGraph, voxel_location: &VoxelLocation) -> ChunkId {
@@ -384,7 +272,7 @@ mod tests {
     fn sphere_cast_examples() {
         // Basic test case
         SphereCastExampleTestCase {
-            chosen_voxel: VoxelLocation::new(&[Side::G], Vertex::I, [3, 4, 6]),
+            chosen_voxel: VoxelLocation::new(&[Side::G], Vertex::I, [2, 3, 5]),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
             chosen_chunk_relative_grid_ray_end: [2.5, 3.5, 5.5],
@@ -399,7 +287,7 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::B.canonical_sides()[0]],
                 Vertex::B,
-                [1, 12, 12],
+                [0, 11, 11],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -415,7 +303,7 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::B.canonical_sides()[0]],
                 Vertex::B,
-                [1, 12, 12],
+                [0, 11, 11],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -437,8 +325,8 @@ mod tests {
                 .iter()
                 .position(|side| !Vertex::A.canonical_sides().contains(side))
                 .unwrap();
-            let mut chosen_voxel_coords = [1, 1, 1];
-            chosen_voxel_coords[corresponding_axis] = 12;
+            let mut chosen_voxel_coords = [0, 0, 0];
+            chosen_voxel_coords[corresponding_axis] = 11;
             let mut grid_ray_end = [0.0, 0.0, 0.0];
             grid_ray_end[corresponding_axis] = 12.0;
             SphereCastExampleTestCase {
@@ -462,7 +350,7 @@ mod tests {
                     Vertex::D.canonical_sides()[2],
                 ],
                 Vertex::D,
-                [1, 1, 1],
+                [0, 0, 0],
             ),
             additional_populated_voxels: &[],
             start_chunk_relative_grid_ray_start: [12.0, 12.0, 12.0], // Node center
@@ -478,9 +366,9 @@ mod tests {
             chosen_voxel: VoxelLocation::new(
                 &[Vertex::A.canonical_sides()[0]],
                 Vertex::A,
-                [1, 5, 5],
+                [0, 4, 4],
             ),
-            additional_populated_voxels: &[VoxelLocation::new(&[], Vertex::A, [1, 6, 5])],
+            additional_populated_voxels: &[VoxelLocation::new(&[], Vertex::A, [0, 5, 4])],
             // Because we use the "A" vertex, the two coordinate systems below coincide for x = 0.0
             start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
             chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
@@ -492,11 +380,11 @@ mod tests {
 
         // Colliding with the center node's voxel before a neighboring node's voxel
         SphereCastExampleTestCase {
-            chosen_voxel: VoxelLocation::new(&[], Vertex::A, [1, 5, 5]),
+            chosen_voxel: VoxelLocation::new(&[], Vertex::A, [0, 4, 4]),
             additional_populated_voxels: &[VoxelLocation::new(
                 &[Vertex::A.canonical_sides()[0]],
                 Vertex::A,
-                [1, 6, 5],
+                [0, 5, 4],
             )],
             start_chunk_relative_grid_ray_start: [0.0, 3.0, 4.5],
             chosen_chunk_relative_grid_ray_end: [0.0, 8.0, 4.5],
@@ -511,7 +399,7 @@ mod tests {
     /// long as the contract for sphere_cast is upheld.
     #[test]
     fn sphere_cast_near_unloaded_chunk() {
-        let dimension: usize = 12;
+        let dimension: u8 = 12;
         let layout = ChunkLayout::new(dimension);
         let mut graph = DualGraph::new();
 
@@ -543,6 +431,7 @@ mod tests {
                 graph[ChunkId::new(node, vertex)] = Chunk::Populated {
                     voxels: VoxelData::Solid(Material::Void),
                     surface: None,
+                    old_surface: None,
                 };
             }
         }

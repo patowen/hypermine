@@ -2,9 +2,13 @@
 
 use std::ops::{Index, IndexMut};
 
+use serde::{Deserialize, Serialize};
+
+use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
+use crate::proto::SerializableVoxelData;
 use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::Chunks;
@@ -31,6 +35,118 @@ impl DualGraph {
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
     }
+
+    pub fn get_chunk_neighbor(
+        &self,
+        chunk: ChunkId,
+        coord_axis: usize,
+        coord_direction: i8,
+    ) -> Option<ChunkId> {
+        if coord_direction == 1 {
+            Some(ChunkId::new(
+                chunk.node,
+                chunk.vertex.adjacent_vertices()[coord_axis],
+            ))
+        } else {
+            Some(ChunkId::new(
+                self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?,
+                chunk.vertex,
+            ))
+        }
+    }
+
+    pub fn get_block_neighbor(
+        &self,
+        chunk_size: u8,
+        mut chunk: ChunkId,
+        mut coords: Coords,
+        coord_axis: usize,
+        coord_direction: i8,
+    ) -> Option<(ChunkId, Coords)> {
+        if coords[coord_axis] == chunk_size - 1 && coord_direction == 1 {
+            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
+            let coord_plane0 = (coord_axis + 1) % 3;
+            let coord_plane1 = (coord_axis + 2) % 3;
+            let mut new_coords = Coords([0; 3]);
+            for i in 0..3 {
+                if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
+                    new_coords[i] = coords[coord_plane0];
+                } else if new_vertex.canonical_sides()[i]
+                    == chunk.vertex.canonical_sides()[coord_plane1]
+                {
+                    new_coords[i] = coords[coord_plane1];
+                } else {
+                    new_coords[i] = coords[coord_axis];
+                }
+            }
+            coords = new_coords;
+            chunk.vertex = new_vertex;
+        } else if coords[coord_axis] == 0 && coord_direction == -1 {
+            chunk.node = self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
+        } else {
+            coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_direction);
+        }
+
+        Some((chunk, coords))
+    }
+
+    pub fn update_block(
+        &mut self,
+        chunk_size: u8,
+        chunk: ChunkId,
+        coords: Coords,
+        new_material: Material,
+    ) {
+        let Some(Chunk::Populated {
+            voxels,
+            surface,
+            old_surface,
+        }) = self.get_chunk_mut(chunk)
+        else {
+            panic!("Tried to update block in nonexistent chunk");
+        };
+        let voxel = voxels
+            .data_mut(chunk_size)
+            .get_mut(coords.to_index(chunk_size))
+            .expect("coords are in-bounds");
+
+        *voxel = new_material;
+        *old_surface = surface.take().or(*old_surface);
+
+        // Remove margins from any adjacent chunks
+        for coord_axis in 0..3 {
+            if coords[coord_axis] == chunk_size - 1 {
+                self.remove_margins(
+                    chunk_size,
+                    self.get_chunk_neighbor(chunk, coord_axis, 1)
+                        .expect("neighboring chunk exists"),
+                );
+            }
+            if coords[coord_axis] == 0 {
+                self.remove_margins(
+                    chunk_size,
+                    self.get_chunk_neighbor(chunk, coord_axis, -1)
+                        .expect("neighboring chunk exists"),
+                );
+            }
+        }
+    }
+
+    fn remove_margins(&mut self, chunk_size: u8, chunk: ChunkId) {
+        let Some(Chunk::Populated {
+            voxels,
+            surface,
+            old_surface,
+        }) = self.get_chunk_mut(chunk)
+        else {
+            panic!("Tried to remove margins of unpopulated chunk");
+        };
+
+        if voxels.is_solid() {
+            voxels.data_mut(chunk_size);
+            *old_surface = surface.take().or(*old_surface);
+        }
+    }
 }
 
 impl Index<ChunkId> for DualGraph {
@@ -44,6 +160,33 @@ impl Index<ChunkId> for DualGraph {
 impl IndexMut<ChunkId> for DualGraph {
     fn index_mut(&mut self, chunk: ChunkId) -> &mut Chunk {
         self.get_chunk_mut(chunk).unwrap()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Coords(pub [u8; 3]);
+
+impl Coords {
+    /// Returns the array index corresponding to these coordinates, including margins
+    pub fn to_index(&self, chunk_size: u8) -> usize {
+        let chunk_size_with_margin = chunk_size as usize + 2;
+        (self.0[0] as usize + 1)
+            + (self.0[1] as usize + 1) * chunk_size_with_margin
+            + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
+    }
+}
+
+impl Index<usize> for Coords {
+    type Output = u8;
+
+    fn index(&self, coord_axis: usize) -> &u8 {
+        self.0.index(coord_axis)
+    }
+}
+
+impl IndexMut<usize> for Coords {
+    fn index_mut(&mut self, coord_axis: usize) -> &mut u8 {
+        self.0.index_mut(coord_axis)
     }
 }
 
@@ -62,9 +205,11 @@ pub enum Chunk {
     Populated {
         voxels: VoxelData,
         surface: Option<SlotId>,
+        old_surface: Option<SlotId>,
     },
 }
 
+#[derive(Clone)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),
@@ -75,7 +220,18 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(ref mut d) => d,
             VoxelData::Solid(mat) => {
-                *self = VoxelData::Dense(vec![mat; (usize::from(dimension) + 2).pow(3)].into());
+                let lwm = usize::from(dimension) + 2;
+                let mut data = vec![Material::Void; lwm.pow(3)];
+
+                // Populate all blocks except the margins, as margins are not fully implemented yet.
+                for i in 1..(lwm - 1) {
+                    for j in 1..(lwm - 1) {
+                        for k in 1..(lwm - 1) {
+                            data[i + j * lwm + k * lwm.pow(2)] = mat;
+                        }
+                    }
+                }
+                *self = VoxelData::Dense(data.into_boxed_slice());
                 self.data_mut(dimension)
             }
         }
@@ -87,26 +243,71 @@ impl VoxelData {
             VoxelData::Solid(mat) => mat,
         }
     }
+
+    pub fn is_solid(&self) -> bool {
+        match *self {
+            VoxelData::Dense(_) => false,
+            VoxelData::Solid(_) => true,
+        }
+    }
+
+    pub fn from_serializable(serializable: &SerializableVoxelData, dimension: u8) -> Option<Self> {
+        if serializable.voxels.len() != usize::from(dimension).pow(3) {
+            return None;
+        }
+
+        let mut data = vec![Material::Void; (usize::from(dimension) + 2).pow(3)];
+        let mut input_index = 0;
+        for x in 0..dimension {
+            for y in 0..dimension {
+                for z in 0..dimension {
+                    data[Coords([x, y, z]).to_index(dimension)] = serializable.voxels[input_index];
+                    input_index += 1;
+                }
+            }
+        }
+        Some(VoxelData::Dense(data.into_boxed_slice()))
+    }
+
+    pub fn to_serializable(&self, dimension: u8) -> SerializableVoxelData {
+        let VoxelData::Dense(data) = self else {
+            panic!("Only dense chunks can be serialized.");
+        };
+
+        let mut serializable: Vec<Material> = Vec::with_capacity(usize::from(dimension).pow(3));
+        let mut output_index = 0;
+        for x in 0..dimension {
+            for y in 0..dimension {
+                for z in 0..dimension {
+                    serializable[output_index] = data[Coords([x, y, z]).to_index(dimension)];
+                    output_index += 1;
+                }
+            }
+        }
+        SerializableVoxelData {
+            voxels: serializable,
+        }
+    }
 }
 
 /// Contains the context needed to know the locations of individual cubes within a chunk in the chunk's coordinate
 /// system. A given `ChunkLayout` is uniquely determined by its dimension.
 pub struct ChunkLayout {
-    dimension: usize,
+    dimension: u8,
     dual_to_grid_factor: f32,
 }
 
 impl ChunkLayout {
-    pub fn new(dimension: usize) -> Self {
+    pub fn new(dimension: u8) -> Self {
         ChunkLayout {
             dimension,
             dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
         }
     }
 
-    /// Number of cubes on one axis of the chunk. Margins are not included.
+    /// Number of cubes on one axis of the chunk.
     #[inline]
-    pub fn dimension(&self) -> usize {
+    pub fn dimension(&self) -> u8 {
         self.dimension
     }
 
@@ -117,23 +318,29 @@ impl ChunkLayout {
     }
 
     /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
-    /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
+    /// suitable for voxel lookup. Returns `None` if the coordinate is outside the chunk.
     #[inline]
-    pub fn dual_to_voxel(&self, dual_coord: f32) -> Option<usize> {
+    pub fn dual_to_voxel(&self, dual_coord: f32) -> Option<u8> {
         let floor_grid_coord = (dual_coord * self.dual_to_grid_factor).floor();
 
         if !(floor_grid_coord >= 0.0 && floor_grid_coord < self.dimension as f32) {
             None
         } else {
-            Some(floor_grid_coord as usize + 1)
+            Some(floor_grid_coord as u8)
         }
     }
 
     /// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
     /// can be used to find the positions of voxel gridlines.
     #[inline]
-    pub fn grid_to_dual(&self, grid_coord: usize) -> f32 {
+    pub fn grid_to_dual(&self, grid_coord: u8) -> f32 {
         grid_coord as f32 / self.dual_to_grid_factor
+    }
+
+    /// Takes in a single grid coordinate and returns a range containing all voxel coordinates surrounding it.
+    #[inline]
+    pub fn neighboring_voxels(&self, grid_coord: u8) -> impl Iterator<Item = u8> {
+        grid_coord.saturating_sub(1)..(grid_coord + 1).min(self.dimension())
     }
 }
 
@@ -158,4 +365,210 @@ fn populate_node(graph: &mut DualGraph, node: NodeId) {
             .unwrap_or_else(NodeState::root),
         chunks: Chunks::default(),
     });
+}
+
+/// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
+pub struct VoxelAABB {
+    // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with a one-block
+    // wide margins added on both sides. This helps make sure that that we can detect if the AABB intersects the chunk's boundaries.
+    bounds: [[u8; 2]; 3],
+}
+
+impl VoxelAABB {
+    /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
+    /// bounding box lies entirely outside the chunk.
+    pub fn from_ray_segment_and_radius(
+        layout: &ChunkLayout,
+        ray: &Ray,
+        tanh_distance: f32,
+        radius: f32,
+    ) -> Option<VoxelAABB> {
+        // Convert the ray to grid coordinates
+        let grid_start =
+            na::Point3::from_homogeneous(ray.position).unwrap() * layout.dual_to_grid_factor();
+        let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
+            * layout.dual_to_grid_factor();
+        // Convert the radius to grid coordinates using a crude conservative estimate
+        let max_grid_radius = radius * layout.dual_to_grid_factor();
+        let mut bounds = [[0; 2]; 3];
+        for axis in 0..3 {
+            let grid_min = grid_start[axis].min(grid_end[axis]) - max_grid_radius;
+            let grid_max = grid_start[axis].max(grid_end[axis]) + max_grid_radius;
+            let voxel_min = (grid_min + 1.0).floor().max(0.0);
+            let voxel_max = (grid_max + 1.0)
+                .floor()
+                .min(layout.dimension() as f32 + 1.0);
+
+            // When voxel_min is greater than dimension or voxel_max is less than 1, the cube does not intersect
+            // the chunk.
+            if voxel_min > layout.dimension() as f32 || voxel_max < 1.0 {
+                return None;
+            }
+
+            // We convert to u8 here instead of earlier because out-of-range voxel coordinates can violate casting assumptions.
+            bounds[axis] = [voxel_min.floor() as u8, voxel_max.floor() as u8];
+        }
+
+        Some(VoxelAABB { bounds })
+    }
+
+    /// Iterator over grid points contained in the region, represented as ordered triples
+    pub fn grid_points(
+        &self,
+        axis0: usize,
+        axis1: usize,
+        axis2: usize,
+    ) -> impl Iterator<Item = (u8, u8, u8)> {
+        let bounds = self.bounds;
+        (bounds[axis0][0]..bounds[axis0][1]).flat_map(move |i| {
+            (bounds[axis1][0]..bounds[axis1][1])
+                .flat_map(move |j| (bounds[axis2][0]..bounds[axis2][1]).map(move |k| (i, j, k)))
+        })
+    }
+
+    /// Iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
+    pub fn grid_lines(&self, axis0: usize, axis1: usize) -> impl Iterator<Item = (u8, u8)> {
+        let bounds = self.bounds;
+        (bounds[axis0][0]..bounds[axis0][1])
+            .flat_map(move |i| (bounds[axis1][0]..bounds[axis1][1]).map(move |j| (i, j)))
+    }
+
+    /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
+    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = u8> {
+        self.bounds[axis][0]..self.bounds[axis][1]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use crate::math;
+
+    use super::*;
+
+    /// Any voxel AABB should at least cover a capsule-shaped region consisting of all points
+    /// `radius` units away from the ray's line segment. This region consists of two spheres
+    /// and a cylinder. We only test planes because covered lines and points are a strict subset.
+    #[test]
+    fn voxel_aabb_coverage() {
+        let dimension = 12;
+        let layout = ChunkLayout::new(dimension);
+
+        // Pick an arbitrary ray by transforming the positive-x-axis ray.
+        let ray = na::Rotation3::from_axis_angle(&na::Vector3::z_axis(), 0.4).to_homogeneous()
+            * math::translate_along(&na::Vector3::new(0.2, 0.3, 0.1))
+            * &Ray::new(na::Vector4::w(), na::Vector4::x());
+
+        let tanh_distance = 0.2;
+        let radius = 0.1;
+
+        // We want to test that the whole capsule-shaped region around the ray segment is covered by
+        // the AABB. However, the math to test for this is complicated, so we instead check a bunch of
+        // spheres along this ray segment.
+        let num_ray_test_points = 20;
+        let ray_test_points: Vec<_> = (0..num_ray_test_points)
+            .map(|i| {
+                math::lorentz_normalize(
+                    &ray.ray_point(tanh_distance * (i as f32 / (num_ray_test_points - 1) as f32)),
+                )
+            })
+            .collect();
+
+        let aabb =
+            VoxelAABB::from_ray_segment_and_radius(&layout, &ray, tanh_distance, radius).unwrap();
+
+        // For variable names and further comments, we use a tuv coordinate system, which
+        // is a permuted xyz coordinate system.
+
+        // Test planes in all 3 axes.
+        for t_axis in 0..3 {
+            let covered_planes: HashSet<_> = aabb.grid_planes(t_axis).collect();
+
+            // Check that all uv-aligned planes that should be covered are covered
+            for t in 0..=dimension {
+                if covered_planes.contains(&t) {
+                    continue;
+                }
+
+                let mut plane_normal = na::Vector4::zeros();
+                plane_normal[t_axis] = 1.0;
+                plane_normal[3] = layout.grid_to_dual(t);
+                let plane_normal = math::lorentz_normalize(&plane_normal);
+
+                for test_point in &ray_test_points {
+                    assert!(
+                        math::mip(test_point, &plane_normal).abs() > radius.sinh(),
+                        "Plane not covered: t_axis={t_axis}, t={t}, test_point={test_point:?}",
+                    );
+                }
+            }
+        }
+
+        // Test lines in all 3 axes
+        for t_axis in 0..3 {
+            let u_axis = (t_axis + 1) % 3;
+            let v_axis = (u_axis + 1) % 3;
+            let covered_lines: HashSet<_> = aabb.grid_lines(u_axis, v_axis).collect();
+
+            // For a given axis, all lines have the same direction, so set up the appropriate vector
+            // in advance.
+            let mut line_direction = na::Vector4::zeros();
+            line_direction[t_axis] = 1.0;
+            let line_direction = line_direction;
+
+            // Check that all t-aligned lines that should be covered are covered
+            for u in 0..=dimension {
+                for v in 0..=dimension {
+                    if covered_lines.contains(&(u, v)) {
+                        continue;
+                    }
+
+                    let mut line_position = na::Vector4::zeros();
+                    line_position[u_axis] = layout.grid_to_dual(u);
+                    line_position[v_axis] = layout.grid_to_dual(v);
+                    line_position[3] = 1.0;
+                    let line_position = math::lorentz_normalize(&line_position);
+
+                    for test_point in &ray_test_points {
+                        assert!(
+                            (math::mip(test_point, &line_position).powi(2)
+                                - math::mip(test_point, &line_direction).powi(2))
+                            .sqrt()
+                                > radius.cosh(),
+                            "Line not covered: t_axis={t_axis}, u={u}, v={v}, test_point={test_point:?}",
+                        );
+                    }
+                }
+            }
+        }
+
+        // Test points
+        let covered_points: HashSet<_> = aabb.grid_points(0, 1, 2).collect();
+
+        // Check that all points that should be covered are covered
+        for x in 0..=dimension {
+            for y in 0..=dimension {
+                for z in 0..=dimension {
+                    if covered_points.contains(&(x, y, z)) {
+                        continue;
+                    }
+
+                    let point_position = math::lorentz_normalize(&na::Vector4::new(
+                        layout.grid_to_dual(x),
+                        layout.grid_to_dual(y),
+                        layout.grid_to_dual(z),
+                        1.0,
+                    ));
+
+                    for test_point in &ray_test_points {
+                        assert!(
+                            -math::mip(test_point, &point_position) > radius.cosh(),
+                            "Point not covered: x={x}, y={y}, z={z}, test_point={test_point:?}",
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

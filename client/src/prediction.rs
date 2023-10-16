@@ -107,6 +107,7 @@ mod tests {
         let mock_character_input = CharacterInput {
             movement: na::Vector3::x(),
             no_clip: true,
+            block_update: None,
         };
 
         let mut pred = PredictedMotion::new(pos());
