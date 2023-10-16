@@ -347,7 +347,7 @@ impl Sim {
         let character_input = CharacterInput {
             movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
-            block_update: self.get_block_update(),
+            block_update: self.get_local_character_block_update(),
         };
         let generation = self
             .prediction
@@ -410,7 +410,8 @@ impl Sim {
             .expect("destroyed nonexistent entity");
     }
 
-    fn get_block_update(&self) -> Option<BlockUpdate> {
+    /// Provides the logic for the player to be able to place and break blocks at will
+    fn get_local_character_block_update(&self) -> Option<BlockUpdate> {
         let placing = if self.place_block_pressed {
             true
         } else if self.break_block_pressed {
@@ -418,15 +419,17 @@ impl Sim {
         } else {
             return None;
         };
-        let chunk_size = self.params.as_ref().unwrap().cfg.chunk_size;
+        let Some(cfg) = self.params.as_ref().map(|params| &params.cfg) else {
+            return None;
+        };
 
         let view_position = self.view();
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
-            &ChunkLayout::new(chunk_size),
+            &ChunkLayout::new(cfg.chunk_size),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
-            0.5,
+            cfg.block_reach,
         );
 
         let Ok(ray_casting_result) = ray_casing_result else {
@@ -438,7 +441,7 @@ impl Sim {
 
         let block_pos = if placing {
             self.graph.get_block_neighbor(
-                chunk_size,
+                cfg.chunk_size,
                 hit.chunk,
                 hit.voxel_coords,
                 hit.face_axis as usize,
