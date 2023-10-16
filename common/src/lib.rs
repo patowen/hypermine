@@ -14,6 +14,7 @@ pub mod chunk_collision;
 mod chunk_ray_casting;
 mod chunks;
 pub mod codec;
+pub mod collision_math;
 pub mod cursor;
 pub mod dodeca;
 pub mod graph;

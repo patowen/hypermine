@@ -3,6 +3,7 @@
 use tracing::error;
 
 use crate::{
+    collision_math::Ray,
     graph_collision, math,
     node::{ChunkLayout, DualGraph},
     proto::Position,
@@ -26,7 +27,7 @@ pub fn check_collision(
     let displacement_norm = displacement_sqr.sqrt();
     let displacement_normalized = relative_displacement / displacement_norm;
 
-    let ray = graph_collision::Ray::new(math::origin(), displacement_normalized);
+    let ray = Ray::new(math::origin(), displacement_normalized);
     let tanh_distance = displacement_norm.tanh();
 
     let cast_hit = graph_collision::sphere_cast(

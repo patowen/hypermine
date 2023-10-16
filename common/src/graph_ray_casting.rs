@@ -4,8 +4,8 @@ use fxhash::FxHashSet;
 
 use crate::{
     chunk_ray_casting::chunk_ray_cast,
+    collision_math::Ray,
     dodeca::Vertex,
-    graph_collision::Ray,
     math,
     node::{Chunk, ChunkId, ChunkLayout, Coords, DualGraph},
     proto::Position,

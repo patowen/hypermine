@@ -1,5 +1,5 @@
 use crate::{
-    graph_collision::Ray,
+    collision_math::Ray,
     math,
     node::{ChunkLayout, Coords, VoxelData},
     world::Material,
@@ -70,12 +70,12 @@ fn find_face_collision(
     for t in bounding_box.grid_planes(t_axis) {
         // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
         // to the origin is (x, 0, 0, t), and we use that fact here.
-        let normal = math::lorentz_normalize(&tuv_to_xyz(
+        let normal = math::lorentz_normalize(&math::tuv_to_xyz(
             t_axis,
             na::Vector4::new(1.0, 0.0, 0.0, layout.grid_to_dual(t)),
         ));
 
-        let Some(new_tanh_distance) = solve_point_plane_intersection(ray, &normal) else {
+        let Some(new_tanh_distance) = ray.solve_point_plane_intersection(&normal) else {
             continue;
         };
 
@@ -117,7 +117,7 @@ fn find_face_collision(
         if !voxel_is_solid(
             voxel_data,
             layout,
-            tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
+            math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
         ) {
             continue;
         }
@@ -125,40 +125,13 @@ fn find_face_collision(
         // A collision was found. Update the hit.
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
-            voxel_coords: Coords(tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
+            voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
             face_axis: t_axis as u32,
             face_direction: collision_side as i8,
         });
     }
 
     hit
-}
-
-/// Finds the tanh of the distance a point will have to travel along a ray before it
-/// intersects the given plane.
-fn solve_point_plane_intersection(ray: &Ray, plane_normal: &na::Vector4<f32>) -> Option<f32> {
-    let mip_pos_a = math::mip(&ray.position, plane_normal);
-    let mip_dir_a = math::mip(&ray.direction, plane_normal);
-
-    let result = -mip_pos_a / mip_dir_a;
-    if result.is_finite() && result > 0.0 {
-        Some(result)
-    } else {
-        None
-    }
-}
-
-/// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
-/// `t_axis` determines which of the three x-y-z coordinates corresponds to the t-coordinate. This function works with
-/// any indexable entity with at least three entries. Any entry after the third entry is ignored.
-fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, tuv: T) -> T {
-    let mut result = tuv;
-    (
-        result[t_axis],
-        result[(t_axis + 1) % 3],
-        result[(t_axis + 2) % 3],
-    ) = (result[0], result[1], result[2]);
-    result
 }
 
 /// Checks whether a voxel can be collided with. Any non-void voxel falls under this category.
@@ -204,7 +177,7 @@ impl VoxelAABB {
                 return None;
             }
 
-            // We convert to usize here instead of earlier because out-of-range voxel coordinates can be negative.
+            // We convert to u8 here instead of earlier because out-of-range voxel coordinates can violate casting assumptions.
             bounds[axis] = [voxel_min.floor() as u8, voxel_max.floor() as u8];
         }
 

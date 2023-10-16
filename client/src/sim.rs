@@ -9,8 +9,8 @@ use crate::{
 };
 use common::{
     character_controller,
+    collision_math::Ray,
     graph::{Graph, NodeId},
-    graph_collision::Ray,
     graph_ray_casting,
     node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph},
     proto::{

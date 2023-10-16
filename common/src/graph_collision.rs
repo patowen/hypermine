@@ -7,7 +7,7 @@ use crate::{
     dodeca::{self, Vertex},
     math,
     node::{Chunk, ChunkId, ChunkLayout, DualGraph},
-    proto::Position,
+    proto::Position, collision_math::Ray,
 };
 
 /// Performs sphere casting (swept collision query) against the voxels in the `DualGraph`
@@ -162,41 +162,6 @@ pub struct GraphCastHit {
     pub normal: na::Vector4<f32>,
 }
 
-/// A ray in hyperbolic space. The fields must be lorentz normalized, with `mip(position, position) == -1`,
-/// `mip(direction, direction) == 1`, and `mip(position, direction) == 0`.
-#[derive(Debug)]
-pub struct Ray {
-    pub position: na::Vector4<f32>,
-    pub direction: na::Vector4<f32>,
-}
-
-impl Ray {
-    pub fn new(position: na::Vector4<f32>, direction: na::Vector4<f32>) -> Ray {
-        Ray {
-            position,
-            direction,
-        }
-    }
-
-    /// Returns a point along this ray `atanh(tanh_distance)` units away from the origin. This point
-    /// is _not_ lorentz normalized.
-    pub fn ray_point(&self, tanh_distance: f32) -> na::Vector4<f32> {
-        self.position + self.direction * tanh_distance
-    }
-}
-
-impl std::ops::Mul<&Ray> for na::Matrix4<f32> {
-    type Output = Ray;
-
-    #[inline]
-    fn mul(self, rhs: &Ray) -> Self::Output {
-        Ray {
-            position: self * rhs.position,
-            direction: self * rhs.direction,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -205,7 +170,7 @@ mod tests {
         node::{populate_fresh_nodes, Coords, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
-        world::Material,
+        world::Material, collision_math::Ray,
     };
 
     use super::*;
