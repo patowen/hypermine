@@ -202,7 +202,7 @@ mod tests {
     use crate::{
         dodeca::{Side, Vertex},
         graph::NodeId,
-        node::{populate_fresh_nodes, VoxelData},
+        node::{populate_fresh_nodes, Coords, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
         world::Material,
@@ -218,16 +218,16 @@ mod tests {
         /// Which chunk in the given node the voxel is in
         vertex: Vertex,
 
-        /// The coordinates of the voxel, including margins
-        coords: [usize; 3],
+        /// The coordinates of the voxel
+        coords: Coords,
     }
 
     impl VoxelLocation<'_> {
-        fn new(node_path: &[Side], vertex: Vertex, coords: [usize; 3]) -> VoxelLocation<'_> {
+        fn new(node_path: &[Side], vertex: Vertex, coords: [u8; 3]) -> VoxelLocation<'_> {
             VoxelLocation {
                 node_path,
                 vertex,
-                coords,
+                coords: Coords(coords),
             }
         }
     }
@@ -258,7 +258,7 @@ mod tests {
 
     impl SphereCastExampleTestCase<'_> {
         fn execute(self) {
-            let dimension: usize = 12;
+            let dimension: u8 = 12;
             let layout = ChunkLayout::new(dimension);
             let mut graph = DualGraph::new();
             let graph_radius = 3.0;
@@ -343,7 +343,7 @@ mod tests {
             }
         }
 
-        fn populate_voxel(graph: &mut DualGraph, dimension: usize, voxel_location: &VoxelLocation) {
+        fn populate_voxel(graph: &mut DualGraph, dimension: u8, voxel_location: &VoxelLocation) {
             // Find the ChunkId of the given chunk
             let chunk = ChunkId::new(
                 voxel_location
@@ -362,9 +362,8 @@ mod tests {
             };
 
             // Populate the given voxel with dirt.
-            voxel_data.data_mut(dimension as u8)[voxel_location.coords[0]
-                + voxel_location.coords[1] * (dimension + 2)
-                + voxel_location.coords[2] * (dimension + 2).pow(2)] = Material::Dirt;
+            voxel_data.data_mut(dimension)[voxel_location.coords.to_index(dimension)] =
+                Material::Dirt;
         }
 
         fn get_voxel_chunk(graph: &DualGraph, voxel_location: &VoxelLocation) -> ChunkId {
@@ -512,7 +511,7 @@ mod tests {
     /// long as the contract for sphere_cast is upheld.
     #[test]
     fn sphere_cast_near_unloaded_chunk() {
-        let dimension: usize = 12;
+        let dimension: u8 = 12;
         let layout = ChunkLayout::new(dimension);
         let mut graph = DualGraph::new();
 

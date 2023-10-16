@@ -88,8 +88,19 @@ fn find_face_collision(
         // is 1, and an approach from the negative t direction is -1.
         let collision_side = -math::mip(&ray.direction, &normal).signum();
 
-        // Which side we approach the plane from affects which voxel we want to use for collision checking
-        let voxel_t = if collision_side > 0.0 { t } else { t + 1 };
+        // Which side we approach the plane from affects which voxel we want to use for collision checking.
+        // If exiting a chunk via a chunk boundary, collision chekcing is handled by a different chunk.
+        let voxel_t = if collision_side > 0.0 {
+            if t == 0 {
+                continue;
+            }
+            t - 1
+        } else {
+            if t == layout.dimension() {
+                continue;
+            }
+            t
+        };
 
         let ray_endpoint = ray.ray_point(new_tanh_distance);
         let contact_point = ray_endpoint - normal * math::mip(&ray_endpoint, &normal);
@@ -114,10 +125,7 @@ fn find_face_collision(
         // A collision was found. Update the hit.
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
-            voxel_coords: Coords(tuv_to_xyz(
-                t_axis,
-                [voxel_t as u8, voxel_u as u8, voxel_v as u8],
-            )),
+            voxel_coords: Coords(tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
             face_axis: t_axis as u32,
             face_direction: collision_side as i8,
         });
@@ -154,28 +162,23 @@ fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, 
 }
 
 /// Checks whether a voxel can be collided with. Any non-void voxel falls under this category.
-fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [usize; 3]) -> bool {
-    let dimension_with_margin = layout.dimension() + 2;
-    debug_assert!(coords[0] < dimension_with_margin);
-    debug_assert!(coords[1] < dimension_with_margin);
-    debug_assert!(coords[2] < dimension_with_margin);
-    voxel_data.get(
-        coords[0] + coords[1] * dimension_with_margin + coords[2] * dimension_with_margin.pow(2),
-    ) != Material::Void
+fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [u8; 3]) -> bool {
+    debug_assert!(coords[0] < layout.dimension());
+    debug_assert!(coords[1] < layout.dimension());
+    debug_assert!(coords[2] < layout.dimension());
+    voxel_data.get(Coords(coords).to_index(layout.dimension())) != Material::Void
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
 struct VoxelAABB {
-    // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with margins.
-    // Any voxel that intersects the cube of interest is included in these bounds. By adding or subtracting 1 in the right
-    // places, these bounds can be used to find other useful info related to the cube of interset, such as what grid points
-    // it contains.
-    bounds: [[usize; 2]; 3],
+    // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with a one-block
+    // wide margins added on both sides. This helps make sure that that we can detect if the AABB intersects the chunk's boundaries.
+    bounds: [[u8; 2]; 3],
 }
 
 impl VoxelAABB {
     /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
-    /// bounding box lies entirely outside the chunk, including its margins.
+    /// bounding box lies entirely outside the chunk.
     pub fn from_ray_segment(
         layout: &ChunkLayout,
         ray: &Ray,
@@ -195,21 +198,21 @@ impl VoxelAABB {
                 .floor()
                 .min(layout.dimension() as f32 + 1.0);
 
-            // This will happen when voxel_min is greater than dimension+1 or voxel_max is less than 0, which
-            // occurs when the cube is out of range.
-            if voxel_min > voxel_max {
+            // When voxel_min is greater than dimension or voxel_max is less than 1, the cube does not intersect
+            // the chunk.
+            if voxel_min > layout.dimension() as f32 || voxel_max < 1.0 {
                 return None;
             }
 
             // We convert to usize here instead of earlier because out-of-range voxel coordinates can be negative.
-            bounds[axis] = [voxel_min.floor() as usize, voxel_max.floor() as usize];
+            bounds[axis] = [voxel_min.floor() as u8, voxel_max.floor() as u8];
         }
 
         Some(VoxelAABB { bounds })
     }
 
     /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
-    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = usize> {
+    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = u8> {
         self.bounds[axis][0]..self.bounds[axis][1]
     }
 }

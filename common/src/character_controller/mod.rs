@@ -32,7 +32,7 @@ pub fn run_character_step(
         cfg: &sim_config.character_config,
         collision_context: CollisionContext {
             graph,
-            chunk_layout: ChunkLayout::new(sim_config.chunk_size as usize),
+            chunk_layout: ChunkLayout::new(sim_config.chunk_size),
             radius: sim_config.character_config.character_radius,
         },
         up: graph.get_relative_up(position).unwrap(),

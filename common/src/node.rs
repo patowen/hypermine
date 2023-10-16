@@ -294,21 +294,21 @@ impl VoxelData {
 /// Contains the context needed to know the locations of individual cubes within a chunk in the chunk's coordinate
 /// system. A given `ChunkLayout` is uniquely determined by its dimension.
 pub struct ChunkLayout {
-    dimension: usize,
+    dimension: u8,
     dual_to_grid_factor: f32,
 }
 
 impl ChunkLayout {
-    pub fn new(dimension: usize) -> Self {
+    pub fn new(dimension: u8) -> Self {
         ChunkLayout {
             dimension,
             dual_to_grid_factor: Vertex::dual_to_chunk_factor() as f32 * dimension as f32,
         }
     }
 
-    /// Number of cubes on one axis of the chunk. Margins are not included.
+    /// Number of cubes on one axis of the chunk.
     #[inline]
-    pub fn dimension(&self) -> usize {
+    pub fn dimension(&self) -> u8 {
         self.dimension
     }
 
@@ -319,23 +319,29 @@ impl ChunkLayout {
     }
 
     /// Converts a single coordinate from dual coordinates in the Klein-Beltrami model to an integer coordinate
-    /// suitable for voxel lookup. Margins are included. Returns `None` if the coordinate is outside the chunk.
+    /// suitable for voxel lookup. Returns `None` if the coordinate is outside the chunk.
     #[inline]
-    pub fn dual_to_voxel(&self, dual_coord: f32) -> Option<usize> {
+    pub fn dual_to_voxel(&self, dual_coord: f32) -> Option<u8> {
         let floor_grid_coord = (dual_coord * self.dual_to_grid_factor).floor();
 
         if !(floor_grid_coord >= 0.0 && floor_grid_coord < self.dimension as f32) {
             None
         } else {
-            Some(floor_grid_coord as usize + 1)
+            Some(floor_grid_coord as u8)
         }
     }
 
     /// Converts a single coordinate from grid coordinates to dual coordiantes in the Klein-Beltrami model. This
     /// can be used to find the positions of voxel gridlines.
     #[inline]
-    pub fn grid_to_dual(&self, grid_coord: usize) -> f32 {
+    pub fn grid_to_dual(&self, grid_coord: u8) -> f32 {
         grid_coord as f32 / self.dual_to_grid_factor
+    }
+
+    /// Takes in a single grid coordinate and returns a range containing all voxel coordinates surrounding it.
+    #[inline]
+    pub fn neighboring_voxels(&self, grid_coord: u8) -> impl Iterator<Item = u8> {
+        grid_coord.saturating_sub(1)..(grid_coord + 1).min(self.dimension())
     }
 }
 

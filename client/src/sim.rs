@@ -487,7 +487,7 @@ impl Sim {
         let view_position = self.local_character_controller.oriented_position();
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
-            &ChunkLayout::new(chunk_size as usize),
+            &ChunkLayout::new(chunk_size),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
             0.5,
