@@ -1,7 +1,7 @@
 use crate::{
     collision_math::Ray,
     math,
-    node::{ChunkLayout, Coords, VoxelData},
+    node::{ChunkLayout, Coords, VoxelAABB, VoxelData},
     world::Material,
 };
 
@@ -33,7 +33,9 @@ pub fn chunk_ray_cast(
 ) -> Option<ChunkCastHit> {
     let mut hit: Option<ChunkCastHit> = None;
 
-    let Some(bounding_box) = VoxelAABB::from_ray_segment(layout, ray, tanh_distance) else {
+    let Some(bounding_box) =
+        VoxelAABB::from_ray_segment_and_radius(layout, ray, tanh_distance, 0.0)
+    else {
         return None;
     };
 
@@ -140,52 +142,4 @@ fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [u8; 3])
     debug_assert!(coords[1] < layout.dimension());
     debug_assert!(coords[2] < layout.dimension());
     voxel_data.get(Coords(coords).to_index(layout.dimension())) != Material::Void
-}
-
-/// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
-struct VoxelAABB {
-    // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with a one-block
-    // wide margins added on both sides. This helps make sure that that we can detect if the AABB intersects the chunk's boundaries.
-    bounds: [[u8; 2]; 3],
-}
-
-impl VoxelAABB {
-    /// Returns a bounding box that is guaranteed to cover a given radius around a ray segment. Returns None if the
-    /// bounding box lies entirely outside the chunk.
-    pub fn from_ray_segment(
-        layout: &ChunkLayout,
-        ray: &Ray,
-        tanh_distance: f32,
-    ) -> Option<VoxelAABB> {
-        // Convert the ray to grid coordinates
-        let grid_start =
-            na::Point3::from_homogeneous(ray.position).unwrap() * layout.dual_to_grid_factor();
-        let grid_end = na::Point3::from_homogeneous(ray.ray_point(tanh_distance)).unwrap()
-            * layout.dual_to_grid_factor();
-        let mut bounds = [[0; 2]; 3];
-        for axis in 0..3 {
-            let grid_min = grid_start[axis].min(grid_end[axis]);
-            let grid_max = grid_start[axis].max(grid_end[axis]);
-            let voxel_min = (grid_min + 1.0).floor().max(0.0);
-            let voxel_max = (grid_max + 1.0)
-                .floor()
-                .min(layout.dimension() as f32 + 1.0);
-
-            // When voxel_min is greater than dimension or voxel_max is less than 1, the cube does not intersect
-            // the chunk.
-            if voxel_min > layout.dimension() as f32 || voxel_max < 1.0 {
-                return None;
-            }
-
-            // We convert to u8 here instead of earlier because out-of-range voxel coordinates can violate casting assumptions.
-            bounds[axis] = [voxel_min.floor() as u8, voxel_max.floor() as u8];
-        }
-
-        Some(VoxelAABB { bounds })
-    }
-
-    /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
-    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = u8> {
-        self.bounds[axis][0]..self.bounds[axis][1]
-    }
 }
