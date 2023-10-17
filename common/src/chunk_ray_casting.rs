@@ -143,3 +143,174 @@ fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [u8; 3])
     debug_assert!(coords[2] < layout.dimension());
     voxel_data.get(Coords(coords).to_index(layout.dimension())) != Material::Void
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::node::VoxelData;
+
+    use super::*;
+
+    /// Helper structure used to reduce the number of parameters to pass around with tests
+    struct TestRayCastContext {
+        layout: ChunkLayout,
+        voxel_data: VoxelData,
+    }
+
+    impl TestRayCastContext {
+        fn new() -> Self {
+            let dimension: u8 = 12;
+
+            let mut ctx = TestRayCastContext {
+                layout: ChunkLayout::new(dimension),
+                voxel_data: VoxelData::Solid(Material::Void),
+            };
+
+            // Populate voxels. Consists of a single voxel with voxel coordinates (1, 1, 1). The cube corresponding
+            // to this voxel has grid coordinates from (1, 1, 1) to (2, 2, 2)
+            ctx.set_voxel([1, 1, 1], Material::Dirt);
+
+            ctx
+        }
+
+        fn set_voxel(&mut self, coords: [u8; 3], material: Material) {
+            debug_assert!(coords[0] < self.layout.dimension());
+            debug_assert!(coords[1] < self.layout.dimension());
+            debug_assert!(coords[2] < self.layout.dimension());
+            self.voxel_data.data_mut(self.layout.dimension())
+                [Coords(coords).to_index(self.layout.dimension())] = material;
+        }
+    }
+
+    /// Helper method to create a `ChunkSphereCastContext` that can be used
+    /// in a closure to call sphere casting methods.
+    fn cast_with_test_ray(
+        ctx: &TestRayCastContext,
+        ray_start_grid_coords: [f32; 3],
+        ray_end_grid_coords: [f32; 3],
+        wrapped_fn: impl FnOnce(&Ray, f32),
+    ) {
+        let ray_start = math::lorentz_normalize(&na::Vector4::new(
+            ray_start_grid_coords[0] / ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[1] / ctx.layout.dual_to_grid_factor(),
+            ray_start_grid_coords[2] / ctx.layout.dual_to_grid_factor(),
+            1.0,
+        ));
+
+        let ray_end = math::lorentz_normalize(&na::Vector4::new(
+            ray_end_grid_coords[0] / ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[1] / ctx.layout.dual_to_grid_factor(),
+            ray_end_grid_coords[2] / ctx.layout.dual_to_grid_factor(),
+            1.0,
+        ));
+
+        let ray = Ray::new(
+            ray_start,
+            math::lorentz_normalize(
+                &((ray_end - ray_start)
+                    + ray_start * math::mip(&ray_start, &(ray_end - ray_start))),
+            ),
+        );
+
+        let tanh_distance = (-math::mip(&ray_start, &ray_end)).acosh();
+
+        wrapped_fn(&ray, tanh_distance)
+    }
+
+    fn chunk_ray_cast_wrapper(
+        ctx: &TestRayCastContext,
+        ray: &Ray,
+        tanh_distance: f32,
+    ) -> Option<ChunkCastHit> {
+        chunk_ray_cast(&ctx.voxel_data, &ctx.layout, ray, tanh_distance)
+    }
+
+    fn test_face_collision(
+        ctx: &TestRayCastContext,
+        ray: &Ray,
+        tanh_distance: f32,
+        expected_face_axis: u32,
+        expected_face_direction: i8,
+    ) {
+        let hit = chunk_ray_cast_wrapper(ctx, ray, tanh_distance);
+        let hit = hit.expect("collision expected");
+        assert_eq!(hit.voxel_coords, Coords([1, 1, 1]));
+        assert_eq!(hit.face_axis, expected_face_axis);
+        assert_eq!(hit.face_direction, expected_face_direction);
+        // sanity_check_normal(ray, &hit.unwrap()); TODO: Check other results
+    }
+
+    /// Tests that a suitable collision is found when approaching a single voxel from various angles and that
+    /// no collision is found in paths that don't reach that voxel.
+    #[test]
+    fn chunk_sphere_cast_examples() {
+        let ctx = TestRayCastContext::new();
+
+        // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.
+        // Note: The voxel is centered at (1.5, 1.5, 1.5) in the grid coordinates used in this test.
+
+        cast_with_test_ray(
+            &ctx,
+            [0.0, 1.5, 1.5],
+            [1.5, 1.5, 1.5],
+            |ray, tanh_distance| {
+                test_face_collision(&ctx, ray, tanh_distance, 0, -1);
+            },
+        );
+
+        cast_with_test_ray(
+            &ctx,
+            [1.5, 1.5, 3.0],
+            [1.5, 1.5, 1.5],
+            |ray, tanh_distance| {
+                test_face_collision(&ctx, ray, tanh_distance, 2, 1);
+            },
+        );
+
+        // No collision: Going sideways relative to a face
+        cast_with_test_ray(
+            &ctx,
+            [3.0, 1.5, 1.5],
+            [3.0, 3.0, 1.5],
+            |ray, tanh_distance| {
+                assert!(chunk_ray_cast_wrapper(&ctx, ray, tanh_distance).is_none());
+            },
+        );
+
+        // No collision: Going away from a face
+        cast_with_test_ray(
+            &ctx,
+            [3.0, 1.5, 1.5],
+            [4.5, 1.5, 1.5],
+            |ray, tanh_distance| {
+                assert!(chunk_ray_cast_wrapper(&ctx, ray, tanh_distance).is_none());
+            },
+        );
+
+        // No collision: Past cast endpoint
+        cast_with_test_ray(
+            &ctx,
+            [8.0, 1.5, 1.5],
+            [3.0, 1.5, 1.5],
+            |ray, tanh_distance| {
+                assert!(chunk_ray_cast_wrapper(&ctx, ray, tanh_distance).is_none());
+            },
+        );
+    }
+
+    /// Tests that colliding with a face from the back side is impossible. Note that colliding
+    /// with the back side of an edge or vertex is still possible. Getting rid of these collisions
+    /// is a possible future enhancement.
+    #[test]
+    fn face_collisions_one_sided() {
+        let ctx = TestRayCastContext::new();
+
+        cast_with_test_ray(
+            &ctx,
+            [1.5, 1.5, 1.5],
+            [4.5, 1.5, 1.5],
+            |ray, tanh_distance| {
+                assert!(chunk_ray_cast_wrapper(&ctx, ray, tanh_distance).is_none());
+            },
+        )
+    }
+}

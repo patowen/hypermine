@@ -391,6 +391,18 @@ mod tests {
     }
 
     #[test]
+    fn foo() {
+        // Hit the z=0 plane
+        let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
+            * &Ray::new(math::origin(), na::Vector4::new(0.8, 0.0, 0.6, 0.0));
+        let normal = -na::Vector4::z();
+        let hit_point = math::lorentz_normalize(
+            &ray.ray_point(ray.solve_point_plane_intersection(&normal).unwrap()),
+        );
+        assert_abs_diff_eq!(math::mip(&hit_point, &normal), 0.0, epsilon = 1e-4);
+    }
+
+    #[test]
     fn solve_quadratic_example() {
         let a = 1.0;
         let b = -2.0;

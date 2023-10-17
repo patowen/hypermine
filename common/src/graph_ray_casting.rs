@@ -12,9 +12,9 @@ use crate::{
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
 ///
-/// This function may return a `SphereCastError` if not enough chunks are generated, even if the ray never reaches an
+/// This function may return a `RayCastError` if not enough chunks are generated, even if the ray never reaches an
 /// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the center of
-/// the closest node with ungenerated chunks is greater than `cast_distance + collider_radius + dodeca::BOUNDING_SPHERE_RADIUS`
+/// the closest node with ungenerated chunks is greater than `cast_distance + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn ray_cast(
     graph: &DualGraph,
     layout: &ChunkLayout,

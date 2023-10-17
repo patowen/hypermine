@@ -163,7 +163,7 @@ impl IndexMut<ChunkId> for DualGraph {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Coords(pub [u8; 3]);
 
 impl Coords {
