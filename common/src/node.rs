@@ -209,7 +209,6 @@ pub enum Chunk {
     },
 }
 
-#[derive(Clone)]
 pub enum VoxelData {
     Solid(Material),
     Dense(Box<[Material]>),
