@@ -9,7 +9,7 @@ use crate::{
 };
 use common::{
     character_controller,
-    graph::{Graph, NodeId},
+    graph::NodeId,
     node::{populate_fresh_nodes, DualGraph},
     proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
     sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
@@ -17,14 +17,13 @@ use common::{
 
 /// Game state
 pub struct Sim {
-    net: Net,
-
     // World state
     pub graph: DualGraph,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
-    pub params: Option<Parameters>,
+    pub cfg: SimConfig,
+    pub local_character_id: EntityId,
     pub local_character: Option<Entity>,
     step: Option<Step>,
 
@@ -53,15 +52,16 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(net: Net) -> Self {
+    pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
+        let mut graph = DualGraph::new();
+        populate_fresh_nodes(&mut graph);
         Self {
-            net,
-
-            graph: Graph::new(),
+            graph,
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
-            params: None,
+            cfg,
+            local_character_id,
             local_character: None,
             step: None,
 
@@ -120,78 +120,65 @@ impl Sim {
         self.jump_pressed = true;
     }
 
-    pub fn params(&self) -> Option<&Parameters> {
-        self.params.as_ref()
+    pub fn cfg(&self) -> &SimConfig {
+        &self.cfg
     }
 
-    pub fn step(&mut self, dt: Duration) {
+    pub fn step(&mut self, dt: Duration, net: &mut Net) {
         self.local_character_controller.renormalize_orientation();
 
-        while let Ok(msg) = self.net.incoming.try_recv() {
-            self.handle_net(msg);
-        }
+        let step_interval = self.cfg.step_interval;
+        self.since_input_sent += dt;
+        if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
+            // At least one step interval has passed since we last sent input, so it's time to
+            // send again.
 
-        if let Some(step_interval) = self.params.as_ref().map(|x| x.cfg.step_interval) {
-            self.since_input_sent += dt;
-            if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
-                // At least one step interval has passed since we last sent input, so it's time to
-                // send again.
+            // Update average movement input for the time between the last input sample and the end of
+            // the previous step. dt > overflow because we check whether a step has elapsed
+            // after each increment.
+            self.average_movement_input +=
+                self.movement_input * (dt - overflow).as_secs_f32() / step_interval.as_secs_f32();
 
-                // Update average movement input for the time between the last input sample and the end of
-                // the previous step. dt > overflow because we check whether a step has elapsed
-                // after each increment.
-                self.average_movement_input += self.movement_input * (dt - overflow).as_secs_f32()
-                    / step_interval.as_secs_f32();
+            // Send fresh input
+            self.send_input(net);
 
-                // Send fresh input
-                self.send_input();
+            // Toggle no clip at the start of a new step
+            if self.toggle_no_clip {
+                self.no_clip = !self.no_clip;
+                self.toggle_no_clip = false;
+            }
 
-                // Toggle no clip at the start of a new step
-                if self.toggle_no_clip {
-                    self.no_clip = !self.no_clip;
-                    self.toggle_no_clip = false;
-                }
+            self.is_jumping = self.jump_held || self.jump_pressed;
+            self.jump_pressed = false;
 
-                self.is_jumping = self.jump_held || self.jump_pressed;
-                self.jump_pressed = false;
-
-                // Reset state for the next step
-                if overflow > step_interval {
-                    // If it's been more than two timesteps since we last sent input, skip ahead
-                    // rather than spamming the server.
-                    self.average_movement_input = na::zero();
-                    self.since_input_sent = Duration::new(0, 0);
-                } else {
-                    self.average_movement_input =
-                        self.movement_input * overflow.as_secs_f32() / step_interval.as_secs_f32();
-                    // Send the next input a little sooner if necessary to stay in sync
-                    self.since_input_sent = overflow;
-                }
+            // Reset state for the next step
+            if overflow > step_interval {
+                // If it's been more than two timesteps since we last sent input, skip ahead
+                // rather than spamming the server.
+                self.average_movement_input = na::zero();
+                self.since_input_sent = Duration::new(0, 0);
             } else {
-                // Update average movement input for the time within the current step
-                self.average_movement_input +=
-                    self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
+                self.average_movement_input =
+                    self.movement_input * overflow.as_secs_f32() / step_interval.as_secs_f32();
+                // Send the next input a little sooner if necessary to stay in sync
+                self.since_input_sent = overflow;
             }
-            self.update_view_position();
-            if !self.no_clip {
-                self.local_character_controller.align_to_gravity();
-            }
+        } else {
+            // Update average movement input for the time within the current step
+            self.average_movement_input +=
+                self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
+        }
+        self.update_view_position();
+        if !self.no_clip {
+            self.local_character_controller.align_to_gravity();
         }
     }
 
-    fn handle_net(&mut self, msg: net::Message) {
+    pub fn handle_net(&mut self, msg: net::Message) {
         use net::Message::*;
         match msg {
-            ConnectionLost(e) => {
-                error!("connection lost: {}", e);
-            }
-            Hello(msg) => {
-                self.params = Some(Parameters {
-                    character_id: msg.character,
-                    cfg: msg.sim_config,
-                });
-                // Populate the root node
-                populate_fresh_nodes(&mut self.graph);
+            ConnectionLost(_) | Hello(_) => {
+                unreachable!("Case already handled by caller");
             }
             Spawns(msg) => self.handle_spawns(msg),
             StateDelta(msg) => {
@@ -242,10 +229,7 @@ impl Sim {
     }
 
     fn reconcile_prediction(&mut self, latest_input: u16) {
-        let Some(params) = self.params.as_ref() else {
-            return;
-        };
-        let id = params.character_id;
+        let id = self.local_character_id;
         let Some(&entity) = self.entity_ids.get(&id) else {
             debug!(%id, "reconciliation attempted for unknown entity");
             return;
@@ -265,7 +249,7 @@ impl Sim {
             }
         };
         self.prediction.reconcile(
-            &params.cfg,
+            &self.cfg,
             &self.graph,
             latest_input,
             *pos,
@@ -320,7 +304,7 @@ impl Sim {
         if let Some(node) = node {
             self.graph_entities.insert(node, entity);
         }
-        if id == self.params.as_ref().unwrap().character_id {
+        if id == self.local_character_id {
             self.local_character = Some(entity);
         }
         if let Some(x) = self.entity_ids.insert(id, entity) {
@@ -329,8 +313,7 @@ impl Sim {
         }
     }
 
-    fn send_input(&mut self) {
-        let params = self.params.as_ref().unwrap();
+    fn send_input(&mut self, net: &mut Net) {
         let orientation = if self.no_clip {
             self.local_character_controller.orientation()
         } else {
@@ -343,10 +326,10 @@ impl Sim {
         };
         let generation = self
             .prediction
-            .push(&params.cfg, &self.graph, &character_input);
+            .push(&self.cfg, &self.graph, &character_input);
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
-        let _ = self.net.outgoing.send(Command {
+        let _ = net.outgoing.send(Command {
             generation,
             character_input,
             orientation: self.local_character_controller.orientation(),
@@ -362,29 +345,27 @@ impl Sim {
         } else {
             self.local_character_controller.horizontal_orientation()
         };
-        if let Some(ref params) = self.params {
-            // Apply input that hasn't been sent yet
-            let predicted_input = CharacterInput {
-                // We divide by how far we are through the timestep because self.average_movement_input
-                // is always over the entire timestep, filling in zeroes for the future, and we
-                // want to use the average over what we have so far. Dividing by zero is handled
-                // by the character_controller sanitizing this input.
-                movement: orientation * self.average_movement_input
-                    / (self.since_input_sent.as_secs_f32()
-                        / params.cfg.step_interval.as_secs_f32()),
-                jump: self.is_jumping,
-                no_clip: self.no_clip,
-            };
-            character_controller::run_character_step(
-                &params.cfg,
-                &self.graph,
-                &mut view_position,
-                &mut view_velocity,
-                &mut view_on_ground,
-                &predicted_input,
-                self.since_input_sent.as_secs_f32(),
-            );
-        }
+        // Apply input that hasn't been sent yet
+        let predicted_input = CharacterInput {
+            // We divide by how far we are through the timestep because self.average_movement_input
+            // is always over the entire timestep, filling in zeroes for the future, and we
+            // want to use the average over what we have so far. Dividing by zero is handled
+            // by the character_controller sanitizing this input.
+            movement: orientation * self.average_movement_input
+                / (self.since_input_sent.as_secs_f32()
+                    / self.cfg.step_interval.as_secs_f32()),
+            jump: self.is_jumping,
+            no_clip: self.no_clip,
+        };
+        character_controller::run_character_step(
+            &self.cfg,
+            &self.graph,
+            &mut view_position,
+            &mut view_velocity,
+            &mut view_on_ground,
+            &predicted_input,
+            self.since_input_sent.as_secs_f32(),
+        );
 
         self.local_character_controller.update_position(
             view_position,
@@ -416,10 +397,4 @@ impl Sim {
             .despawn(entity)
             .expect("destroyed nonexistent entity");
     }
-}
-
-/// Simulation details received on connect
-pub struct Parameters {
-    pub cfg: SimConfig,
-    pub character_id: EntityId,
 }
