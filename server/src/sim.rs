@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use common::dodeca::Vertex;
-use common::proto::{BlockUpdate, GlobalChunkId};
+use common::proto::BlockUpdate;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -37,7 +37,7 @@ pub struct Sim {
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
     dirty_voxel_nodes: FxHashSet<NodeId>,
-    modified_chunks: FxHashMap<u128, FxHashSet<Vertex>>,
+    modified_chunks: FxHashMap<NodeId, FxHashSet<Vertex>>,
 }
 
 impl Sim {
@@ -138,7 +138,7 @@ impl Sim {
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
         let mut chunks = vec![];
         let node_data = self.graph.get(node).as_ref().unwrap();
-        for &vertex in self.modified_chunks.get(&self.graph.hash_of(node)).unwrap() {
+        for &vertex in self.modified_chunks.get(&node).unwrap() {
             let mut serialized_voxels = Vec::new();
             let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
                 panic!("Unknown chunk listed as modified");
@@ -220,26 +220,20 @@ impl Sim {
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        for global_chunk_id in self.modified_chunks.iter().flat_map(|pair| {
-            pair.1.iter().map(move |vert| GlobalChunkId {
-                node_hash: *pair.0,
-                vertex: *vert,
-            })
-        }) {
-            let voxels = match self
-                .graph
-                .get(self.graph.from_hash(global_chunk_id.node_hash).unwrap())
-                .as_ref()
-                .unwrap()
-                .chunks[global_chunk_id.vertex]
-            {
-                Chunk::Populated { ref voxels, .. } => voxels,
-                _ => panic!("modified chunk not available anywhere"),
-            };
+        for chunk_id in self
+            .modified_chunks
+            .iter()
+            .flat_map(|pair| pair.1.iter().map(move |vert| ChunkId::new(*pair.0, *vert)))
+        {
+            let voxels =
+                match self.graph.get(chunk_id.node).as_ref().unwrap().chunks[chunk_id.vertex] {
+                    Chunk::Populated { ref voxels, .. } => voxels,
+                    _ => panic!("modified chunk not available anywhere"),
+                };
 
             spawns
                 .modified_chunks
-                .push((global_chunk_id, voxels.to_serializable(self.cfg.chunk_size)));
+                .push((chunk_id, voxels.to_serializable(self.cfg.chunk_size)));
         }
         spawns
     }
@@ -278,18 +272,14 @@ impl Sim {
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
 
         for block_update in pending_block_updates.into_iter() {
-            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
-                tracing::warn!("Block update received from unknown node hash");
-                continue;
-            };
             self.graph.update_block(
                 self.cfg.chunk_size,
-                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                block_update.chunk_id,
                 block_update.coords,
                 block_update.new_material,
             );
             self.modified_chunks
-                .entry(block_update.chunk_id.node_hash)
+                .entry(block_update.chunk_id.node)
                 .or_default()
                 .insert(block_update.chunk_id.vertex);
             accepted_block_updates.push(block_update);

@@ -8,12 +8,11 @@ use crate::{net, prediction::PredictedMotion, Net};
 use common::{
     character_controller,
     collision_math::Ray,
-    graph::{Graph, NodeId},
+    graph::NodeId,
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
+    node::{populate_fresh_nodes, Chunk, ChunkLayout, DualGraph, VoxelData},
     proto::{
-        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
-        GlobalChunkId, Position,
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
     sanitize_motion_input,
     world::Material,
@@ -22,14 +21,13 @@ use common::{
 
 /// Game state
 pub struct Sim {
-    net: Net,
-
     // World state
     pub graph: DualGraph,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
-    pub params: Option<Parameters>,
+    pub cfg: SimConfig,
+    pub local_character_id: EntityId,
     pub local_character: Option<Entity>,
     orientation: na::UnitQuaternion<f32>,
     step: Option<Step>,
@@ -56,15 +54,16 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(net: Net) -> Self {
+    pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
+        let mut graph = DualGraph::new();
+        populate_fresh_nodes(&mut graph);
         Self {
-            net,
-
-            graph: Graph::new(),
+            graph,
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
-            params: None,
+            cfg,
+            local_character_id,
             local_character: None,
             orientation: na::one(),
             step: None,
@@ -106,73 +105,60 @@ impl Sim {
         self.break_block_pressed = true;
     }
 
-    pub fn params(&self) -> Option<&Parameters> {
-        self.params.as_ref()
+    pub fn cfg(&self) -> &SimConfig {
+        &self.cfg
     }
 
-    pub fn step(&mut self, dt: Duration) {
+    pub fn step(&mut self, dt: Duration, net: &mut Net) {
         self.orientation.renormalize_fast();
 
-        while let Ok(msg) = self.net.incoming.try_recv() {
-            self.handle_net(msg);
-        }
+        let step_interval = self.cfg.step_interval;
+        self.since_input_sent += dt;
+        if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
+            // At least one step interval has passed since we last sent input, so it's time to
+            // send again.
 
-        if let Some(step_interval) = self.params.as_ref().map(|x| x.cfg.step_interval) {
-            self.since_input_sent += dt;
-            if let Some(overflow) = self.since_input_sent.checked_sub(step_interval) {
-                // At least one step interval has passed since we last sent input, so it's time to
-                // send again.
+            // Update average movement input for the time between the last input sample and the end of
+            // the previous step. dt > overflow because we check whether a step has elapsed
+            // after each increment.
+            self.average_movement_input +=
+                self.movement_input * (dt - overflow).as_secs_f32() / step_interval.as_secs_f32();
 
-                // Update average movement input for the time between the last input sample and the end of
-                // the previous step. dt > overflow because we check whether a step has elapsed
-                // after each increment.
-                self.average_movement_input += self.movement_input * (dt - overflow).as_secs_f32()
-                    / step_interval.as_secs_f32();
+            // Send fresh input
+            self.send_input(net);
+            self.place_block_pressed = false;
+            self.break_block_pressed = false;
 
-                // Send fresh input
-                self.send_input();
-                self.place_block_pressed = false;
-                self.break_block_pressed = false;
-
-                // Toggle no clip at the start of a new step
-                if self.toggle_no_clip {
-                    self.no_clip = !self.no_clip;
-                    self.toggle_no_clip = false;
-                }
-
-                // Reset state for the next step
-                if overflow > step_interval {
-                    // If it's been more than two timesteps since we last sent input, skip ahead
-                    // rather than spamming the server.
-                    self.average_movement_input = na::zero();
-                    self.since_input_sent = Duration::new(0, 0);
-                } else {
-                    self.average_movement_input =
-                        self.movement_input * overflow.as_secs_f32() / step_interval.as_secs_f32();
-                    // Send the next input a little sooner if necessary to stay in sync
-                    self.since_input_sent = overflow;
-                }
-            } else {
-                // Update average movement input for the time within the current step
-                self.average_movement_input +=
-                    self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
+            // Toggle no clip at the start of a new step
+            if self.toggle_no_clip {
+                self.no_clip = !self.no_clip;
+                self.toggle_no_clip = false;
             }
+
+            // Reset state for the next step
+            if overflow > step_interval {
+                // If it's been more than two timesteps since we last sent input, skip ahead
+                // rather than spamming the server.
+                self.average_movement_input = na::zero();
+                self.since_input_sent = Duration::new(0, 0);
+            } else {
+                self.average_movement_input =
+                    self.movement_input * overflow.as_secs_f32() / step_interval.as_secs_f32();
+                // Send the next input a little sooner if necessary to stay in sync
+                self.since_input_sent = overflow;
+            }
+        } else {
+            // Update average movement input for the time within the current step
+            self.average_movement_input +=
+                self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
         }
     }
 
-    fn handle_net(&mut self, msg: net::Message) {
+    pub fn handle_net(&mut self, msg: net::Message) {
         use net::Message::*;
         match msg {
-            ConnectionLost(e) => {
-                error!("connection lost: {}", e);
-            }
-            Hello(msg) => {
-                self.params = Some(Parameters {
-                    character_id: msg.character,
-                    cfg: msg.sim_config,
-                });
-                // Populate the root node
-                populate_fresh_nodes(&mut self.graph);
+            ConnectionLost(_) | Hello(_) => {
+                unreachable!("Case already handled by caller");
             }
             Spawns(msg) => self.handle_spawns(msg),
             StateDelta(msg) => {
@@ -223,10 +209,7 @@ impl Sim {
     }
 
     fn reconcile_prediction(&mut self, latest_input: u16) {
-        let Some(params) = self.params.as_ref() else {
-            return;
-        };
-        let id = params.character_id;
+        let id = self.local_character_id;
         let Some(&entity) = self.entity_ids.get(&id) else {
             debug!(%id, "reconciliation attempted for unknown entity");
             return;
@@ -246,7 +229,7 @@ impl Sim {
             }
         };
         self.prediction.reconcile(
-            &params.cfg,
+            &self.cfg,
             &self.graph,
             latest_input,
             *pos,
@@ -274,37 +257,24 @@ impl Sim {
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
-            let Some(node_id) = self.graph.from_hash(block_update.chunk_id.node_hash) else {
-                tracing::warn!("Block update received from unknown node hash");
-                continue;
-            };
             self.graph.update_block(
-                self.params.as_ref().unwrap().cfg.chunk_size,
-                ChunkId::new(node_id, block_update.chunk_id.vertex),
+                self.cfg.chunk_size,
+                block_update.chunk_id,
                 block_update.coords,
                 block_update.new_material,
             )
         }
-        for (global_chunk_id, voxel_data) in msg.modified_chunks {
-            let Some(voxel_data) = VoxelData::from_serializable(
-                &voxel_data,
-                self.params.as_ref().unwrap().cfg.chunk_size,
-            ) else {
+        for (chunk_id, voxel_data) in msg.modified_chunks {
+            let Some(voxel_data) = VoxelData::from_serializable(&voxel_data, self.cfg.chunk_size)
+            else {
                 tracing::error!("Voxel data received from server is invalid");
                 continue;
             };
-            if let Some(node_id) = self.graph.from_hash(global_chunk_id.node_hash) {
-                *self
-                    .graph
-                    .get_chunk_mut(ChunkId::new(node_id, global_chunk_id.vertex))
-                    .unwrap() = Chunk::Populated {
-                    voxels: voxel_data,
-                    surface: None,
-                    old_surface: None,
-                };
-            } else {
-                tracing::error!("Voxel data received from server for unloaded chunk");
-            }
+            *self.graph.get_chunk_mut(chunk_id).unwrap() = Chunk::Populated {
+                voxels: voxel_data,
+                surface: None,
+                old_surface: None,
+            };
         }
     }
 
@@ -333,7 +303,7 @@ impl Sim {
         if let Some(node) = node {
             self.graph_entities.insert(node, entity);
         }
-        if id == self.params.as_ref().unwrap().character_id {
+        if id == self.local_character_id {
             self.local_character = Some(entity);
         }
         if let Some(x) = self.entity_ids.insert(id, entity) {
@@ -342,8 +312,7 @@ impl Sim {
         }
     }
 
-    fn send_input(&mut self) {
-        let params = self.params.as_ref().unwrap();
+    fn send_input(&mut self, net: &mut Net) {
         let character_input = CharacterInput {
             movement: sanitize_motion_input(self.orientation * self.average_movement_input),
             no_clip: self.no_clip,
@@ -351,10 +320,10 @@ impl Sim {
         };
         let generation = self
             .prediction
-            .push(&params.cfg, &self.graph, &character_input);
+            .push(&self.cfg, &self.graph, &character_input);
 
         // Any failure here will be better handled in handle_net's ConnectionLost case
-        let _ = self.net.outgoing.send(Command {
+        let _ = net.outgoing.send(Command {
             generation,
             character_input,
             orientation: self.orientation,
@@ -364,28 +333,25 @@ impl Sim {
     pub fn view(&self) -> Position {
         let mut result = *self.prediction.predicted_position();
         let mut predicted_velocity = *self.prediction.predicted_velocity();
-        if let Some(ref params) = self.params {
-            // Apply input that hasn't been sent yet
-            let predicted_input = CharacterInput {
-                // We divide by how far we are through the timestep because self.average_movement_input
-                // is always over the entire timestep, filling in zeroes for the future, and we
-                // want to use the average over what we have so far. Dividing by zero is handled
-                // by the character_controller sanitizing this input.
-                movement: self.orientation * self.average_movement_input
-                    / (self.since_input_sent.as_secs_f32()
-                        / params.cfg.step_interval.as_secs_f32()),
-                no_clip: self.no_clip,
-                block_update: None,
-            };
-            character_controller::run_character_step(
-                &params.cfg,
-                &self.graph,
-                &mut result,
-                &mut predicted_velocity,
-                &predicted_input,
-                self.since_input_sent.as_secs_f32(),
-            );
-        }
+        // Apply input that hasn't been sent yet
+        let predicted_input = CharacterInput {
+            // We divide by how far we are through the timestep because self.average_movement_input
+            // is always over the entire timestep, filling in zeroes for the future, and we
+            // want to use the average over what we have so far. Dividing by zero is handled
+            // by the character_controller sanitizing this input.
+            movement: self.orientation * self.average_movement_input
+                / (self.since_input_sent.as_secs_f32() / self.cfg.step_interval.as_secs_f32()),
+            no_clip: self.no_clip,
+            block_update: None,
+        };
+        character_controller::run_character_step(
+            &self.cfg,
+            &self.graph,
+            &mut result,
+            &mut predicted_velocity,
+            &predicted_input,
+            self.since_input_sent.as_secs_f32(),
+        );
         result.local *= self.orientation.to_homogeneous();
         result
     }
@@ -419,17 +385,14 @@ impl Sim {
         } else {
             return None;
         };
-        let Some(cfg) = self.params.as_ref().map(|params| &params.cfg) else {
-            return None;
-        };
 
         let view_position = self.view();
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
-            &ChunkLayout::new(cfg.chunk_size),
+            &ChunkLayout::new(self.cfg.chunk_size),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
-            cfg.block_reach,
+            self.cfg.block_reach,
         );
 
         let Ok(ray_casting_result) = ray_casing_result else {
@@ -441,7 +404,7 @@ impl Sim {
 
         let block_pos = if placing {
             self.graph.get_block_neighbor(
-                cfg.chunk_size,
+                self.cfg.chunk_size,
                 hit.chunk,
                 hit.voxel_coords,
                 hit.face_axis as usize,
@@ -458,18 +421,9 @@ impl Sim {
         };
 
         Some(BlockUpdate {
-            chunk_id: GlobalChunkId {
-                node_hash: self.graph.hash_of(block_pos.0.node),
-                vertex: block_pos.0.vertex,
-            },
+            chunk_id: block_pos.0,
             coords: block_pos.1,
             new_material: material,
         })
     }
-}
-
-/// Simulation details received on connect
-pub struct Parameters {
-    pub cfg: SimConfig,
-    pub character_id: EntityId,
 }
