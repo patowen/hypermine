@@ -352,8 +352,7 @@ impl Sim {
             // want to use the average over what we have so far. Dividing by zero is handled
             // by the character_controller sanitizing this input.
             movement: orientation * self.average_movement_input
-                / (self.since_input_sent.as_secs_f32()
-                    / self.cfg.step_interval.as_secs_f32()),
+                / (self.since_input_sent.as_secs_f32() / self.cfg.step_interval.as_secs_f32()),
             jump: self.is_jumping,
             no_clip: self.no_clip,
         };
