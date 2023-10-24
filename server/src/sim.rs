@@ -228,7 +228,7 @@ impl Sim {
             let voxels =
                 match self.graph.get(chunk_id.node).as_ref().unwrap().chunks[chunk_id.vertex] {
                     Chunk::Populated { ref voxels, .. } => voxels,
-                    _ => panic!("modified chunk not available anywhere"),
+                    _ => panic!("ungenerated chunk is marked as modified"),
                 };
 
             spawns
