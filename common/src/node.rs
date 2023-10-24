@@ -36,11 +36,10 @@ impl DualGraph {
     /// Returns the up-direction relative to the given position, or `None` if the
     /// position is in an unpopulated node.
     pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
-        self.get(position.node).as_ref().map(|n| {
-            na::UnitVector3::new_normalize(
-                (math::mtranspose(&position.local) * n.state.up_direction()).xyz(),
-            )
-        })
+        let node = self.get(position.node).as_ref()?;
+        Some(na::UnitVector3::new_normalize(
+            (math::mtranspose(&position.local) * node.state.up_direction()).xyz(),
+        ))
     }
 }
 

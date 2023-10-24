@@ -225,7 +225,7 @@ impl Window {
                             down = state == ElementState::Pressed;
                         }
                         VirtualKeyCode::Space => {
-                            if !jump {
+                            if !jump && state == ElementState::Pressed {
                                 self.sim.set_jump_pressed_true();
                             }
                             jump = state == ElementState::Pressed;
