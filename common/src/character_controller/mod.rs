@@ -29,11 +29,11 @@ pub fn run_character_step(
     dt_seconds: f32,
 ) {
     let ctx = CharacterControllerContext {
-        cfg: &sim_config.character_config,
+        cfg: &sim_config.character,
         collision_context: CollisionContext {
             graph,
             chunk_layout: ChunkLayout::new(sim_config.chunk_size as usize),
-            radius: sim_config.character_config.character_radius,
+            radius: sim_config.character.character_radius,
         },
         up: graph.get_relative_up(position).unwrap(),
         dt_seconds,

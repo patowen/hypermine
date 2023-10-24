@@ -26,7 +26,7 @@ pub struct SimConfigRaw {
     pub voxel_size: Option<f32>,
     /// Static configuration information relevant to character physics
     #[serde(default)]
-    pub character_config: CharacterConfigRaw,
+    pub character: CharacterConfigRaw,
 }
 
 /// Complete simulation config parameters
@@ -37,7 +37,7 @@ pub struct SimConfig {
     pub view_distance: f32,
     pub input_queue_size: Duration,
     pub chunk_size: u8,
-    pub character_config: CharacterConfig,
+    pub character: CharacterConfig,
     /// Scaling factor converting meters to absolute units
     pub meters_to_absolute: f32,
 }
@@ -52,7 +52,7 @@ impl SimConfig {
             view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             chunk_size,
-            character_config: CharacterConfig::from_raw(&x.character_config, meters_to_absolute),
+            character: CharacterConfig::from_raw(&x.character, meters_to_absolute),
             meters_to_absolute,
         }
     }
