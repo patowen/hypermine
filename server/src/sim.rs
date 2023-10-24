@@ -272,12 +272,14 @@ impl Sim {
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
 
         for block_update in pending_block_updates.into_iter() {
-            self.graph.update_block(
+            if !self.graph.update_block(
                 self.cfg.chunk_size,
                 block_update.chunk_id,
                 block_update.coords,
                 block_update.new_material,
-            );
+            ) {
+                tracing::warn!("Block update received from ungenerated chunk");
+            }
             self.modified_chunks
                 .entry(block_update.chunk_id.node)
                 .or_default()

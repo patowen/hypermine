@@ -257,12 +257,15 @@ impl Sim {
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
-            self.graph.update_block(
+            if !self.graph.update_block(
                 self.cfg.chunk_size,
                 block_update.chunk_id,
                 block_update.coords,
                 block_update.new_material,
-            )
+            ) {
+                // TODO: This case should be handled to properly support multiple players.
+                tracing::error!("Voxel data received from server for ungenerated chunk.")
+            }
         }
         for (chunk_id, voxel_data) in msg.modified_chunks {
             let Some(voxel_data) = VoxelData::from_serializable(&voxel_data, self.cfg.chunk_size)

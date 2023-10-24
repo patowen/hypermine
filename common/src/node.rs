@@ -90,20 +90,46 @@ impl DualGraph {
         Some((chunk, coords))
     }
 
+    /// Tries to update the block at the given position to the given material.
+    /// Retruns whether this was successful. Failure occurs if not enough chunks are generated
+    /// to complete the block update, in which case, no blocks will be updated, but some solid
+    /// chunks may turn into dense chunks.
+    #[must_use]
     pub fn update_block(
         &mut self,
         chunk_size: u8,
         chunk: ChunkId,
         coords: Coords,
         new_material: Material,
-    ) {
+    ) -> bool {
+        // Remove margins from any adjacent chunks
+        for coord_axis in 0..3 {
+            if coords[coord_axis] == chunk_size - 1 {
+                let Some(chunk_id) = self.get_chunk_neighbor(chunk, coord_axis, 1) else {
+                    return false;
+                };
+                if !self.remove_margins(chunk_size, chunk_id) {
+                    return false;
+                }
+            }
+            if coords[coord_axis] == 0 {
+                let Some(chunk_id) = self.get_chunk_neighbor(chunk, coord_axis, -1) else {
+                    return false;
+                };
+                if !self.remove_margins(chunk_size, chunk_id) {
+                    return false;
+                }
+            }
+        }
+
+        // Update the block
         let Some(Chunk::Populated {
             voxels,
             surface,
             old_surface,
         }) = self.get_chunk_mut(chunk)
         else {
-            panic!("Tried to update block in nonexistent chunk");
+            return false;
         };
         let voxel = voxels
             .data_mut(chunk_size)
@@ -112,40 +138,27 @@ impl DualGraph {
 
         *voxel = new_material;
         *old_surface = surface.take().or(*old_surface);
-
-        // Remove margins from any adjacent chunks
-        for coord_axis in 0..3 {
-            if coords[coord_axis] == chunk_size - 1 {
-                self.remove_margins(
-                    chunk_size,
-                    self.get_chunk_neighbor(chunk, coord_axis, 1)
-                        .expect("neighboring chunk exists"),
-                );
-            }
-            if coords[coord_axis] == 0 {
-                self.remove_margins(
-                    chunk_size,
-                    self.get_chunk_neighbor(chunk, coord_axis, -1)
-                        .expect("neighboring chunk exists"),
-                );
-            }
-        }
+        true
     }
 
-    fn remove_margins(&mut self, chunk_size: u8, chunk: ChunkId) {
+    /// Tries to remove the margins of the given chunk. Fails and returns false if the
+    /// chunk is not generated yet.
+    #[must_use]
+    fn remove_margins(&mut self, chunk_size: u8, chunk: ChunkId) -> bool {
         let Some(Chunk::Populated {
             voxels,
             surface,
             old_surface,
         }) = self.get_chunk_mut(chunk)
         else {
-            panic!("Tried to remove margins of unpopulated chunk");
+            return false;
         };
 
         if voxels.is_solid() {
             voxels.data_mut(chunk_size);
             *old_surface = surface.take().or(*old_surface);
         }
+        true
     }
 }
 
