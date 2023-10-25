@@ -4,7 +4,9 @@ use fxhash::FxHashMap;
 use hecs::Entity;
 use tracing::{debug, error, trace};
 
-use crate::{net, prediction::PredictedMotion, Net};
+use crate::{
+    local_character_controller::LocalCharacterController, net, prediction::PredictedMotion, Net,
+};
 use common::{
     character_controller,
     collision_math::Ray,
@@ -29,7 +31,6 @@ pub struct Sim {
     pub cfg: SimConfig,
     pub local_character_id: EntityId,
     pub local_character: Option<Entity>,
-    orientation: na::UnitQuaternion<f32>,
     step: Option<Step>,
 
     // Input state
@@ -46,11 +47,18 @@ pub struct Sim {
     no_clip: bool,
     /// Whether no_clip will be toggled next step
     toggle_no_clip: bool,
+    /// Whether the current step starts with a jump
+    is_jumping: bool,
+    /// Whether the jump button has been pressed since the last step
+    jump_pressed: bool,
+    /// Whether the jump button is currently held down
+    jump_held: bool,
     /// Whether the place-block button has been pressed since the last step
     place_block_pressed: bool,
     /// Whether the break-block button has been pressed since the last step
     break_block_pressed: bool,
     prediction: PredictedMotion,
+    local_character_controller: LocalCharacterController,
 }
 
 impl Sim {
@@ -65,7 +73,6 @@ impl Sim {
             cfg,
             local_character_id,
             local_character: None,
-            orientation: na::one(),
             step: None,
 
             since_input_sent: Duration::new(0, 0),
@@ -73,21 +80,40 @@ impl Sim {
             average_movement_input: na::zero(),
             no_clip: true,
             toggle_no_clip: false,
+            is_jumping: false,
+            jump_pressed: false,
+            jump_held: false,
             place_block_pressed: false,
             break_block_pressed: false,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
             }),
+            local_character_controller: LocalCharacterController::new(),
         }
     }
 
-    pub fn rotate(&mut self, delta: &na::UnitQuaternion<f32>) {
-        self.orientation *= delta;
+    /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.
+    pub fn look(&mut self, delta_yaw: f32, delta_pitch: f32, delta_roll: f32) {
+        if self.no_clip {
+            self.local_character_controller
+                .look_free(delta_yaw, delta_pitch, delta_roll);
+        } else {
+            self.local_character_controller
+                .look_level(delta_yaw, delta_pitch);
+        }
     }
 
-    pub fn set_movement_input(&mut self, movement_input: na::Vector3<f32>) {
-        self.movement_input = movement_input;
+    pub fn set_movement_input(&mut self, mut raw_movement_input: na::Vector3<f32>) {
+        if !self.no_clip {
+            // Vertical movement keys shouldn't do anything unless no-clip is on.
+            raw_movement_input.y = 0.0;
+        }
+        if raw_movement_input.norm_squared() >= 1.0 {
+            // Cap movement input at 1
+            raw_movement_input.normalize_mut();
+        }
+        self.movement_input = raw_movement_input;
     }
 
     pub fn toggle_no_clip(&mut self) {
@@ -95,6 +121,15 @@ impl Sim {
         // there would be a discontinuity when predicting the player's position within a given step,
         // causing an undesirable jolt.
         self.toggle_no_clip = true;
+    }
+
+    pub fn set_jump_held(&mut self, jump_held: bool) {
+        self.jump_held = jump_held;
+        self.jump_pressed = jump_held || self.jump_pressed;
+    }
+
+    pub fn set_jump_pressed_true(&mut self) {
+        self.jump_pressed = true;
     }
 
     pub fn set_place_block_pressed_true(&mut self) {
@@ -110,7 +145,7 @@ impl Sim {
     }
 
     pub fn step(&mut self, dt: Duration, net: &mut Net) {
-        self.orientation.renormalize_fast();
+        self.local_character_controller.renormalize_orientation();
 
         let step_interval = self.cfg.step_interval;
         self.since_input_sent += dt;
@@ -135,6 +170,9 @@ impl Sim {
                 self.toggle_no_clip = false;
             }
 
+            self.is_jumping = self.jump_held || self.jump_pressed;
+            self.jump_pressed = false;
+
             // Reset state for the next step
             if overflow > step_interval {
                 // If it's been more than two timesteps since we last sent input, skip ahead
@@ -151,6 +189,10 @@ impl Sim {
             // Update average movement input for the time within the current step
             self.average_movement_input +=
                 self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
+        }
+        self.update_view_position();
+        if !self.no_clip {
+            self.local_character_controller.align_to_gravity();
         }
     }
 
@@ -234,6 +276,7 @@ impl Sim {
             latest_input,
             *pos,
             ch.state.velocity,
+            ch.state.on_ground,
         );
     }
 
@@ -316,8 +359,14 @@ impl Sim {
     }
 
     fn send_input(&mut self, net: &mut Net) {
+        let orientation = if self.no_clip {
+            self.local_character_controller.orientation()
+        } else {
+            self.local_character_controller.horizontal_orientation()
+        };
         let character_input = CharacterInput {
-            movement: sanitize_motion_input(self.orientation * self.average_movement_input),
+            movement: sanitize_motion_input(orientation * self.average_movement_input),
+            jump: self.is_jumping,
             no_clip: self.no_clip,
             block_update: self.get_local_character_block_update(),
         };
@@ -329,34 +378,50 @@ impl Sim {
         let _ = net.outgoing.send(Command {
             generation,
             character_input,
-            orientation: self.orientation,
+            orientation: self.local_character_controller.orientation(),
         });
     }
 
-    pub fn view(&self) -> Position {
-        let mut result = *self.prediction.predicted_position();
-        let mut predicted_velocity = *self.prediction.predicted_velocity();
+    fn update_view_position(&mut self) {
+        let mut view_position = *self.prediction.predicted_position();
+        let mut view_velocity = *self.prediction.predicted_velocity();
+        let mut view_on_ground = *self.prediction.predicted_on_ground();
+        let orientation = if self.no_clip {
+            self.local_character_controller.orientation()
+        } else {
+            self.local_character_controller.horizontal_orientation()
+        };
         // Apply input that hasn't been sent yet
         let predicted_input = CharacterInput {
             // We divide by how far we are through the timestep because self.average_movement_input
             // is always over the entire timestep, filling in zeroes for the future, and we
             // want to use the average over what we have so far. Dividing by zero is handled
             // by the character_controller sanitizing this input.
-            movement: self.orientation * self.average_movement_input
+            movement: orientation * self.average_movement_input
                 / (self.since_input_sent.as_secs_f32() / self.cfg.step_interval.as_secs_f32()),
+            jump: self.is_jumping,
             no_clip: self.no_clip,
             block_update: None,
         };
         character_controller::run_character_step(
             &self.cfg,
             &self.graph,
-            &mut result,
-            &mut predicted_velocity,
+            &mut view_position,
+            &mut view_velocity,
+            &mut view_on_ground,
             &predicted_input,
             self.since_input_sent.as_secs_f32(),
         );
-        result.local *= self.orientation.to_homogeneous();
-        result
+
+        self.local_character_controller.update_position(
+            view_position,
+            self.graph.get_relative_up(&view_position).unwrap(),
+            !self.no_clip,
+        )
+    }
+
+    pub fn view(&self) -> Position {
+        self.local_character_controller.oriented_position()
     }
 
     /// Destroy all aspects of an entity
@@ -395,7 +460,7 @@ impl Sim {
             &ChunkLayout::new(self.cfg.chunk_size),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
-            self.cfg.block_reach,
+            self.cfg.character.block_reach,
         );
 
         let Ok(ray_casting_result) = ray_casing_result else {

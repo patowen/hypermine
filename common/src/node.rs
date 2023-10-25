@@ -8,10 +8,10 @@ use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
-use crate::proto::SerializableVoxelData;
+use crate::proto::{Position, SerializableVoxelData};
 use crate::world::Material;
 use crate::worldgen::NodeState;
-use crate::Chunks;
+use crate::{math, Chunks};
 
 pub type DualGraph = Graph<Node>;
 
@@ -34,6 +34,15 @@ impl DualGraph {
 
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
         Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
+    }
+
+    /// Returns the up-direction relative to the given position, or `None` if the
+    /// position is in an unpopulated node.
+    pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
+        let node = self.get(position.node).as_ref()?;
+        Some(na::UnitVector3::new_normalize(
+            (math::mtranspose(&position.local) * node.state.up_direction()).xyz(),
+        ))
     }
 
     pub fn get_chunk_neighbor(

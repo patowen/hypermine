@@ -46,6 +46,7 @@ pub struct StateDelta {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterState {
     pub velocity: na::Vector3<f32>,
+    pub on_ground: bool,
     pub orientation: na::UnitQuaternion<f32>,
 }
 
@@ -70,6 +71,7 @@ pub struct Command {
 pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
     pub movement: na::Vector3<f32>,
+    pub jump: bool,
     pub no_clip: bool,
     pub block_update: Option<BlockUpdate>,
 }

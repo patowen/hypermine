@@ -168,10 +168,12 @@ impl Sim {
             state: CharacterState {
                 orientation: na::one(),
                 velocity: na::Vector3::zeros(),
+                on_ground: false,
             },
         };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
+            jump: false,
             no_clip: true,
             block_update: None,
         };
@@ -256,6 +258,7 @@ impl Sim {
                 &self.graph,
                 position,
                 &mut character.state.velocity,
+                &mut character.state.on_ground,
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
@@ -319,11 +322,11 @@ impl Sim {
 
         // We want to load all chunks that a player can interact with in a single step, so chunk_generation_distance
         // is set up to cover that distance.
-        // TODO: Use actual max speed instead of max ground speed.
         let chunk_generation_distance = dodeca::BOUNDING_SPHERE_RADIUS
-            + self.cfg.character_radius as f64
-            + self.cfg.max_ground_speed as f64 * self.cfg.step_interval.as_secs_f64()
-            + self.cfg.block_reach as f64
+            + self.cfg.character.character_radius as f64
+            + self.cfg.character.speed_cap as f64 * self.cfg.step_interval.as_secs_f64()
+            + self.cfg.character.ground_distance_tolerance as f64
+            + self.cfg.character.block_reach as f64
             + 0.001;
 
         // Load all chunks around entities corresponding to clients, which correspond to entities
