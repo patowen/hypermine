@@ -109,7 +109,7 @@ impl Voxels {
             if let Some(block_updates) = sim.pending_modified_chunks.remove(&chunk_id) {
                 for block_update in block_updates {
                     // The chunk was just populated, so a block update should always succeed.
-                    assert!(sim.graph.update_block(sim.cfg.chunk_size, &block_update,));
+                    assert!(sim.graph.update_block(sim.cfg.chunk_size, &block_update));
                 }
             }
         }

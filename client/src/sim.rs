@@ -12,7 +12,7 @@ use common::{
     collision_math::Ray,
     graph::NodeId,
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
+    node::{populate_fresh_nodes, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
@@ -315,12 +315,8 @@ impl Sim {
                 tracing::error!("Voxel data received from server is invalid");
                 continue;
             };
-            *self.graph.get_chunk_mut(chunk_id).unwrap() = Chunk::Populated {
-                voxels: voxel_data,
-                modified: true,
-                surface: None,
-                old_surface: None,
-            };
+            self.graph
+                .populate_chunk(self.cfg.chunk_size, chunk_id, voxel_data, true);
         }
     }
 
