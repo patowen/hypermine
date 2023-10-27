@@ -8,7 +8,7 @@ use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
-use crate::proto::{Position, SerializableVoxelData};
+use crate::proto::{BlockUpdate, Position, SerializableVoxelData};
 use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::{math, Chunks};
@@ -141,33 +141,27 @@ impl DualGraph {
     /// Tries to update the block at the given position to the given material.
     /// Fails and returns false if the chunk is not populated yet.
     #[must_use]
-    pub fn update_block(
-        &mut self,
-        chunk_size: u8,
-        chunk: ChunkId,
-        coords: Coords,
-        new_material: Material,
-    ) -> bool {
+    pub fn update_block(&mut self, chunk_size: u8, block_update: &BlockUpdate) -> bool {
         // Update the block
         let Some(Chunk::Populated {
             voxels,
             modified,
             surface,
             old_surface,
-        }) = self.get_chunk_mut(chunk)
+        }) = self.get_chunk_mut(block_update.chunk_id)
         else {
             return false;
         };
         let voxel = voxels
             .data_mut(chunk_size)
-            .get_mut(coords.to_index(chunk_size))
+            .get_mut(block_update.coords.to_index(chunk_size))
             .expect("coords are in-bounds");
 
-        *voxel = new_material;
+        *voxel = block_update.new_material;
         *modified = true;
         *old_surface = surface.take().or(*old_surface);
 
-        self.remove_adjacent_margins(chunk_size, chunk);
+        self.remove_adjacent_margins(chunk_size, block_update.chunk_id);
         true
     }
 

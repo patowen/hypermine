@@ -12,7 +12,7 @@ use common::{
     collision_math::Ray,
     graph::NodeId,
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, Coords, DualGraph, VoxelData},
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, DualGraph, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
@@ -25,7 +25,7 @@ use common::{
 pub struct Sim {
     // World state
     pub graph: DualGraph,
-    pub pending_modified_chunks: FxHashMap<ChunkId, Vec<(Coords, Material)>>,
+    pub pending_modified_chunks: FxHashMap<ChunkId, Vec<BlockUpdate>>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -302,16 +302,11 @@ impl Sim {
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
-            if !self.graph.update_block(
-                self.cfg.chunk_size,
-                block_update.chunk_id,
-                block_update.coords,
-                block_update.new_material,
-            ) {
+            if !self.graph.update_block(self.cfg.chunk_size, &block_update) {
                 self.pending_modified_chunks
                     .entry(block_update.chunk_id)
                     .or_default()
-                    .push((block_update.coords, block_update.new_material));
+                    .push(block_update);
             }
         }
         for (chunk_id, voxel_data) in msg.modified_chunks {
