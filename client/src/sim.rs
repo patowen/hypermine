@@ -318,6 +318,7 @@ impl Sim {
             };
             *self.graph.get_chunk_mut(chunk_id).unwrap() = Chunk::Populated {
                 voxels: voxel_data,
+                modified: true,
                 surface: None,
                 old_surface: None,
             };

@@ -344,11 +344,12 @@ impl Sim {
                         if let Some(params) =
                             ChunkParams::new(self.cfg.chunk_size, &self.graph, chunk)
                         {
-                            self.graph[chunk] = Chunk::Populated {
-                                voxels: params.generate_voxels(),
-                                surface: None,
-                                old_surface: None,
-                            };
+                            self.graph.populate_chunk(
+                                self.cfg.chunk_size,
+                                chunk,
+                                params.generate_voxels(),
+                                false,
+                            );
                         }
                     }
                 }
