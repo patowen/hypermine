@@ -12,7 +12,7 @@ use common::{
     collision_math::Ray,
     graph::NodeId,
     graph_ray_casting,
-    node::{populate_fresh_nodes, Chunk, ChunkLayout, DualGraph, VoxelData},
+    node::{populate_fresh_nodes, Chunk, ChunkId, ChunkLayout, Coords, DualGraph, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
@@ -25,6 +25,7 @@ use common::{
 pub struct Sim {
     // World state
     pub graph: DualGraph,
+    pub pending_modified_chunks: FxHashMap<ChunkId, Vec<(Coords, Material)>>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -67,6 +68,7 @@ impl Sim {
         populate_fresh_nodes(&mut graph);
         Self {
             graph,
+            pending_modified_chunks: FxHashMap::default(),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -306,8 +308,10 @@ impl Sim {
                 block_update.coords,
                 block_update.new_material,
             ) {
-                // TODO: This case should be handled to properly support multiple players.
-                tracing::error!("Voxel data received from server for ungenerated chunk.")
+                self.pending_modified_chunks
+                    .entry(block_update.chunk_id)
+                    .or_default()
+                    .push((block_update.coords, block_update.new_material));
             }
         }
         for (chunk_id, voxel_data) in msg.modified_chunks {
