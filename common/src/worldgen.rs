@@ -66,6 +66,7 @@ pub struct NodeState {
     surface: Plane<f64>,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
+    horosphere: na::Vector4<f32>,
 }
 impl NodeState {
     pub fn root() -> Self {
@@ -79,6 +80,7 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
+            horosphere: na::Vector4::new(2.0, 0.0, 0.0, 2.0),
         }
     }
 
@@ -116,6 +118,7 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
+            horosphere: side.reflection().cast() * self.horosphere, // TODO: Use all parents
         }
     }
 
@@ -175,6 +178,7 @@ pub struct ChunkParams {
     is_road_support: bool,
     /// Random quantity used to seed terrain gen
     node_spice: u64,
+    horosphere: na::Vector4<f32>,
 }
 
 impl ChunkParams {
@@ -193,6 +197,7 @@ impl ChunkParams {
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: graph.hash_of(chunk.node) as u64,
+            horosphere: chunk.vertex.node_to_chunk().cast::<f32>() * state.horosphere,
         })
     }
 
@@ -246,7 +251,24 @@ impl ChunkParams {
             self.generate_trees(&mut voxels, &mut rng);
         }
 
+        self.generate_horosphere(&mut voxels);
+
         voxels
+    }
+
+    fn generate_horosphere(&self, voxels: &mut VoxelData) {
+        for (x, y, z) in VoxelCoords::new(self.dimension) {
+            let coords = na::Vector3::new(x, y, z);
+            let center = coords.map(|x| f32::from(x) + 0.5)
+                * (Vertex::chunk_to_dual_factor() as f32 / f32::from(self.dimension));
+            let center =
+                math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
+
+            if math::mip(&center, &self.horosphere) < 1.0 {
+                voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
+                    Material::WhiteBrick;
+            }
+        }
     }
 
     /// Performs all terrain generation that can be done one voxel at a time and with
