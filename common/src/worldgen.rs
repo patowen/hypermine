@@ -651,6 +651,7 @@ mod test {
     use crate::node::{DualGraph, Node};
     use crate::Chunks;
     use approx::*;
+    use libm::{acosf, cosf, sinf, sqrtf};
 
     const CHUNK_SIZE: u8 = 12;
 
@@ -861,5 +862,40 @@ mod test {
             let index = z as usize + y as usize * dimension + x as usize * dimension.pow(2);
             assert!(counter == index);
         }
+    }
+
+    #[test]
+    fn horosphere_distribution() {
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(75813975982);
+
+        let mut valid: u32 = 0;
+        let mut invalid: u32 = 0;
+
+        let vertex_w = sqrtf(2.0) * (3.0 + sqrtf(5.0)) / 4.0; // w-coordinate of every vertex in dodeca-coordinates
+        let max_w = sqrtf(3.0) * (vertex_w + sqrtf(vertex_w * vertex_w - 1.0)); // Maximum possible w-coordinate of valid horosphere
+        println!("{}", max_w);
+
+        for _ in 0..10000000 {
+            let w = sqrtf(rng.gen::<f32>()) * max_w;
+            let phi = acosf(rng.gen::<f32>() * 2.0 - 1.0);
+            let theta = rng.gen::<f32>() * std::f32::consts::TAU;
+            let horosphere = na::Vector4::new(
+                w * sinf(phi) * cosf(theta),
+                w * sinf(phi) * sinf(theta),
+                w * cosf(phi),
+                w,
+            );
+
+            if Side::iter().all(|s| math::mip(&s.normal().cast::<f32>(), &horosphere) < 1.0)
+                && (Vertex::C.canonical_sides().iter().take(3))
+                    .all(|s| math::mip(&s.normal().cast::<f32>(), &horosphere) < -1.0)
+            {
+                valid += 1;
+            } else {
+                invalid += 1;
+            }
+        }
+        println!("{} vs {}", valid, invalid);
+        println!("{}", valid as f64 / (valid + invalid) as f64);
     }
 }
