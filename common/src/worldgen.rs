@@ -197,7 +197,7 @@ impl ChunkParams {
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: graph.hash_of(chunk.node) as u64,
-            horosphere: chunk.vertex.node_to_chunk().cast::<f32>() * state.horosphere,
+            horosphere: chunk.vertex.node_to_dual().cast::<f32>() * state.horosphere,
         })
     }
 
@@ -264,7 +264,7 @@ impl ChunkParams {
             let center =
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
-            if math::mip(&center, &self.horosphere) < 1.0 {
+            if math::mip(&center, &self.horosphere) > -1.0 {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
                     Material::WhiteBrick;
             }
