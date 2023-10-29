@@ -264,7 +264,8 @@ impl ChunkParams {
             let center =
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
-            if math::mip(&center, &self.horosphere) > -1.0 {
+            let depth = math::mip(&center, &self.horosphere);
+            if depth > -1.0 && depth < -0.9 {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
                     Material::WhiteBrick;
             }
