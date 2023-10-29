@@ -80,7 +80,7 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
-            horosphere: na::Vector4::new(2.0, 0.0, 0.0, 2.0),
+            horosphere: na::Vector4::new(0.0, 5.0, 0.0, 5.0),
         }
     }
 
@@ -221,14 +221,19 @@ impl ChunkParams {
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
+        let is_horosphere = self.horosphere.z < 2.0 && self.horosphere.z > -3.0;
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
+            && !is_horosphere
         {
             // The whole chunk is above ground and not part of the road
             return VoxelData::Solid(Material::Void);
         }
 
-        if (center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS) && !self.is_road {
+        if (center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS)
+            && !self.is_road
+            && !is_horosphere
+        {
             // The whole chunk is underground
             // TODO: More accurate VoxelData
             return VoxelData::Solid(Material::Dirt);
