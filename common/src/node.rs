@@ -41,6 +41,20 @@ impl DualGraph {
             (math::mtranspose(&position.local) * node.state.up_direction()).xyz(),
         ))
     }
+
+    pub fn get_relative_horosphere(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
+        let node = self.get(position.node).as_ref()?;
+        Some(na::UnitVector3::new_normalize(
+            (math::mtranspose(&position.local) * node.state.horosphere()).xyz(),
+        ))
+    }
+
+    pub fn get_horosphere_depth(&self, position: &Position) -> f32 {
+        let Some(node) = self.get(position.node).as_ref() else {
+            return 0.0;
+        };
+        (math::mtranspose(&position.local) * node.state.horosphere()).w
+    }
 }
 
 impl Index<ChunkId> for DualGraph {

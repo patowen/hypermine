@@ -33,6 +33,14 @@ impl LocalCharacterController {
         self.orientation
     }
 
+    /// direction ignores orientation.
+    pub fn look_in_direction(&mut self, direction: na::UnitVector3<f32>) {
+        let relative_direction = self.orientation.inverse() * direction;
+        self.orientation *=
+            math::rotation_between_axis(&na::Vector3::z_axis(), &relative_direction, 1e-5)
+                .unwrap_or(na::UnitQuaternion::identity());
+    }
+
     /// Updates the LocalCharacter based on outside information. Note that the `up` parameter is relative
     /// only to `position`, not the character's orientation.
     pub fn update_position(

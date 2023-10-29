@@ -125,6 +125,10 @@ impl NodeState {
     pub fn up_direction(&self) -> na::Vector4<f32> {
         self.surface.normal().cast()
     }
+
+    pub fn horosphere(&self) -> na::Vector4<f32> {
+        self.horosphere
+    }
 }
 
 struct VoxelCoords {
