@@ -109,6 +109,9 @@ impl NodeState {
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
 
+        let mut horosphere = side.reflection().cast() * self.horosphere;
+        horosphere.w = horosphere.xyz().norm(); // Ensure horosphere invariant is met
+
         Self {
             kind: child_kind,
             surface: match child_kind {
@@ -118,7 +121,7 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
-            horosphere: side.reflection().cast() * self.horosphere, // TODO: Use all parents
+            horosphere, // TODO: Use all parents to ensure horosphere lacks seams and doesn't depend on node discovery order
         }
     }
 
