@@ -1,3 +1,4 @@
+use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_distr::Normal;
 
@@ -73,7 +74,7 @@ impl NodeState {
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(0, 42));
 
         let mut horospheres = vec![];
-        for _ in 0..1 {
+        for _ in 0..300 {
             horospheres.push(Self::random_horosphere(&mut rng));
         }
 
@@ -87,12 +88,22 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
-            horospheres: vec![na::Vector4::new(0.0, 5.0, 0.0, 5.0)],
+            horospheres,
         }
     }
 
     fn random_horosphere(rng: &mut Pcg64Mcg) -> na::Vector4<f32> {
-        na::Vector4::new(0.0, 5.0, 0.0, 5.0)
+        let max_w = 200.0;
+
+        let w = sqrtf(rng.gen::<f32>()) * max_w;
+        let phi = acosf(rng.gen::<f32>() * 2.0 - 1.0);
+        let theta = rng.gen::<f32>() * std::f32::consts::TAU;
+        na::Vector4::new(
+            w * sinf(phi) * cosf(theta),
+            w * sinf(phi) * sinf(theta),
+            w * cosf(phi),
+            w,
+        )
     }
 
     pub fn child(&self, graph: &DualGraph, node: NodeId, side: Side) -> Self {
