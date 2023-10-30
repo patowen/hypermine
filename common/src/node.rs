@@ -13,8 +13,6 @@ use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::{math, Chunks};
 
-pub type DualGraph = Graph<Node>;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ChunkId {
     pub node: NodeId,
@@ -27,7 +25,7 @@ impl ChunkId {
     }
 }
 
-impl DualGraph {
+impl Graph {
     pub fn get_chunk_mut(&mut self, chunk: ChunkId) -> Option<&mut Chunk> {
         Some(&mut self.get_mut(chunk.node).as_mut()?.chunks[chunk.vertex])
     }
@@ -202,7 +200,7 @@ impl DualGraph {
     }
 }
 
-impl Index<ChunkId> for DualGraph {
+impl Index<ChunkId> for Graph {
     type Output = Chunk;
 
     fn index(&self, chunk: ChunkId) -> &Chunk {
@@ -210,7 +208,7 @@ impl Index<ChunkId> for DualGraph {
     }
 }
 
-impl IndexMut<ChunkId> for DualGraph {
+impl IndexMut<ChunkId> for Graph {
     fn index_mut(&mut self, chunk: ChunkId) -> &mut Chunk {
         self.get_chunk_mut(chunk).unwrap()
     }
@@ -397,9 +395,9 @@ impl ChunkLayout {
     }
 }
 
-/// Ensures that every new node of the given DualGraph is populated with a [Node] and is
+/// Ensures that every new node of the given Graph is populated with a [Node] and is
 /// ready for world generation.
-pub fn populate_fresh_nodes(graph: &mut DualGraph) {
+pub fn populate_fresh_nodes(graph: &mut Graph) {
     let fresh = graph.fresh().to_vec();
     graph.clear_fresh();
     for &node in &fresh {
@@ -407,7 +405,7 @@ pub fn populate_fresh_nodes(graph: &mut DualGraph) {
     }
 }
 
-fn populate_node(graph: &mut DualGraph, node: NodeId) {
+fn populate_node(graph: &mut Graph, node: NodeId) {
     *graph.get_mut(node) = Some(Node {
         state: graph
             .parent(node)

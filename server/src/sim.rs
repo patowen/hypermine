@@ -13,7 +13,7 @@ use common::{
     character_controller, dodeca,
     graph::{Graph, NodeId},
     math,
-    node::{populate_fresh_nodes, Chunk, DualGraph},
+    node::{populate_fresh_nodes, Chunk},
     proto::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
@@ -31,7 +31,7 @@ pub struct Sim {
     step: Step,
     entity_ids: FxHashMap<EntityId, Entity>,
     world: hecs::World,
-    graph: DualGraph,
+    graph: Graph,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
@@ -43,18 +43,18 @@ pub struct Sim {
 impl Sim {
     pub fn new(cfg: Arc<SimConfig>) -> Self {
         let mut result = Self {
-            cfg,
             rng: SmallRng::from_entropy(),
             step: 0,
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
-            graph: Graph::new(),
+            graph: Graph::new(cfg.chunk_size),
             spawns: Vec::new(),
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
             dirty_voxel_nodes: FxHashSet::default(),
             modified_chunks: FxHashMap::default(),
+            cfg,
         };
 
         ensure_nearby(
@@ -66,7 +66,7 @@ impl Sim {
     }
 
     pub fn save(&mut self, save: &mut save::Save) -> Result<(), save::DbError> {
-        fn path_from_origin(graph: &DualGraph, mut node: NodeId) -> Vec<u32> {
+        fn path_from_origin(graph: &Graph, mut node: NodeId) -> Vec<u32> {
             let mut result = Vec::new();
             while let Some(parent) = graph.parent(node) {
                 result.push(parent as u32);
@@ -192,6 +192,8 @@ impl Sim {
     ) -> Result<(), hecs::ComponentError> {
         let mut input = self.world.get::<&mut CharacterInput>(entity)?;
         *input = command.character_input;
+        let mut ch = self.world.get::<&mut Character>(entity)?;
+        ch.state.orientation = command.orientation;
         Ok(())
     }
 

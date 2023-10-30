@@ -10,9 +10,9 @@ use crate::{
 use common::{
     character_controller,
     collision_math::Ray,
-    graph::NodeId,
+    graph::{Graph, NodeId},
     graph_ray_casting,
-    node::{populate_fresh_nodes, ChunkId, ChunkLayout, DualGraph, VoxelData},
+    node::{populate_fresh_nodes, ChunkId, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
@@ -24,7 +24,7 @@ use common::{
 /// Game state
 pub struct Sim {
     // World state
-    pub graph: DualGraph,
+    pub graph: Graph,
     pub pending_modified_chunks: FxHashMap<ChunkId, Vec<BlockUpdate>>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
@@ -64,7 +64,7 @@ pub struct Sim {
 
 impl Sim {
     pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
-        let mut graph = DualGraph::new();
+        let mut graph = Graph::new(cfg.chunk_size);
         populate_fresh_nodes(&mut graph);
         Self {
             graph,
@@ -453,7 +453,6 @@ impl Sim {
         let view_position = self.view();
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
-            &ChunkLayout::new(self.cfg.chunk_size),
             &view_position,
             &Ray::new(na::Vector4::w(), -na::Vector4::z()),
             self.cfg.character.block_reach,

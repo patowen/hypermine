@@ -7,12 +7,12 @@ use crate::{
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},
     math,
-    node::{ChunkId, DualGraph},
+    node::ChunkId,
     proto::Position,
 };
 
 /// Ensure all nodes within `distance` of `start` exist
-pub fn ensure_nearby<N>(graph: &mut Graph<N>, start: &Position, distance: f64) {
+pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f64) {
     let mut pending = Vec::<(NodeId, na::Matrix4<f64>)>::new();
     let mut visited = FxHashSet::<NodeId>::default();
 
@@ -39,8 +39,8 @@ pub fn ensure_nearby<N>(graph: &mut Graph<N>, start: &Position, distance: f64) {
 
 /// Compute `start.node`-relative transforms of all nodes whose origins lie within `distance` of
 /// `start`
-pub fn nearby_nodes<N>(
-    graph: &Graph<N>,
+pub fn nearby_nodes(
+    graph: &Graph,
     start: &Position,
     distance: f64,
 ) -> Vec<(NodeId, na::Matrix4<f32>)> {
@@ -87,7 +87,7 @@ pub fn nearby_nodes<N>(
 }
 
 pub struct RayTraverser<'a> {
-    graph: &'a DualGraph,
+    graph: &'a Graph,
     ray: &'a Ray,
     radius: f32,
     /// Chunks that have already been added to `iterator_queue` and shouldn't be added again
@@ -101,7 +101,7 @@ pub struct RayTraverser<'a> {
 }
 
 impl<'a> RayTraverser<'a> {
-    pub fn new(graph: &'a DualGraph, position: Position, ray: &'a Ray, radius: f32) -> Self {
+    pub fn new(graph: &'a Graph, position: Position, ray: &'a Ray, radius: f32) -> Self {
         // Pick the vertex closest to position.local as the vertex of the chunk to use to start collision checking
         let mut closest_vertex = Vertex::A;
         let mut closest_vertex_cosh_distance = f32::INFINITY;

@@ -10,8 +10,8 @@ use crate::{
         collision::{check_collision, Collision, CollisionContext},
         vector_bounds::{BoundedVectors, VectorBound},
     },
+    graph::Graph,
     math,
-    node::{ChunkLayout, DualGraph},
     proto::{CharacterInput, Position},
     sanitize_motion_input,
     sim_config::CharacterConfig,
@@ -21,7 +21,7 @@ use crate::{
 /// Runs a single step of character movement
 pub fn run_character_step(
     sim_config: &SimConfig,
-    graph: &DualGraph,
+    graph: &Graph,
     position: &mut Position,
     velocity: &mut na::Vector3<f32>,
     on_ground: &mut bool,
@@ -32,7 +32,6 @@ pub fn run_character_step(
         cfg: &sim_config.character,
         collision_context: CollisionContext {
             graph,
-            chunk_layout: ChunkLayout::new(sim_config.chunk_size),
             radius: sim_config.character.character_radius,
         },
         up: graph.get_relative_up(position).unwrap(),

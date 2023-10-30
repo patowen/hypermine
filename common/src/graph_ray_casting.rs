@@ -1,7 +1,8 @@
 use crate::{
     chunk_ray_casting::chunk_ray_cast,
     collision_math::Ray,
-    node::{Chunk, ChunkId, ChunkLayout, Coords, DualGraph},
+    graph::Graph,
+    node::{Chunk, ChunkId, Coords},
     proto::Position,
     traversal::RayTraverser,
 };
@@ -16,8 +17,7 @@ use crate::{
 /// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the center of
 /// the closest node with ungenerated chunks is greater than `cast_distance + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn ray_cast(
-    graph: &DualGraph,
-    layout: &ChunkLayout,
+    graph: &Graph,
     position: &Position,
     ray: &Ray,
     mut tanh_distance: f32,
@@ -41,19 +41,22 @@ pub fn ray_cast(
             return Err(RayCastError::OutOfBounds);
         };
 
-        hit = chunk_ray_cast(voxel_data, layout, &(transform * ray), tanh_distance).map_or(
-            hit,
-            |hit| {
-                tanh_distance = hit.tanh_distance;
-                Some(GraphCastHit {
-                    tanh_distance: hit.tanh_distance,
-                    chunk,
-                    voxel_coords: hit.voxel_coords,
-                    face_axis: hit.face_axis,
-                    face_direction: hit.face_direction,
-                })
-            },
-        );
+        hit = chunk_ray_cast(
+            voxel_data,
+            graph.layout(),
+            &(transform * ray),
+            tanh_distance,
+        )
+        .map_or(hit, |hit| {
+            tanh_distance = hit.tanh_distance;
+            Some(GraphCastHit {
+                tanh_distance: hit.tanh_distance,
+                chunk,
+                voxel_coords: hit.voxel_coords,
+                face_axis: hit.face_axis,
+                face_direction: hit.face_direction,
+            })
+        });
     }
 
     Ok(hit)
