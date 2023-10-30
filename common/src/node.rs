@@ -165,7 +165,7 @@ fn populate_node(graph: &mut DualGraph, node: NodeId) {
                 let parent_state = &graph.get(graph.neighbor(node, i)?).as_ref()?.state;
                 Some(parent_state.child(graph, node, i))
             })
-            .unwrap_or_else(NodeState::root),
+            .unwrap_or_else(|| NodeState::root(graph)),
         chunks: Chunks::default(),
     });
 }

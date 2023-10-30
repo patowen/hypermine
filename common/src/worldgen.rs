@@ -1,6 +1,6 @@
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
-use rand_distr::Normal;
+use rand_distr::{Normal, Poisson};
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -67,14 +67,16 @@ pub struct NodeState {
     surface: Plane<f64>,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
+    node_spice: u64,
     horospheres: Vec<na::Vector4<f32>>,
 }
 impl NodeState {
-    pub fn root() -> Self {
-        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(0, 42));
+    pub fn root(graph: &DualGraph) -> Self {
+        let node_spice = graph.hash_of(NodeId::ROOT) as u64;
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
 
         let mut horospheres = vec![];
-        for _ in 0..300 {
+        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
             horospheres.push(Self::random_horosphere(&mut rng));
         }
 
@@ -88,12 +90,14 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
+            node_spice,
             horospheres,
         }
     }
 
     fn random_horosphere(rng: &mut Pcg64Mcg) -> na::Vector4<f32> {
-        let max_w = 200.0;
+        let vertex_w = sqrtf(2.0) * (3.0 + sqrtf(5.0)) / 4.0; // w-coordinate of every vertex in dodeca-coordinates
+        let max_w = sqrtf(3.0) * (vertex_w + sqrtf(vertex_w * vertex_w - 1.0)); // Maximum possible w-coordinate of valid horosphere
 
         let w = sqrtf(rng.gen::<f32>()) * max_w;
         let phi = acosf(rng.gen::<f32>() * 2.0 - 1.0);
@@ -107,6 +111,8 @@ impl NodeState {
     }
 
     pub fn child(&self, graph: &DualGraph, node: NodeId, side: Side) -> Self {
+        let node_spice = graph.hash_of(node) as u64;
+
         let mut d = graph
             .descenders(node)
             .map(|(s, n)| (s, &graph.get(n).as_ref().unwrap().state));
@@ -150,6 +156,7 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
+            node_spice,
             horospheres, // TODO: Use all parents to ensure horosphere lacks seams and doesn't depend on node discovery order
         }
     }
@@ -228,7 +235,7 @@ impl ChunkParams {
                 && ((state.road_state == East) || (state.road_state == West)),
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
-            node_spice: graph.hash_of(chunk.node) as u64,
+            node_spice: state.node_spice,
             horospheres: (state.horospheres.iter())
                 .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * h)
                 .collect(),
@@ -754,7 +761,7 @@ mod test {
             // assigning state
             *g.get_mut(new_node) = Some(Node {
                 state: {
-                    let mut state = NodeState::root();
+                    let mut state = NodeState::root(&g);
                     state.enviro.max_elevation = i as f64 + 1.0;
                     state
                 },
