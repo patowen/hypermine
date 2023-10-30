@@ -1,7 +1,6 @@
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_distr::{Normal, Poisson};
-use tracing::info;
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -77,9 +76,7 @@ impl NodeState {
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
 
         let mut horospheres = vec![];
-        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
-            horospheres.push(Self::random_horosphere(&mut rng));
-        }
+        Self::add_random_horospheres(&mut horospheres, &mut rng, graph, NodeId::ROOT);
 
         Self {
             kind: NodeStateKind::ROOT,
@@ -94,6 +91,26 @@ impl NodeState {
             node_spice,
             horospheres,
         }
+    }
+
+    fn add_random_horospheres(
+        horospheres: &mut Vec<na::Vector4<f32>>,
+        rng: &mut Pcg64Mcg,
+        graph: &DualGraph,
+        node: NodeId,
+    ) {
+        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
+            let horosphere = Self::random_horosphere(rng);
+            if Self::is_horosphere_valid(graph, node, &horosphere) {
+                horospheres.push(horosphere);
+            }
+        }
+    }
+
+    fn is_horosphere_valid(graph: &DualGraph, node: NodeId, horosphere: &na::Vector4<f32>) -> bool {
+        Side::iter().all(|s| math::mip(&s.normal().cast::<f32>(), horosphere) < 1.0)
+            && (graph.descenders(node))
+                .all(|(s, _)| math::mip(&s.normal().cast::<f32>(), horosphere) < -1.0)
     }
 
     fn random_horosphere(rng: &mut Pcg64Mcg) -> na::Vector4<f32> {
@@ -138,7 +155,7 @@ impl NodeState {
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
 
-        let horospheres = self
+        let mut horospheres = self
             .horospheres
             .iter()
             .map(|h| {
@@ -148,6 +165,9 @@ impl NodeState {
             })
             .filter(|h| math::mip(&side.normal().cast::<f32>(), h) < 1.0) // Forget out-of-range horospheres
             .collect();
+
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
+        Self::add_random_horospheres(&mut horospheres, &mut rng, graph, node);
 
         Self {
             kind: child_kind,
