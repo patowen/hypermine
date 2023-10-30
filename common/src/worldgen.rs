@@ -156,7 +156,7 @@ impl NodeState {
         let child_road = self.road_state.child(side);
 
         let mut horospheres = self
-            .horospheres
+            .horospheres // TODO: Grab horospheres from other parents and give horospheres a unique identity (seam-prevention can use the same logic)
             .iter()
             .map(|h| {
                 let mut result = side.reflection().cast() * h; // TODO: Use all descenders to prevent seams and node discovery order dependency
