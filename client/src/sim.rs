@@ -372,7 +372,7 @@ impl Sim {
             !self.no_clip,
         );
 
-        if self.no_clip {
+        /*if self.no_clip {
             tracing::info!(
                 "Horosphere depth: {}",
                 self.graph.get_horosphere_depth(&view_position)
@@ -381,7 +381,7 @@ impl Sim {
                 self.local_character_controller
                     .look_in_direction(-horosphere);
             }
-        }
+        }*/
     }
 
     pub fn view(&self) -> Position {

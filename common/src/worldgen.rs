@@ -66,10 +66,17 @@ pub struct NodeState {
     surface: Plane<f64>,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
-    horosphere: na::Vector4<f32>,
+    horospheres: Vec<na::Vector4<f32>>,
 }
 impl NodeState {
     pub fn root() -> Self {
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(0, 42));
+
+        let mut horospheres = vec![];
+        for _ in 0..1 {
+            horospheres.push(Self::random_horosphere(&mut rng));
+        }
+
         Self {
             kind: NodeStateKind::ROOT,
             surface: Plane::from(Side::A),
@@ -80,8 +87,12 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
-            horosphere: na::Vector4::new(0.0, 5.0, 0.0, 5.0),
+            horospheres: vec![na::Vector4::new(0.0, 5.0, 0.0, 5.0)],
         }
+    }
+
+    fn random_horosphere(rng: &mut Pcg64Mcg) -> na::Vector4<f32> {
+        na::Vector4::new(0.0, 5.0, 0.0, 5.0)
     }
 
     pub fn child(&self, graph: &DualGraph, node: NodeId, side: Side) -> Self {
@@ -109,8 +120,15 @@ impl NodeState {
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
 
-        let mut horosphere = side.reflection().cast() * self.horosphere;
-        horosphere.w = horosphere.xyz().norm(); // Ensure horosphere invariant is met
+        let horospheres = self
+            .horospheres
+            .iter()
+            .map(|h| {
+                let mut result = side.reflection().cast() * h; // TODO: Use all descenders to prevent seams and node discovery order dependency
+                result.w = result.xyz().norm();
+                result
+            })
+            .collect();
 
         Self {
             kind: child_kind,
@@ -121,16 +139,12 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
-            horosphere, // TODO: Use all parents to ensure horosphere lacks seams and doesn't depend on node discovery order
+            horospheres, // TODO: Use all parents to ensure horosphere lacks seams and doesn't depend on node discovery order
         }
     }
 
     pub fn up_direction(&self) -> na::Vector4<f32> {
         self.surface.normal().cast()
-    }
-
-    pub fn horosphere(&self) -> na::Vector4<f32> {
-        self.horosphere
     }
 }
 
@@ -185,7 +199,7 @@ pub struct ChunkParams {
     is_road_support: bool,
     /// Random quantity used to seed terrain gen
     node_spice: u64,
-    horosphere: na::Vector4<f32>,
+    horospheres: Vec<na::Vector4<f32>>,
 }
 
 impl ChunkParams {
@@ -204,7 +218,9 @@ impl ChunkParams {
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: graph.hash_of(chunk.node) as u64,
-            horosphere: chunk.vertex.node_to_dual().cast::<f32>() * state.horosphere,
+            horospheres: (state.horospheres.iter())
+                .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * h)
+                .collect(),
         })
     }
 
@@ -228,7 +244,7 @@ impl ChunkParams {
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
-        let is_horosphere = self.horosphere.z < 2.0 && self.horosphere.z > -3.0;
+        let is_horosphere = self.horospheres.iter().any(|h| h.z < 2.0 && h.z > -3.0);
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
             && !is_horosphere
@@ -269,6 +285,12 @@ impl ChunkParams {
     }
 
     fn generate_horosphere(&self, voxels: &mut VoxelData) {
+        let horospheres: Vec<_> = self
+            .horospheres
+            .iter()
+            .filter(|h| h.z < 2.0 && h.z > -3.0)
+            .collect();
+
         for (x, y, z) in VoxelCoords::new(self.dimension) {
             let coords = na::Vector3::new(x, y, z);
             let center = coords.map(|x| f32::from(x) + 0.5)
@@ -276,8 +298,10 @@ impl ChunkParams {
             let center =
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
-            let depth = math::mip(&center, &self.horosphere);
-            if depth > -1.0 && depth < -0.9 {
+            if horospheres.iter().any(|h| {
+                let depth = math::mip(&center, h);
+                depth > -1.0 && depth < -0.9
+            }) {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
                     Material::WhiteBrick;
             }

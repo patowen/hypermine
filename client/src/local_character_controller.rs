@@ -34,6 +34,7 @@ impl LocalCharacterController {
     }
 
     /// direction ignores orientation.
+    #[allow(unused)]
     pub fn look_in_direction(&mut self, direction: na::UnitVector3<f32>) {
         let relative_direction = self.orientation.inverse() * direction;
         self.orientation *=
