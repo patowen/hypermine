@@ -1,6 +1,7 @@
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_distr::{Normal, Poisson};
+use tracing::info;
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -145,6 +146,7 @@ impl NodeState {
                 result.w = result.xyz().norm();
                 result
             })
+            .filter(|h| math::mip(&side.normal().cast::<f32>(), h) < 1.0) // Forget out-of-range horospheres
             .collect();
 
         Self {
@@ -157,7 +159,7 @@ impl NodeState {
             road_state: child_road,
             enviro,
             node_spice,
-            horospheres, // TODO: Use all parents to ensure horosphere lacks seams and doesn't depend on node discovery order
+            horospheres,
         }
     }
 
