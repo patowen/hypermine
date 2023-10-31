@@ -89,7 +89,7 @@ mod tests {
     use crate::{
         collision_math::Ray,
         dodeca::{self, Side, Vertex},
-        graph::NodeId,
+        graph::{Graph, NodeId},
         node::{populate_fresh_nodes, Coords, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
