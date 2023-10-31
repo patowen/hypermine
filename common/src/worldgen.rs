@@ -4,9 +4,9 @@ use rand_distr::{Normal, Poisson};
 
 use crate::{
     dodeca::{Side, Vertex},
-    graph::NodeId,
+    graph::{Graph, NodeId},
     math,
-    node::{ChunkId, DualGraph, VoxelData},
+    node::{ChunkId, VoxelData},
     terraingen::VoronoiInfo,
     world::Material,
     Plane,
@@ -71,7 +71,7 @@ pub struct NodeState {
     horospheres: Vec<na::Vector4<f32>>,
 }
 impl NodeState {
-    pub fn root(graph: &DualGraph) -> Self {
+    pub fn root(graph: &Graph) -> Self {
         let node_spice = graph.hash_of(NodeId::ROOT) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
 
@@ -96,7 +96,7 @@ impl NodeState {
     fn add_random_horospheres(
         horospheres: &mut Vec<na::Vector4<f32>>,
         rng: &mut Pcg64Mcg,
-        graph: &DualGraph,
+        graph: &Graph,
         node: NodeId,
     ) {
         for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
@@ -107,7 +107,7 @@ impl NodeState {
         }
     }
 
-    fn is_horosphere_valid(graph: &DualGraph, node: NodeId, horosphere: &na::Vector4<f32>) -> bool {
+    fn is_horosphere_valid(graph: &Graph, node: NodeId, horosphere: &na::Vector4<f32>) -> bool {
         Side::iter().all(|s| math::mip(&s.normal().cast::<f32>(), horosphere) < 1.0)
             && (graph.descenders(node))
                 .all(|(s, _)| math::mip(&s.normal().cast::<f32>(), horosphere) < -1.0)
@@ -128,7 +128,7 @@ impl NodeState {
         )
     }
 
-    pub fn child(&self, graph: &DualGraph, node: NodeId, side: Side) -> Self {
+    pub fn child(&self, graph: &Graph, node: NodeId, side: Side) -> Self {
         let node_spice = graph.hash_of(node) as u64;
 
         let mut d = graph
@@ -246,7 +246,7 @@ impl ChunkParams {
     /// Extract data necessary to generate a chunk
     ///
     /// Returns `None` if an unpopulated node is needed.
-    pub fn new(dimension: u8, graph: &DualGraph, chunk: ChunkId) -> Option<Self> {
+    pub fn new(dimension: u8, graph: &Graph, chunk: ChunkId) -> Option<Self> {
         let state = &graph.get(chunk.node).as_ref()?.state;
         Some(Self {
             dimension,
@@ -615,7 +615,7 @@ struct ChunkIncidentEnviroFactors {
 ///
 /// Returns `None` if not all incident nodes are populated.
 fn chunk_incident_enviro_factors(
-    graph: &DualGraph,
+    graph: &Graph,
     chunk: ChunkId,
 ) -> Option<ChunkIncidentEnviroFactors> {
     let mut i = chunk
@@ -712,7 +712,7 @@ fn hash(a: u64, b: u64) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::node::{DualGraph, Node};
+    use crate::node::Node;
     use crate::Chunks;
     use approx::*;
     use libm::{acosf, cosf, sinf, sqrtf};
@@ -776,7 +776,7 @@ mod test {
 
     #[test]
     fn check_chunk_incident_max_elevations() {
-        let mut g = DualGraph::new();
+        let mut g = Graph::new(1);
         for (i, path) in Vertex::A.dual_vertices().map(|(_, p)| p).enumerate() {
             let new_node = path.fold(NodeId::ROOT, |node, side| g.ensure_neighbor(node, side));
 

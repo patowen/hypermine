@@ -9,26 +9,32 @@ use serde::{Deserialize, Serialize};
 use crate::{
     dodeca::{Side, SIDE_COUNT},
     math,
-    node::ChunkId,
+    node::{ChunkId, ChunkLayout, Node},
 };
 
 /// Graph of the right dodecahedral tiling of H^3
-#[derive(Debug, Clone)]
-pub struct Graph<N> {
-    nodes: FxHashMap<NodeId, Node<N>>,
+pub struct Graph {
+    nodes: FxHashMap<NodeId, NodeContainer>,
     /// This field stores implicitly added nodes to ensure that they're initialized in the correct
     /// order
     fresh: Vec<NodeId>,
+    layout: ChunkLayout,
 }
 
-impl<N> Graph<N> {
-    pub fn new() -> Self {
+impl Graph {
+    pub fn new(dimension: usize) -> Self {
         let mut nodes = FxHashMap::default();
-        nodes.insert(NodeId::ROOT, Node::new(None, 0));
+        nodes.insert(NodeId::ROOT, NodeContainer::new(None, 0));
         Self {
             nodes,
             fresh: vec![NodeId::ROOT],
+            layout: ChunkLayout::new(dimension),
         }
+    }
+
+    #[inline]
+    pub fn layout(&self) -> &ChunkLayout {
+        &self.layout
     }
 
     #[inline]
@@ -93,12 +99,12 @@ impl<N> Graph<N> {
     }
 
     #[inline]
-    pub fn get(&self, node: NodeId) -> &Option<N> {
+    pub fn get(&self, node: NodeId) -> &Option<Node> {
         &self.nodes[&node].value
     }
 
     #[inline]
-    pub fn get_mut(&mut self, node: NodeId) -> &mut Option<N> {
+    pub fn get_mut(&mut self, node: NodeId) -> &mut Option<Node> {
         &mut self.nodes.get_mut(&node).unwrap().value
     }
 
@@ -146,7 +152,7 @@ impl<N> Graph<N> {
     }
 
     /// Iterate over every node and its parent except the root
-    pub fn tree(&self) -> TreeIter<'_, N> {
+    pub fn tree(&self) -> TreeIter<'_> {
         TreeIter::new(self)
     }
 
@@ -205,7 +211,8 @@ impl<N> Graph<N> {
         let id = NodeId(u128::from_le_bytes(hash));
 
         let length = self.nodes[&parent].length + 1;
-        self.nodes.insert(id, Node::new(Some(side), length));
+        self.nodes
+            .insert(id, NodeContainer::new(Some(side), length));
         self.link_neighbors(id, parent, side);
         for (side, neighbor) in shorter_neighbors {
             self.link_neighbors(id, neighbor, side);
@@ -253,12 +260,6 @@ impl<N> Graph<N> {
     }
 }
 
-impl<N> Default for Graph<N> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct NodeId(u128);
 
@@ -266,16 +267,15 @@ impl NodeId {
     pub const ROOT: Self = Self(0);
 }
 
-#[derive(Debug, Clone)]
-struct Node<N> {
-    value: Option<N>,
+struct NodeContainer {
+    value: Option<Node>,
     parent_side: Option<Side>,
     /// Distance to origin via parents
     length: u32,
     neighbors: [Option<NodeId>; SIDE_COUNT],
 }
 
-impl<N> Node<N> {
+impl NodeContainer {
     fn new(parent_side: Option<Side>, length: u32) -> Self {
         Self {
             value: None,
@@ -291,14 +291,14 @@ impl<N> Node<N> {
 }
 
 // Iterates through the graph with breadth-first search
-pub struct TreeIter<'a, N> {
+pub struct TreeIter<'a> {
     queue: VecDeque<NodeId>,
     visited: FxHashSet<NodeId>,
-    nodes: &'a FxHashMap<NodeId, Node<N>>,
+    nodes: &'a FxHashMap<NodeId, NodeContainer>,
 }
 
-impl<'a, N> TreeIter<'a, N> {
-    fn new(graph: &'a Graph<N>) -> Self {
+impl<'a> TreeIter<'a> {
+    fn new(graph: &'a Graph) -> Self {
         let mut result = TreeIter {
             queue: VecDeque::from([NodeId::ROOT]),
             visited: FxHashSet::from_iter([NodeId::ROOT]),
@@ -312,7 +312,7 @@ impl<'a, N> TreeIter<'a, N> {
     }
 
     // Returns the next Node in the traversal. The iterator returns its parent and parent side.
-    fn next_node(&mut self) -> Option<&Node<N>> {
+    fn next_node(&mut self) -> Option<&NodeContainer> {
         let node_id = self.queue.pop_front()?;
         let node = &self.nodes[&node_id];
         for side in Side::iter() {
@@ -327,7 +327,7 @@ impl<'a, N> TreeIter<'a, N> {
     }
 }
 
-impl<N> Iterator for TreeIter<'_, N> {
+impl Iterator for TreeIter<'_> {
     type Item = (Side, NodeId);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -346,7 +346,7 @@ mod tests {
 
     #[test]
     fn parent_child_relationships() {
-        let mut graph = Graph::<()>::default();
+        let mut graph = Graph::new(1);
         assert_eq!(graph.len(), 1);
         let a = graph.ensure_neighbor(NodeId::ROOT, Side::A);
         assert_eq!(graph.len(), 2);
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn children_have_common_neighbor() {
-        let mut graph = Graph::<()>::default();
+        let mut graph = Graph::new(1);
         let a = graph.ensure_neighbor(NodeId::ROOT, Side::A);
         let b = graph.ensure_neighbor(NodeId::ROOT, Side::B);
         let a_neighbors = Side::iter()
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn normalize_transform() {
-        let mut graph = Graph::<()>::default();
+        let mut graph = Graph::new(1);
         let a = graph.ensure_neighbor(NodeId::ROOT, Side::A);
         {
             let (node, xf) =
@@ -410,9 +410,9 @@ mod tests {
 
     #[test]
     fn rebuild_from_tree() {
-        let mut a = Graph::<()>::default();
+        let mut a = Graph::new(1);
         ensure_nearby(&mut a, &Position::origin(), 3.0);
-        let mut b = Graph::<()>::default();
+        let mut b = Graph::new(1);
         for (side, parent) in a.tree() {
             b.insert_child(parent, side);
         }
@@ -426,14 +426,14 @@ mod tests {
     #[test]
     fn hash_consistency() {
         let h1 = {
-            let mut g = Graph::<()>::new();
+            let mut g = Graph::new(1);
             let n1 = g.ensure_neighbor(NodeId::ROOT, Side::A);
             let n2 = g.ensure_neighbor(n1, Side::B);
             let n3 = g.ensure_neighbor(n2, Side::C);
             g.ensure_neighbor(n3, Side::D)
         };
         let h2 = {
-            let mut g = Graph::<()>::new();
+            let mut g = Graph::new(1);
             let n1 = g.ensure_neighbor(NodeId::ROOT, Side::C);
             let n2 = g.ensure_neighbor(n1, Side::A);
             let n3 = g.ensure_neighbor(n2, Side::B);
