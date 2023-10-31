@@ -62,13 +62,19 @@ impl NodeStateRoad {
     }
 }
 
+struct Horosphere {
+    node: NodeId,          // Owner node
+    id: u16,               // Node-scoped ID of the horosphere
+    pos: na::Vector4<f32>, // Node-relative position; all points whose mip with this is -1 is on the horosphere.
+}
+
 pub struct NodeState {
     kind: NodeStateKind,
     surface: Plane<f64>,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
     node_spice: u64,
-    horospheres: Vec<na::Vector4<f32>>,
+    horospheres: Vec<Horosphere>,
 }
 impl NodeState {
     pub fn root(graph: &Graph) -> Self {
@@ -94,15 +100,21 @@ impl NodeState {
     }
 
     fn add_random_horospheres(
-        horospheres: &mut Vec<na::Vector4<f32>>,
+        horospheres: &mut Vec<Horosphere>,
         rng: &mut Pcg64Mcg,
         graph: &Graph,
         node: NodeId,
     ) {
+        let mut id = 0;
         for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
-            let horosphere = Self::random_horosphere(rng);
-            if Self::is_horosphere_valid(graph, node, &horosphere) {
-                horospheres.push(horosphere);
+            let horosphere_pos = Self::random_horosphere(rng);
+            if Self::is_horosphere_valid(graph, node, &horosphere_pos) {
+                horospheres.push(Horosphere {
+                    node,
+                    id,
+                    pos: horosphere_pos,
+                });
+                id += 1;
             }
         }
     }
@@ -159,11 +171,15 @@ impl NodeState {
             .horospheres // TODO: Grab horospheres from other parents and give horospheres a unique identity (seam-prevention can use the same logic)
             .iter()
             .map(|h| {
-                let mut result = side.reflection().cast() * h; // TODO: Use all descenders to prevent seams and node discovery order dependency
+                let mut result = side.reflection().cast() * h.pos; // TODO: Use all descenders to prevent seams and node discovery order dependency
                 result.w = result.xyz().norm();
-                result
+                Horosphere {
+                    node: h.node,
+                    id: h.id,
+                    pos: result,
+                }
             })
-            .filter(|h| math::mip(&side.normal().cast::<f32>(), h) < 1.0) // Forget out-of-range horospheres
+            .filter(|h| math::mip(&side.normal().cast::<f32>(), &h.pos) < 1.0) // Forget out-of-range horospheres
             .collect();
 
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
@@ -259,7 +275,7 @@ impl ChunkParams {
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: state.node_spice,
             horospheres: (state.horospheres.iter())
-                .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * h)
+                .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * h.pos)
                 .collect(),
         })
     }
