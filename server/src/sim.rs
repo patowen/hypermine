@@ -277,7 +277,7 @@ impl Sim {
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
 
         for block_update in pending_block_updates.into_iter() {
-            if !self.graph.update_block(self.cfg.chunk_size, &block_update) {
+            if !self.graph.update_block(&block_update) {
                 tracing::warn!("Block update received from ungenerated chunk");
             }
             self.modified_chunks
@@ -341,12 +341,8 @@ impl Sim {
                         if let Some(params) =
                             ChunkParams::new(self.cfg.chunk_size, &self.graph, chunk)
                         {
-                            self.graph.populate_chunk(
-                                self.cfg.chunk_size,
-                                chunk,
-                                params.generate_voxels(),
-                                false,
-                            );
+                            self.graph
+                                .populate_chunk(chunk, params.generate_voxels(), false);
                         }
                     }
                 }

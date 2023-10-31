@@ -302,7 +302,7 @@ impl Sim {
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
-            if !self.graph.update_block(self.cfg.chunk_size, &block_update) {
+            if !self.graph.update_block(&block_update) {
                 self.pending_modified_chunks
                     .entry(block_update.chunk_id)
                     .or_default()
@@ -315,8 +315,7 @@ impl Sim {
                 tracing::error!("Voxel data received from server is invalid");
                 continue;
             };
-            self.graph
-                .populate_chunk(self.cfg.chunk_size, chunk_id, voxel_data, true);
+            self.graph.populate_chunk(chunk_id, voxel_data, true);
         }
     }
 
@@ -467,7 +466,6 @@ impl Sim {
 
         let block_pos = if placing {
             self.graph.get_block_neighbor(
-                self.cfg.chunk_size,
                 hit.chunk,
                 hit.voxel_coords,
                 hit.face_axis as usize,
