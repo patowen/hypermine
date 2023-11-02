@@ -1,3 +1,4 @@
+use fxhash::FxHashMap;
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_distr::{Normal, Poisson};
@@ -167,20 +168,7 @@ impl NodeState {
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
 
-        let mut horospheres = self
-            .horospheres // TODO: Grab horospheres from other parents and give horospheres a unique identity (seam-prevention can use the same logic)
-            .iter()
-            .map(|h| {
-                let mut result = side.reflection().cast() * h.pos; // TODO: Use all descenders to prevent seams and node discovery order dependency
-                result.w = result.xyz().norm();
-                Horosphere {
-                    node: h.node,
-                    id: h.id,
-                    pos: result,
-                }
-            })
-            .filter(|h| math::mip(&side.normal().cast::<f32>(), &h.pos) < 1.0) // Forget out-of-range horospheres
-            .collect();
+        let mut horospheres = Self::combine_parent_horospheres(graph, node);
 
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
         Self::add_random_horospheres(&mut horospheres, &mut rng, graph, node);
@@ -197,6 +185,36 @@ impl NodeState {
             node_spice,
             horospheres,
         }
+    }
+
+    fn combine_parent_horospheres(graph: &Graph, node: NodeId) -> Vec<Horosphere> {
+        let mut parent_horospheres: FxHashMap<(NodeId, u16), Vec<na::Vector4<f32>>> =
+            FxHashMap::default();
+
+        for (side, parent_node) in graph.descenders(node) {
+            for horosphere in &graph.get(parent_node).as_ref().unwrap().state.horospheres {
+                if math::mip(&side.normal().cast::<f32>(), &horosphere.pos) > 1.0 {
+                    continue; // Horosphere is out of range and can be forgotten
+                }
+
+                // Consider horosphere
+                let entry = parent_horospheres
+                    .entry((horosphere.node, horosphere.id))
+                    .or_default();
+                entry.push(side.reflection().cast() * horosphere.pos);
+            }
+        }
+
+        parent_horospheres
+            .into_iter()
+            .map(|((node, id), positions)| {
+                // Average all candidate positions
+                let pos: na::Vector4<f32> =
+                    positions.iter().sum::<na::Vector4<f32>>() / positions.len() as f32;
+
+                Horosphere { node, id, pos }
+            })
+            .collect()
     }
 
     pub fn up_direction(&self) -> na::Vector4<f32> {
