@@ -193,7 +193,7 @@ impl NodeState {
 
         for (side, parent_node) in graph.descenders(node) {
             for horosphere in &graph.get(parent_node).as_ref().unwrap().state.horospheres {
-                if math::mip(&side.normal().cast::<f32>(), &horosphere.pos) > 1.0 {
+                if math::mip(&side.normal().cast::<f32>(), &horosphere.pos) < -1.0 {
                     continue; // Horosphere is out of range and can be forgotten
                 }
 
