@@ -50,7 +50,7 @@ impl<'a, N: na::RealField + Copy> Mul<Plane<N>> for &'a na::Matrix4<N> {
     type Output = Plane<N>;
     fn mul(self, rhs: Plane<N>) -> Plane<N> {
         Plane {
-            normal: lorentz_normalize(&(self * rhs.normal)),
+            normal: self * rhs.normal,
         }
     }
 }
