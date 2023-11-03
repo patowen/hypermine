@@ -209,8 +209,11 @@ impl NodeState {
             .into_iter()
             .map(|((node, id), positions)| {
                 // Average all candidate positions
-                let pos: na::Vector4<f32> =
+                let mut pos: na::Vector4<f32> =
                     positions.iter().sum::<na::Vector4<f32>>() / positions.len() as f32;
+
+                // Reapply horosphere invariant
+                pos.w = pos.xyz().norm();
 
                 Horosphere { node, id, pos }
             })
