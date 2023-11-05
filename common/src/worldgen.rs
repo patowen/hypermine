@@ -518,10 +518,7 @@ impl ChunkParams {
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
-        let is_horosphere = self
-            .horospheres
-            .iter()
-            .any(|h| h.ideal.z < 2.0 && h.ideal.z > -3.0);
+        let is_horosphere = self.horospheres.iter().any(|h| h.ideal.w < 3.0);
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
             && !is_horosphere
@@ -565,7 +562,7 @@ impl ChunkParams {
         let horospheres: Vec<_> = self
             .horospheres
             .iter()
-            .filter(|h| h.ideal.z < 2.0 && h.ideal.z > -3.0)
+            .filter(|h| h.ideal.w < 3.0)
             .collect();
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
@@ -575,9 +572,12 @@ impl ChunkParams {
             let center =
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
+            // For a hollow horosphere, depth between -1.0 and -0.9 is enough thickness to avoid gaps.
             if horospheres.iter().any(|h| {
                 let depth = math::mip(&center, &h.ideal);
-                depth > -1.0 && depth < -0.9
+                let x_drift = math::mip(&center, &h.x_dir);
+                let y_drift = math::mip(&center, &h.y_dir);
+                depth > -1.0 && !(x_drift.abs() < -depth && y_drift.abs() < -depth)
             }) {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
                     Material::WhiteBrick;
