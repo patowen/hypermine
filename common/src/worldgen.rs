@@ -172,6 +172,7 @@ impl NodeState {
                 w * cosf(phi),
                 w,
             ),
+            // TODO: Randomize rotation and start point
             x_dir: na::Vector4::new(-sinf(theta), cosf(theta), 0.0, 0.0),
             y_dir: na::Vector4::new(
                 -cosf(theta) * cosf(phi),
@@ -267,12 +268,16 @@ impl NodeState {
                     // Reapply horosphere invariant
                     ideal.w = ideal.xyz().norm();
 
-                    // TODO: Fix averaging of horospheres
+                    // TODO: Reapply invariants for x_dir and y_dir
+                    // TODO: Keep x_dir and y_dir near the origin, taking advantage of repetition
+                    // TODO: Arbitrary-sized array is needed to keep track of where we are.
+
                     HorosphereContainer {
                         node,
                         id,
                         pos: Horosphere {
                             ideal,
+                            // TODO: Use averages.
                             x_dir: positions[0].x_dir,
                             y_dir: positions[0].y_dir,
                         },
