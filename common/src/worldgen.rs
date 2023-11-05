@@ -1,3 +1,4 @@
+use bincode::de;
 use fxhash::FxHashMap;
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
@@ -76,14 +77,21 @@ pub struct NodeState {
     enviro: EnviroFactors,
     node_spice: u64,
     horospheres: Vec<Horosphere>,
+    candidate_horospheres: Vec<na::Vector4<f32>>,
+    waiting_for_siblings: bool,
 }
 impl NodeState {
     pub fn root(graph: &Graph) -> Self {
         let node_spice = graph.hash_of(NodeId::ROOT) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
 
-        let mut horospheres = vec![];
-        Self::add_random_horospheres(&mut horospheres, &mut rng, graph, NodeId::ROOT);
+        let mut candidate_horospheres = vec![];
+        Self::add_random_candidate_horospheres(
+            &mut candidate_horospheres,
+            &mut rng,
+            graph,
+            NodeId::ROOT,
+        );
 
         Self {
             kind: NodeStateKind::ROOT,
@@ -96,7 +104,9 @@ impl NodeState {
                 blockiness: 0.0,
             },
             node_spice,
-            horospheres,
+            horospheres: vec![], // TODO: This shouldn't be empty.
+            candidate_horospheres,
+            waiting_for_siblings: false,
         }
     }
 
@@ -115,6 +125,22 @@ impl NodeState {
                     id,
                     pos: horosphere_pos,
                 });
+                id += 1;
+            }
+        }
+    }
+
+    fn add_random_candidate_horospheres(
+        horospheres: &mut Vec<na::Vector4<f32>>,
+        rng: &mut Pcg64Mcg,
+        graph: &Graph,
+        node: NodeId,
+    ) {
+        let mut id = 0;
+        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
+            let horosphere_pos = Self::random_horosphere(rng);
+            if Self::is_horosphere_valid(graph, node, &horosphere_pos) {
+                horospheres.push(horosphere_pos);
                 id += 1;
             }
         }
@@ -171,7 +197,8 @@ impl NodeState {
         let mut horospheres = Self::combine_parent_horospheres(graph, node);
 
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
-        Self::add_random_horospheres(&mut horospheres, &mut rng, graph, node);
+        let mut candidate_horospheres = vec![];
+        Self::add_random_candidate_horospheres(&mut candidate_horospheres, &mut rng, graph, node);
 
         Self {
             kind: child_kind,
@@ -184,6 +211,8 @@ impl NodeState {
             enviro,
             node_spice,
             horospheres,
+            candidate_horospheres,
+            waiting_for_siblings: true,
         }
     }
 
@@ -218,6 +247,116 @@ impl NodeState {
                 Horosphere { node, id, pos }
             })
             .collect()
+    }
+
+    // Remove duplicates. TODO: This will probably incompatible with borrow checker but can be refactored.
+    fn set_horospheres_from_candidates(&mut self, graph: &Graph, node: NodeId) {
+        // TODO: The parent_nodes hashmap is unneeded. The constification below will hopefully help clippy catch this.
+        let mut parent_nodes: FxHashMap<NodeId, na::Matrix4<f32>> = FxHashMap::default();
+        let descenders = graph.descenders(node);
+        for (parent_side, parent_node) in graph.descenders(node) {
+            parent_nodes.insert(parent_node, parent_side.reflection().cast());
+        }
+        let parent_nodes = parent_nodes;
+
+        let mut sibling_nodes: FxHashMap<NodeId, na::Matrix4<f32>> = FxHashMap::default();
+        sibling_nodes.insert(node, na::Matrix4::identity());
+        for (parent_side, parent_node) in graph.descenders(node) {
+            for sibling_side in Side::iter() {
+                if !sibling_side.adjacent_to(parent_side) {
+                    // We want edge-adjacent siblings only.
+                    continue;
+                }
+                if graph
+                    .descenders(parent_node)
+                    .any(|(s, _)| s == sibling_side)
+                {
+                    // Grandparents are not siblings.
+                    continue;
+                }
+                let Some(sibling_node) = graph.neighbor(parent_node, sibling_side) else {
+                    // Some sibling nodes are missing. This node is not ready to have its horospheres populated.
+                    break;
+                };
+                // TODO: We should replace this hash with a simple list. There is no deduplication needed.
+                // This belief is checked in an assert statement below as a sanity check.
+                let old_value = sibling_nodes.insert(
+                    sibling_node,
+                    // Order of reflections doesn't matter due to parent_side and sibling_side being orthogonal, but I'll try to make it "correct".
+                    parent_side.reflection().cast::<f32>()
+                        * sibling_side.reflection().cast::<f32>(),
+                );
+                assert!(old_value.is_none());
+            }
+        }
+
+        let mut id = 0;
+        'candidate: for candidate_horosphere in &self.candidate_horospheres {
+            for (&sibling_node, sibling_transform) in sibling_nodes.iter() {
+                for existing_horosphere in graph
+                    .get(sibling_node)
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .horospheres
+                    .iter()
+                {
+                    // Existing horospheres take precedence because they always either come from parent nodes
+                    // or have already been determined to not overlap with anything of higher precedence.
+                    // However, for determinacy with floating-point precision, we only check existing horospheres that came
+                    // from parent nodes, as we'll use the list of candidate nodes otherwise.
+                    if existing_horosphere.node == sibling_node {
+                        // The first for loop is for horospheres that came from ancestors. Skip new horospheres.
+                        continue;
+                    }
+
+                    if math::mip(
+                        &(sibling_transform * existing_horosphere.pos),
+                        candidate_horosphere,
+                    ) >= -2.0
+                    {
+                        // Intersection found; candidate horosphere is a no-go.
+                        continue 'candidate;
+                    }
+                }
+
+                for sibling_horosphere in graph
+                    .get(sibling_node)
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .candidate_horospheres
+                    .iter()
+                {
+                    if sibling_horosphere.w > candidate_horosphere.w {
+                        // Lower "w" horospheres are "closer", so we let them take precedence. Note that this is roughly arbitrary,
+                        // so no change of coordinates is needed. In fact, a change of coordinates would make us vulnerable to
+                        // indeterminacy due to floating point error.
+                        // If candidate_horosphere would take precedence, there's no need to check for precedence.
+                        continue;
+                    }
+
+                    if math::mip(
+                        &(sibling_transform * sibling_horosphere),
+                        candidate_horosphere,
+                    ) >= -2.0
+                    {
+                        // Intersection found; candidate horosphere is a no-go.
+                        continue 'candidate;
+                    }
+                }
+            }
+
+            // Candidate passed all checks. Add it to the horosphere list.
+            // TODO: self.horospheres is also used in checks due to it being its own sibling. We should probably allocate
+            // a separate vec to prevent potential indeterminacy (and save time by avoiding additional intersection checks).
+            self.horospheres.push(Horosphere {
+                node,
+                id,
+                pos: *candidate_horosphere,
+            });
+            id += 1;
+        }
     }
 
     pub fn up_direction(&self) -> na::Vector4<f32> {
