@@ -180,6 +180,9 @@ impl Graph {
 
     /// Ensures that the neighbour node at a particular side of a particular node exists in the graph,
     /// as well as the nodes from the origin to the neighbour node.
+    // TODO: Some kind of ensure_peers is needed as well, ensuring that the node has all its peers, and
+    // the peers' parents have all their peers, etc.
+    // Such nodes otherwise will not necessarily generate naturally in certain routes the player could travel.
     pub fn ensure_neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
         let v = &self.nodes[&node];
         if let Some(x) = v.neighbors[side as usize] {

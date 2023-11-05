@@ -573,14 +573,28 @@ impl ChunkParams {
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
             // For a hollow horosphere, depth between -1.0 and -0.9 is enough thickness to avoid gaps.
-            if horospheres.iter().any(|h| {
-                let depth = math::mip(&center, &h.ideal);
+            for h in horospheres.iter() {
+                let mut depth = math::mip(&center, &h.ideal);
                 let x_drift = math::mip(&center, &h.x_dir);
                 let y_drift = math::mip(&center, &h.y_dir);
-                depth > -1.0 && !(x_drift.abs() < -depth && y_drift.abs() < -depth)
-            }) {
-                voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
-                    Material::WhiteBrick;
+                let mut layer = Material::WhiteBrick as u16;
+                while depth > -0.9 {
+                    depth *= 2.0;
+                    layer += 1;
+                    if layer >= Material::COUNT as u16 {
+                        layer = 1;
+                    }
+                }
+                let x_drift = x_drift / -depth;
+                let y_drift = y_drift / -depth;
+
+                if depth > -1.0
+                    && depth < -0.9
+                    && !(x_drift - x_drift.floor() < 0.5 && y_drift - y_drift.floor() < 0.5)
+                {
+                    voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
+                        unsafe { std::mem::transmute::<u16, Material>(layer) };
+                }
             }
         }
     }
