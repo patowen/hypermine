@@ -119,38 +119,16 @@ impl NodeState {
         self.horospheres_initialized
     }
 
-    fn add_random_horospheres(
-        horospheres: &mut Vec<Horosphere>,
-        rng: &mut Pcg64Mcg,
-        graph: &Graph,
-        node: NodeId,
-    ) {
-        let mut id = 0;
-        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
-            let horosphere_pos = Self::random_horosphere(rng);
-            if Self::is_horosphere_valid(graph, node, &horosphere_pos) {
-                horospheres.push(Horosphere {
-                    node,
-                    id,
-                    pos: horosphere_pos,
-                });
-                id += 1;
-            }
-        }
-    }
-
     fn add_random_candidate_horospheres(
         horospheres: &mut Vec<na::Vector4<f32>>,
         rng: &mut Pcg64Mcg,
         graph: &Graph,
         node: NodeId,
     ) {
-        let mut id = 0;
         for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
             let horosphere_pos = Self::random_horosphere(rng);
             if Self::is_horosphere_valid(graph, node, &horosphere_pos) {
                 horospheres.push(horosphere_pos);
-                id += 1;
             }
         }
     }
