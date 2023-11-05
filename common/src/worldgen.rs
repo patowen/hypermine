@@ -63,10 +63,29 @@ impl NodeStateRoad {
     }
 }
 
+#[derive(Clone)]
 pub struct Horosphere {
-    node: NodeId,          // Owner node
-    id: u16,               // Node-scoped ID of the horosphere
-    pos: na::Vector4<f32>, // Node-relative position; all points whose mip with this is -1 is on the horosphere.
+    ideal: na::Vector4<f32>, // Ideal point associated with horosphere
+    x_dir: na::Vector4<f32>, // x-direction
+    y_dir: na::Vector4<f32>, // y-direction
+}
+
+impl std::ops::Mul<&Horosphere> for na::Matrix4<f32> {
+    type Output = Horosphere;
+
+    fn mul(self, rhs: &Horosphere) -> Self::Output {
+        Horosphere {
+            ideal: self * rhs.ideal,
+            x_dir: self * rhs.x_dir,
+            y_dir: self * rhs.y_dir,
+        }
+    }
+}
+
+pub struct HorosphereContainer {
+    node: NodeId,    // Owner node
+    id: u16,         // Node-scoped ID of the horosphere
+    pos: Horosphere, // Node-relative position; all points whose mip with this is -1 is on the horosphere.
 }
 
 pub struct NodeState {
@@ -75,8 +94,8 @@ pub struct NodeState {
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
     node_spice: u64,
-    horospheres: Vec<Horosphere>,
-    candidate_horospheres: Vec<na::Vector4<f32>>,
+    horospheres: Vec<HorosphereContainer>,
+    candidate_horospheres: Vec<Horosphere>,
     parent_horospheres_initialized: bool,
     horospheres_initialized: bool,
 }
@@ -120,7 +139,7 @@ impl NodeState {
     }
 
     fn add_random_candidate_horospheres(
-        horospheres: &mut Vec<na::Vector4<f32>>,
+        horospheres: &mut Vec<Horosphere>,
         rng: &mut Pcg64Mcg,
         graph: &Graph,
         node: NodeId,
@@ -133,25 +152,34 @@ impl NodeState {
         }
     }
 
-    fn is_horosphere_valid(graph: &Graph, node: NodeId, horosphere: &na::Vector4<f32>) -> bool {
-        Side::iter().all(|s| math::mip(&s.normal().cast::<f32>(), horosphere) < 1.0)
+    fn is_horosphere_valid(graph: &Graph, node: NodeId, horosphere: &Horosphere) -> bool {
+        Side::iter().all(|s| math::mip(&s.normal().cast::<f32>(), &horosphere.ideal) < 1.0)
             && (graph.descenders(node))
-                .all(|(s, _)| math::mip(&s.normal().cast::<f32>(), horosphere) < -1.0)
+                .all(|(s, _)| math::mip(&s.normal().cast::<f32>(), &horosphere.ideal) < -1.0)
     }
 
-    fn random_horosphere(rng: &mut Pcg64Mcg) -> na::Vector4<f32> {
+    fn random_horosphere(rng: &mut Pcg64Mcg) -> Horosphere {
         let vertex_w = sqrtf(2.0) * (3.0 + sqrtf(5.0)) / 4.0; // w-coordinate of every vertex in dodeca-coordinates
         let max_w = sqrtf(3.0) * (vertex_w + sqrtf(vertex_w * vertex_w - 1.0)); // Maximum possible w-coordinate of valid horosphere
 
         let w = sqrtf(rng.gen::<f32>()) * max_w;
         let phi = acosf(rng.gen::<f32>() * 2.0 - 1.0);
         let theta = rng.gen::<f32>() * std::f32::consts::TAU;
-        na::Vector4::new(
-            w * sinf(phi) * cosf(theta),
-            w * sinf(phi) * sinf(theta),
-            w * cosf(phi),
-            w,
-        )
+        Horosphere {
+            ideal: na::Vector4::new(
+                w * sinf(phi) * cosf(theta),
+                w * sinf(phi) * sinf(theta),
+                w * cosf(phi),
+                w,
+            ),
+            x_dir: na::Vector4::new(-sinf(theta), cosf(theta), 0.0, 0.0),
+            y_dir: na::Vector4::new(
+                -cosf(theta) * cosf(phi),
+                -sinf(theta) * cosf(phi),
+                sinf(phi),
+                0.0,
+            ),
+        }
     }
 
     pub fn child(&self, graph: &Graph, node: NodeId, side: Side) -> Self {
@@ -202,8 +230,11 @@ impl NodeState {
         }
     }
 
-    pub fn combine_parent_horospheres(graph: &Graph, node: NodeId) -> Option<Vec<Horosphere>> {
-        let mut parent_horospheres: FxHashMap<(NodeId, u16), Vec<na::Vector4<f32>>> =
+    pub fn combine_parent_horospheres(
+        graph: &Graph,
+        node: NodeId,
+    ) -> Option<Vec<HorosphereContainer>> {
+        let mut parent_horospheres: FxHashMap<(NodeId, u16), Vec<Horosphere>> =
             FxHashMap::default();
 
         for (side, parent_node) in graph.descenders(node) {
@@ -212,7 +243,7 @@ impl NodeState {
                 return None;
             }
             for horosphere in &parent_node_state.horospheres {
-                if math::mip(&side.normal().cast::<f32>(), &horosphere.pos) < -1.0 {
+                if math::mip(&side.normal().cast::<f32>(), &horosphere.pos.ideal) < -1.0 {
                     continue; // Horosphere is out of range and can be forgotten
                 }
 
@@ -220,7 +251,7 @@ impl NodeState {
                 let entry = parent_horospheres
                     .entry((horosphere.node, horosphere.id))
                     .or_default();
-                entry.push(side.reflection().cast() * horosphere.pos);
+                entry.push(side.reflection().cast() * &horosphere.pos);
             }
         }
 
@@ -229,13 +260,23 @@ impl NodeState {
                 .into_iter()
                 .map(|((node, id), positions)| {
                     // Average all candidate positions
-                    let mut pos: na::Vector4<f32> =
-                        positions.iter().sum::<na::Vector4<f32>>() / positions.len() as f32;
+                    let mut ideal: na::Vector4<f32> =
+                        positions.iter().map(|p| p.ideal).sum::<na::Vector4<f32>>()
+                            / positions.len() as f32;
 
                     // Reapply horosphere invariant
-                    pos.w = pos.xyz().norm();
+                    ideal.w = ideal.xyz().norm();
 
-                    Horosphere { node, id, pos }
+                    // TODO: Fix averaging of horospheres
+                    HorosphereContainer {
+                        node,
+                        id,
+                        pos: Horosphere {
+                            ideal,
+                            x_dir: positions[0].x_dir,
+                            y_dir: positions[0].y_dir,
+                        },
+                    }
                 })
                 .collect(),
         )
@@ -246,7 +287,7 @@ impl NodeState {
         &self,
         graph: &Graph,
         node: NodeId,
-    ) -> Option<Vec<Horosphere>> {
+    ) -> Option<Vec<HorosphereContainer>> {
         if !self.parent_horospheres_initialized {
             // Parent-based info is needed for intersection-testing.
             return None;
@@ -310,8 +351,8 @@ impl NodeState {
                     }
 
                     if math::mip(
-                        &(sibling_transform * existing_horosphere.pos),
-                        candidate_horosphere,
+                        &(sibling_transform * existing_horosphere.pos.ideal),
+                        &candidate_horosphere.ideal,
                     ) >= -2.0
                     {
                         // Intersection found; candidate horosphere is a no-go.
@@ -327,18 +368,20 @@ impl NodeState {
                     .candidate_horospheres
                     .iter()
                 {
-                    if sibling_horosphere.w >= candidate_horosphere.w {
+                    if sibling_horosphere.ideal.w >= candidate_horosphere.ideal.w {
                         // Lower "w" horospheres are "closer", so we let them take precedence. Note that this is roughly arbitrary,
                         // so no change of coordinates is needed. In fact, a change of coordinates would make us vulnerable to
                         // indeterminacy due to floating point error.
                         // If candidate_horosphere would take precedence, there's no need to check for precedence.
                         // We also check for equality so that we prevent horospheres from checking for intersection with themselves.
+                        // TODO: Do this a better way in case there's a coincidence where two horospheres have the same w and are accidentally
+                        // allowed to coexist.
                         continue;
                     }
 
                     if math::mip(
-                        &(sibling_transform * sibling_horosphere),
-                        candidate_horosphere,
+                        &(sibling_transform * sibling_horosphere.ideal),
+                        &candidate_horosphere.ideal,
                     ) >= -2.0
                     {
                         // Intersection found; candidate horosphere is a no-go.
@@ -348,10 +391,10 @@ impl NodeState {
             }
 
             // Candidate passed all checks. Add it to the horosphere list.
-            new_horospheres.push(Horosphere {
+            new_horospheres.push(HorosphereContainer {
                 node,
                 id,
-                pos: *candidate_horosphere,
+                pos: candidate_horosphere.clone(),
             });
             id += 1;
         }
@@ -359,12 +402,12 @@ impl NodeState {
         Some(new_horospheres)
     }
 
-    pub fn add_parent_horospheres(&mut self, mut horospheres: Vec<Horosphere>) {
+    pub fn add_parent_horospheres(&mut self, mut horospheres: Vec<HorosphereContainer>) {
         self.horospheres.append(&mut horospheres);
         self.parent_horospheres_initialized = true;
     }
 
-    pub fn add_horospheres(&mut self, mut horospheres: Vec<Horosphere>) {
+    pub fn add_horospheres(&mut self, mut horospheres: Vec<HorosphereContainer>) {
         self.horospheres.append(&mut horospheres);
         self.horospheres_initialized = true;
     }
@@ -425,7 +468,7 @@ pub struct ChunkParams {
     is_road_support: bool,
     /// Random quantity used to seed terrain gen
     node_spice: u64,
-    horospheres: Vec<na::Vector4<f32>>,
+    horospheres: Vec<Horosphere>,
 }
 
 impl ChunkParams {
@@ -450,7 +493,7 @@ impl ChunkParams {
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: state.node_spice,
             horospheres: (state.horospheres.iter())
-                .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * h.pos)
+                .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * &h.pos)
                 .collect(),
         })
     }
@@ -475,7 +518,10 @@ impl ChunkParams {
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
-        let is_horosphere = self.horospheres.iter().any(|h| h.z < 2.0 && h.z > -3.0);
+        let is_horosphere = self
+            .horospheres
+            .iter()
+            .any(|h| h.ideal.z < 2.0 && h.ideal.z > -3.0);
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
             && !is_horosphere
@@ -519,7 +565,7 @@ impl ChunkParams {
         let horospheres: Vec<_> = self
             .horospheres
             .iter()
-            .filter(|h| h.z < 2.0 && h.z > -3.0)
+            .filter(|h| h.ideal.z < 2.0 && h.ideal.z > -3.0)
             .collect();
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
@@ -530,7 +576,7 @@ impl ChunkParams {
                 math::lorentz_normalize(&na::Vector4::new(center.x, center.y, center.z, 1.0));
 
             if horospheres.iter().any(|h| {
-                let depth = math::mip(&center, h);
+                let depth = math::mip(&center, &h.ideal);
                 depth > -1.0 && depth < -0.9
             }) {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] =
