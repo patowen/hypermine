@@ -328,11 +328,12 @@ impl NodeState {
                     .candidate_horospheres
                     .iter()
                 {
-                    if sibling_horosphere.w > candidate_horosphere.w {
+                    if sibling_horosphere.w >= candidate_horosphere.w {
                         // Lower "w" horospheres are "closer", so we let them take precedence. Note that this is roughly arbitrary,
                         // so no change of coordinates is needed. In fact, a change of coordinates would make us vulnerable to
                         // indeterminacy due to floating point error.
                         // If candidate_horosphere would take precedence, there's no need to check for precedence.
+                        // We also check for equality so that we prevent horospheres from checking for intersection with themselves.
                         continue;
                     }
 
