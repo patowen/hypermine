@@ -98,6 +98,28 @@ impl Graph {
         (0..len).map(move |i| results[i].unwrap())
     }
 
+    /// Returns siblings, not including the self.
+    pub fn siblings(&self, node: NodeId) -> Vec<((Side, Side), Option<NodeId>)> {
+        let mut siblings = Vec::new();
+        for (parent_side, parent_node) in self.descenders(node) {
+            for sibling_side in Side::iter() {
+                if !sibling_side.adjacent_to(parent_side) {
+                    // We want edge-adjacent siblings only.
+                    continue;
+                }
+                if self.descenders(parent_node).any(|(s, _)| s == sibling_side) {
+                    // Grandparents are not siblings.
+                    continue;
+                }
+                siblings.push((
+                    (parent_side, sibling_side),
+                    self.neighbor(parent_node, sibling_side),
+                ));
+            }
+        }
+        siblings
+    }
+
     #[inline]
     pub fn get(&self, node: NodeId) -> &Option<Node> {
         &self.nodes[&node].value

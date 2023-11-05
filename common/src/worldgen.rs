@@ -77,6 +77,7 @@ pub struct NodeState {
     node_spice: u64,
     horospheres: Vec<Horosphere>,
     candidate_horospheres: Vec<na::Vector4<f32>>,
+    parent_horospheres_initialized: bool,
     horospheres_initialized: bool,
 }
 impl NodeState {
@@ -105,8 +106,13 @@ impl NodeState {
             node_spice,
             horospheres: vec![],
             candidate_horospheres,
+            parent_horospheres_initialized: true,
             horospheres_initialized: false,
         }
+    }
+
+    pub fn parent_horospheres_initialized(&self) -> bool {
+        self.parent_horospheres_initialized
     }
 
     pub fn horospheres_initialized(&self) -> bool {
@@ -213,16 +219,21 @@ impl NodeState {
             node_spice,
             horospheres: vec![],
             candidate_horospheres,
+            parent_horospheres_initialized: false,
             horospheres_initialized: false,
         }
     }
 
-    fn combine_parent_horospheres(graph: &Graph, node: NodeId) -> Vec<Horosphere> {
+    pub fn combine_parent_horospheres(graph: &Graph, node: NodeId) -> Option<Vec<Horosphere>> {
         let mut parent_horospheres: FxHashMap<(NodeId, u16), Vec<na::Vector4<f32>>> =
             FxHashMap::default();
 
         for (side, parent_node) in graph.descenders(node) {
-            for horosphere in &graph.get(parent_node).as_ref().unwrap().state.horospheres {
+            let parent_node_state = &graph.get(parent_node).as_ref().unwrap().state;
+            if !parent_node_state.horospheres_initialized {
+                return None;
+            }
+            for horosphere in &parent_node_state.horospheres {
                 if math::mip(&side.normal().cast::<f32>(), &horosphere.pos) < -1.0 {
                     continue; // Horosphere is out of range and can be forgotten
                 }
@@ -235,19 +246,21 @@ impl NodeState {
             }
         }
 
-        parent_horospheres
-            .into_iter()
-            .map(|((node, id), positions)| {
-                // Average all candidate positions
-                let mut pos: na::Vector4<f32> =
-                    positions.iter().sum::<na::Vector4<f32>>() / positions.len() as f32;
+        Some(
+            parent_horospheres
+                .into_iter()
+                .map(|((node, id), positions)| {
+                    // Average all candidate positions
+                    let mut pos: na::Vector4<f32> =
+                        positions.iter().sum::<na::Vector4<f32>>() / positions.len() as f32;
 
-                // Reapply horosphere invariant
-                pos.w = pos.xyz().norm();
+                    // Reapply horosphere invariant
+                    pos.w = pos.xyz().norm();
 
-                Horosphere { node, id, pos }
-            })
-            .collect()
+                    Horosphere { node, id, pos }
+                })
+                .collect(),
+        )
     }
 
     // Remove duplicates.
@@ -256,6 +269,11 @@ impl NodeState {
         graph: &Graph,
         node: NodeId,
     ) -> Option<Vec<Horosphere>> {
+        if !self.parent_horospheres_initialized {
+            // Parent-based info is needed for intersection-testing.
+            return None;
+        }
+
         let mut sibling_nodes: FxHashMap<NodeId, na::Matrix4<f32>> = FxHashMap::default();
         sibling_nodes.insert(node, na::Matrix4::identity());
         for (parent_side, parent_node) in graph.descenders(node) {
@@ -275,6 +293,11 @@ impl NodeState {
                     // Some sibling nodes are missing. This node is not ready to have its horospheres populated.
                     return None;
                 };
+                if !(graph.get(sibling_node).as_ref().unwrap().state).parent_horospheres_initialized
+                {
+                    // Sibling nodes lack crucial parent-based info for intersection-testing.
+                    return None;
+                }
                 // TODO: We should replace this hash with a simple list. There is no deduplication needed.
                 // This belief is checked in an assert statement below as a sanity check.
                 let old_value = sibling_nodes.insert(
@@ -288,10 +311,7 @@ impl NodeState {
         }
 
         let mut id = 0;
-        // We need to combine parent horospheres here instead of on creation because, on creation, the parent horospheres may
-        // have not yet been determined.
-        // TODO: There's no reason to use the word `new_` anymore, since old horospheres are also included in this list.
-        let mut new_horospheres = Self::combine_parent_horospheres(graph, node);
+        let mut new_horospheres = vec![];
         'candidate: for candidate_horosphere in &self.candidate_horospheres {
             for (&sibling_node, sibling_transform) in sibling_nodes.iter() {
                 for existing_horosphere in graph
@@ -359,6 +379,11 @@ impl NodeState {
         }
 
         Some(new_horospheres)
+    }
+
+    pub fn add_parent_horospheres(&mut self, mut horospheres: Vec<Horosphere>) {
+        self.horospheres.append(&mut horospheres);
+        self.parent_horospheres_initialized = true;
     }
 
     pub fn add_horospheres(&mut self, mut horospheres: Vec<Horosphere>) {

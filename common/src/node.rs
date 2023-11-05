@@ -41,25 +41,66 @@ impl Graph {
     }
 
     /// Attempts to set the "horospheres" field of `node`, ensuring that all ancestors
-    /// are set up first.
+    /// are set up first. Returns whether successful.
     pub fn try_fill_horospheres(&mut self, node: NodeId) -> bool {
         if (self.get(node).as_ref().unwrap().state).horospheres_initialized() {
             // No need to fill horospheres if they're already filled.
             return true;
         }
+
+        if !self.try_fill_parent_horospheres(node) {
+            return false;
+        }
+
+        // Try filling the parent horospheres of all siblings.
+        for (_, sibling_node) in self.siblings(node) {
+            let Some(sibling_node) = sibling_node else {
+                // If some siblings are uninitialized, there's nothing to do.
+                return false;
+            };
+            if !self.try_fill_parent_horospheres(sibling_node) {
+                return false;
+            }
+        }
+
+        self.try_fill_horospheres_helper(node)
+    }
+
+    /// Attempts to set the parent part of "horospheres" field of `node`, ensuring that all ancestors
+    /// are set up first. Returns whether successful.
+    pub fn try_fill_parent_horospheres(&mut self, node: NodeId) -> bool {
+        if (self.get(node).as_ref().unwrap().state).parent_horospheres_initialized() {
+            // No need to fill horospheres if they're already filled.
+            return true;
+        }
         for (_, parent_node) in self.descenders(node) {
+            // To get "parent horospheres", we need the parents' horospheres.
             if !self.try_fill_horospheres(parent_node) {
                 return false;
             }
         }
 
+        self.try_fill_parent_horospheres_helper(node)
+    }
+
+    /// Attempts to set up "horospheres" field of `node` without setting up ancestors.
+    fn try_fill_horospheres_helper(&mut self, node: NodeId) -> bool {
         let Some(horospheres) =
             (self.get(node).as_ref().unwrap().state).get_horospheres_from_candidates(self, node)
         else {
             return false;
         };
-
         (self.get_mut(node).as_mut().unwrap().state).add_horospheres(horospheres);
+
+        true
+    }
+
+    /// Attempts to set up parent part of "horospheres" field of `node` without setting up ancestors.
+    fn try_fill_parent_horospheres_helper(&mut self, node: NodeId) -> bool {
+        let Some(horospheres) = NodeState::combine_parent_horospheres(self, node) else {
+            return false;
+        };
+        (self.get_mut(node).as_mut().unwrap().state).add_parent_horospheres(horospheres);
 
         true
     }
