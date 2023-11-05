@@ -2,7 +2,7 @@
 
 use std::ops::{Index, IndexMut};
 
-use crate::dodeca::Vertex;
+use crate::dodeca::{Side, Vertex};
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::proto::Position;
@@ -38,6 +38,30 @@ impl Graph {
         Some(na::UnitVector3::new_normalize(
             (math::mtranspose(&position.local) * node.state.up_direction()).xyz(),
         ))
+    }
+
+    /// Attempts to set the "horospheres" field of `node`, ensuring that all ancestors
+    /// are set up first.
+    pub fn try_fill_horospheres(&mut self, node: NodeId) -> bool {
+        if (self.get(node).as_ref().unwrap().state).horospheres_initialized() {
+            // No need to fill horospheres if they're already filled.
+            return true;
+        }
+        for (_, parent_node) in self.descenders(node) {
+            if !self.try_fill_horospheres(parent_node) {
+                return false;
+            }
+        }
+
+        let Some(horospheres) =
+            (self.get(node).as_ref().unwrap().state).get_horospheres_from_candidates(self, node)
+        else {
+            return false;
+        };
+
+        (self.get_mut(node).as_mut().unwrap().state).add_horospheres(horospheres);
+
+        true
     }
 }
 
@@ -153,6 +177,9 @@ pub fn populate_fresh_nodes(graph: &mut Graph) {
     for &node in &fresh {
         populate_node(graph, node);
     }
+    for &node in &fresh {
+        fill_sibling_horospheres(graph, node);
+    }
 }
 
 fn populate_node(graph: &mut Graph, node: NodeId) {
@@ -166,4 +193,33 @@ fn populate_node(graph: &mut Graph, node: NodeId) {
             .unwrap_or_else(|| NodeState::root(graph)),
         chunks: Chunks::default(),
     });
+}
+
+fn fill_sibling_horospheres(graph: &mut Graph, node: NodeId) {
+    // Try to fill horospheres immediately in case this node was the last in its sibling neighborhood
+    // to be generated.
+    graph.try_fill_horospheres(node);
+
+    // Sibling nodes may now have all of their siblings generated, so they should attempt to
+    // fill horospheres.
+    for (parent_side, parent_node) in graph.descenders(node) {
+        for sibling_side in Side::iter() {
+            if !sibling_side.adjacent_to(parent_side) {
+                // We want edge-adjacent siblings only.
+                continue;
+            }
+            if graph
+                .descenders(parent_node)
+                .any(|(s, _)| s == sibling_side)
+            {
+                // Grandparents are not siblings.
+                continue;
+            }
+            let Some(sibling_node) = graph.neighbor(parent_node, sibling_side) else {
+                // No need to try to fill horospheres in a nonexistent neighbor-node
+                continue;
+            };
+            graph.try_fill_horospheres(sibling_node);
+        }
+    }
 }

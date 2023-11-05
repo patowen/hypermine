@@ -1,4 +1,3 @@
-use bincode::de;
 use fxhash::FxHashMap;
 use libm::{acosf, cosf, sinf, sqrtf};
 use rand::{distributions::Uniform, Rng, SeedableRng};
@@ -64,7 +63,7 @@ impl NodeStateRoad {
     }
 }
 
-struct Horosphere {
+pub struct Horosphere {
     node: NodeId,          // Owner node
     id: u16,               // Node-scoped ID of the horosphere
     pos: na::Vector4<f32>, // Node-relative position; all points whose mip with this is -1 is on the horosphere.
@@ -78,7 +77,7 @@ pub struct NodeState {
     node_spice: u64,
     horospheres: Vec<Horosphere>,
     candidate_horospheres: Vec<na::Vector4<f32>>,
-    waiting_for_siblings: bool,
+    horospheres_initialized: bool,
 }
 impl NodeState {
     pub fn root(graph: &Graph) -> Self {
@@ -104,10 +103,14 @@ impl NodeState {
                 blockiness: 0.0,
             },
             node_spice,
-            horospheres: vec![], // TODO: This shouldn't be empty.
+            horospheres: vec![],
             candidate_horospheres,
-            waiting_for_siblings: false,
+            horospheres_initialized: false,
         }
+    }
+
+    pub fn horospheres_initialized(&self) -> bool {
+        self.horospheres_initialized
     }
 
     fn add_random_horospheres(
@@ -212,7 +215,7 @@ impl NodeState {
             node_spice,
             horospheres,
             candidate_horospheres,
-            waiting_for_siblings: true,
+            horospheres_initialized: false,
         }
     }
 
@@ -249,16 +252,12 @@ impl NodeState {
             .collect()
     }
 
-    // Remove duplicates. TODO: This will probably incompatible with borrow checker but can be refactored.
-    fn set_horospheres_from_candidates(&mut self, graph: &Graph, node: NodeId) {
-        // TODO: The parent_nodes hashmap is unneeded. The constification below will hopefully help clippy catch this.
-        let mut parent_nodes: FxHashMap<NodeId, na::Matrix4<f32>> = FxHashMap::default();
-        let descenders = graph.descenders(node);
-        for (parent_side, parent_node) in graph.descenders(node) {
-            parent_nodes.insert(parent_node, parent_side.reflection().cast());
-        }
-        let parent_nodes = parent_nodes;
-
+    // Remove duplicates.
+    pub fn get_horospheres_from_candidates(
+        &self,
+        graph: &Graph,
+        node: NodeId,
+    ) -> Option<Vec<Horosphere>> {
         let mut sibling_nodes: FxHashMap<NodeId, na::Matrix4<f32>> = FxHashMap::default();
         sibling_nodes.insert(node, na::Matrix4::identity());
         for (parent_side, parent_node) in graph.descenders(node) {
@@ -276,7 +275,7 @@ impl NodeState {
                 }
                 let Some(sibling_node) = graph.neighbor(parent_node, sibling_side) else {
                     // Some sibling nodes are missing. This node is not ready to have its horospheres populated.
-                    break;
+                    return None;
                 };
                 // TODO: We should replace this hash with a simple list. There is no deduplication needed.
                 // This belief is checked in an assert statement below as a sanity check.
@@ -291,6 +290,7 @@ impl NodeState {
         }
 
         let mut id = 0;
+        let mut new_horospheres = vec![];
         'candidate: for candidate_horosphere in &self.candidate_horospheres {
             for (&sibling_node, sibling_transform) in sibling_nodes.iter() {
                 for existing_horosphere in graph
@@ -348,13 +348,20 @@ impl NodeState {
             }
 
             // Candidate passed all checks. Add it to the horosphere list.
-            self.horospheres.push(Horosphere {
+            new_horospheres.push(Horosphere {
                 node,
                 id,
                 pos: *candidate_horosphere,
             });
             id += 1;
         }
+
+        Some(new_horospheres)
+    }
+
+    pub fn add_horospheres(&mut self, mut horospheres: Vec<Horosphere>) {
+        self.horospheres.append(&mut horospheres);
+        self.horospheres_initialized = true;
     }
 
     pub fn up_direction(&self) -> na::Vector4<f32> {
@@ -422,6 +429,11 @@ impl ChunkParams {
     /// Returns `None` if an unpopulated node is needed.
     pub fn new(dimension: u8, graph: &Graph, chunk: ChunkId) -> Option<Self> {
         let state = &graph.get(chunk.node).as_ref()?.state;
+        if !state.horospheres_initialized {
+            // Don't want to generate incomplete terrain where horospheres are missing.
+            return None;
+        }
+
         Some(Self {
             dimension,
             chunk: chunk.vertex,
