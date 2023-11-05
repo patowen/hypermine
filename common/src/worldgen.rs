@@ -348,8 +348,6 @@ impl NodeState {
             }
 
             // Candidate passed all checks. Add it to the horosphere list.
-            // TODO: self.horospheres is also used in checks due to it being its own sibling. We should probably allocate
-            // a separate vec to prevent potential indeterminacy (and save time by avoiding additional intersection checks).
             self.horospheres.push(Horosphere {
                 node,
                 id,
