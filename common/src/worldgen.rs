@@ -197,8 +197,6 @@ impl NodeState {
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
 
-        let mut horospheres = Self::combine_parent_horospheres(graph, node);
-
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
         let mut candidate_horospheres = vec![];
         Self::add_random_candidate_horospheres(&mut candidate_horospheres, &mut rng, graph, node);
@@ -213,7 +211,7 @@ impl NodeState {
             road_state: child_road,
             enviro,
             node_spice,
-            horospheres,
+            horospheres: vec![],
             candidate_horospheres,
             horospheres_initialized: false,
         }
@@ -290,7 +288,10 @@ impl NodeState {
         }
 
         let mut id = 0;
-        let mut new_horospheres = vec![];
+        // We need to combine parent horospheres here instead of on creation because, on creation, the parent horospheres may
+        // have not yet been determined.
+        // TODO: There's no reason to use the word `new_` anymore, since old horospheres are also included in this list.
+        let mut new_horospheres = Self::combine_parent_horospheres(graph, node);
         'candidate: for candidate_horosphere in &self.candidate_horospheres {
             for (&sibling_node, sibling_transform) in sibling_nodes.iter() {
                 for existing_horosphere in graph
