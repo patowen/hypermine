@@ -158,7 +158,7 @@ impl Sim {
     }
 
     pub fn load(
-        &mut self,
+        &self,
         save: &save::Save,
         node: NodeId,
     ) -> Result<Vec<(ChunkId, SerializableVoxelData)>, save::DbError> {
@@ -328,6 +328,10 @@ impl Sim {
             modified_chunks.append(&mut self.load(save, *node).expect("TODO: Handle errors"));
         }
         for (chunk, voxel_data) in modified_chunks.iter() {
+            self.modified_chunks
+                .entry(chunk.node)
+                .or_default()
+                .insert(chunk.vertex);
             self.graph.populate_chunk(
                 *chunk,
                 VoxelData::from_serializable(voxel_data, self.cfg.chunk_size)
