@@ -113,7 +113,7 @@ impl Server {
         }
 
         // Step the simulation
-        let (spawns, delta) = self.sim.step();
+        let (spawns, delta) = self.sim.step(&self.save);
         let spawns = Arc::new(spawns);
         let mut overran = Vec::new();
         for (client_id, client) in &mut self.clients {

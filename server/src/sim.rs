@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use common::dodeca::Vertex;
 use common::node::VoxelData;
-use common::proto::BlockUpdate;
+use common::proto::{BlockUpdate, SerializableVoxelData};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -157,21 +157,28 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn load(&mut self, save: &save::Save) -> Result<(), save::DbError> {
+    pub fn load(
+        &mut self,
+        save: &save::Save,
+        node: NodeId,
+    ) -> Result<Vec<(ChunkId, SerializableVoxelData)>, save::DbError> {
+        let mut result = vec![];
         let read_guard = save.read()?;
         let mut read = read_guard.get()?;
-        if let Some(node) = read.get_voxel_node(42).expect("TODO: handle error") {
-            for chunk in node.chunks.iter() {
-                let voxels = VoxelData::from_serializable(
-                    &postcard::from_bytes(&chunk.voxels).expect("TODO: Handle error"),
-                    self.cfg.chunk_size,
-                );
+        if let Some(voxel_node) = read
+            .get_voxel_node(self.graph.hash_of(node))
+            .expect("TODO: handle error")
+        {
+            for chunk in voxel_node.chunks.iter() {
+                let voxels: SerializableVoxelData =
+                    postcard::from_bytes(&chunk.voxels).expect("TODO: Handle error");
                 let vertex = Vertex::iter()
                     .nth(chunk.vertex as usize)
                     .expect("TODO: Handle error");
+                result.push((ChunkId::new(node, vertex), voxels));
             }
         }
-        Ok(())
+        Ok(result)
     }
 
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
@@ -260,7 +267,7 @@ impl Sim {
         spawns
     }
 
-    pub fn step(&mut self) -> (Spawns, StateDelta) {
+    pub fn step(&mut self, save: &save::Save) -> (Spawns, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
@@ -305,6 +312,7 @@ impl Sim {
                 .entry(block_update.chunk_id.node)
                 .or_default()
                 .insert(block_update.chunk_id.vertex);
+            self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
             accepted_block_updates.push(block_update);
         }
 
@@ -314,9 +322,24 @@ impl Sim {
             let id = *self.world.get::<&EntityId>(entity).unwrap();
             spawns.push((id, dump_entity(&self.world, entity)));
         }
+
+        let mut modified_chunks = vec![];
+        for node in fresh_nodes.iter() {
+            modified_chunks.append(&mut self.load(save, *node).expect("TODO: Handle errors"));
+        }
+        for (chunk, voxel_data) in modified_chunks.iter() {
+            self.graph.populate_chunk(
+                *chunk,
+                VoxelData::from_serializable(voxel_data, self.cfg.chunk_size)
+                    .expect("TODO: Handle errors"),
+                true,
+            );
+        }
+
         if !fresh_nodes.is_empty() {
             trace!(count = self.graph.fresh().len(), "broadcasting fresh nodes");
         }
+
         let spawns = Spawns {
             step: self.step,
             spawns,
@@ -332,7 +355,7 @@ impl Sim {
                 })
                 .collect(),
             block_updates: accepted_block_updates,
-            modified_chunks: vec![],
+            modified_chunks,
         };
 
         // We want to load all chunks that a player can interact with in a single step, so chunk_generation_distance
