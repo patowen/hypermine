@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use common::dodeca::Vertex;
+use common::node::VoxelData;
 use common::proto::BlockUpdate;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -156,6 +157,23 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
+    pub fn load(&mut self, save: &save::Save) -> Result<(), save::DbError> {
+        let read_guard = save.read()?;
+        let mut read = read_guard.get()?;
+        if let Some(node) = read.get_voxel_node(42).expect("TODO: handle error") {
+            for chunk in node.chunks.iter() {
+                let voxels = VoxelData::from_serializable(
+                    &postcard::from_bytes(&chunk.voxels).expect("TODO: Handle error"),
+                    self.cfg.chunk_size,
+                );
+                let vertex = Vertex::iter()
+                    .nth(chunk.vertex as usize)
+                    .expect("TODO: Handle error");
+            }
+        }
+        Ok(())
+    }
+
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         let id = self.new_id();
         info!(%id, name = %hello.name, "spawning character");
@@ -274,6 +292,9 @@ impl Sim {
             ensure_nearby(&mut self.graph, position, f64::from(self.cfg.view_distance));
         }
 
+        let fresh_nodes = self.graph.fresh().to_vec();
+        populate_fresh_nodes(&mut self.graph);
+
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
 
         for block_update in pending_block_updates.into_iter() {
@@ -293,16 +314,14 @@ impl Sim {
             let id = *self.world.get::<&EntityId>(entity).unwrap();
             spawns.push((id, dump_entity(&self.world, entity)));
         }
-        if !self.graph.fresh().is_empty() {
+        if !fresh_nodes.is_empty() {
             trace!(count = self.graph.fresh().len(), "broadcasting fresh nodes");
         }
         let spawns = Spawns {
             step: self.step,
             spawns,
             despawns: std::mem::take(&mut self.despawns),
-            nodes: self
-                .graph
-                .fresh()
+            nodes: fresh_nodes
                 .iter()
                 .filter_map(|&id| {
                     let side = self.graph.parent(id)?;
@@ -315,7 +334,6 @@ impl Sim {
             block_updates: accepted_block_updates,
             modified_chunks: vec![],
         };
-        populate_fresh_nodes(&mut self.graph);
 
         // We want to load all chunks that a player can interact with in a single step, so chunk_generation_distance
         // is set up to cover that distance.
