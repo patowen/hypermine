@@ -38,7 +38,7 @@ pub struct Sim {
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
     dirty_voxel_nodes: FxHashSet<NodeId>,
-    modified_chunks: FxHashMap<NodeId, FxHashSet<Vertex>>,
+    modified_chunks: FxHashSet<ChunkId>,
 }
 
 impl Sim {
@@ -54,7 +54,7 @@ impl Sim {
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
             dirty_voxel_nodes: FxHashSet::default(),
-            modified_chunks: FxHashMap::default(),
+            modified_chunks: FxHashSet::default(),
             cfg,
         };
 
@@ -139,7 +139,10 @@ impl Sim {
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
         let mut chunks = vec![];
         let node_data = self.graph.get(node).as_ref().unwrap();
-        for &vertex in self.modified_chunks.get(&node).unwrap() {
+        for vertex in Vertex::iter() {
+            if !self.modified_chunks.contains(&ChunkId::new(node, vertex)) {
+                continue;
+            }
             let mut serialized_voxels = Vec::new();
             let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
                 panic!("Unknown chunk listed as modified");
@@ -249,11 +252,7 @@ impl Sim {
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        for chunk_id in self
-            .modified_chunks
-            .iter()
-            .flat_map(|pair| pair.1.iter().map(move |vert| ChunkId::new(*pair.0, *vert)))
-        {
+        for &chunk_id in self.modified_chunks.iter() {
             let voxels =
                 match self.graph.get(chunk_id.node).as_ref().unwrap().chunks[chunk_id.vertex] {
                     Chunk::Populated { ref voxels, .. } => voxels,
@@ -308,10 +307,7 @@ impl Sim {
             if !self.graph.update_block(&block_update) {
                 tracing::warn!("Block update received from ungenerated chunk");
             }
-            self.modified_chunks
-                .entry(block_update.chunk_id.node)
-                .or_default()
-                .insert(block_update.chunk_id.vertex);
+            self.modified_chunks.insert(block_update.chunk_id);
             self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
             accepted_block_updates.push(block_update);
         }
@@ -328,10 +324,7 @@ impl Sim {
             modified_chunks.append(&mut self.load(save, *node).expect("TODO: Handle errors"));
         }
         for (chunk, voxel_data) in modified_chunks.iter() {
-            self.modified_chunks
-                .entry(chunk.node)
-                .or_default()
-                .insert(chunk.vertex);
+            self.modified_chunks.insert(*chunk);
             self.graph.populate_chunk(
                 *chunk,
                 VoxelData::from_serializable(voxel_data, self.cfg.chunk_size)
