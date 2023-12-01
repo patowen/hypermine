@@ -144,7 +144,10 @@ impl Reader<'_> {
     /// TODO: Replace this implementation with a streaming implementation
     /// that does not require loading everything at once
     pub fn get_all_voxel_node_ids(&mut self) -> Result<Vec<u128>, GetError> {
-        let a: Vec<_> = self.voxel_nodes.iter()?.collect();
+        self.voxel_nodes
+            .iter()?
+            .map(|n| Ok(n.map_err(GetError::from)?.0.value()))
+            .collect()
     }
 }
 
