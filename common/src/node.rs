@@ -322,12 +322,10 @@ impl VoxelData {
         };
 
         let mut serializable: Vec<Material> = Vec::with_capacity(usize::from(dimension).pow(3));
-        let mut output_index = 0;
         for x in 0..dimension {
             for y in 0..dimension {
                 for z in 0..dimension {
-                    serializable[output_index] = data[Coords([x, y, z]).to_index(dimension)];
-                    output_index += 1;
+                    serializable.push(data[Coords([x, y, z]).to_index(dimension)]);
                 }
             }
         }
