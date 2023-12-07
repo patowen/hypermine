@@ -56,7 +56,7 @@ impl Server {
     fn new(params: SimConfig, save: Save) -> Self {
         let cfg = Arc::new(params);
         Self {
-            sim: Sim::new(cfg.clone()),
+            sim: Sim::new(cfg.clone(), &save),
             cfg,
             clients: DenseSlotMap::default(),
             save,
@@ -113,7 +113,7 @@ impl Server {
         }
 
         // Step the simulation
-        let (spawns, delta) = self.sim.step(&self.save);
+        let (spawns, delta) = self.sim.step();
         let spawns = Arc::new(spawns);
         let mut overran = Vec::new();
         for (client_id, client) in &mut self.clients {

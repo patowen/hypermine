@@ -33,7 +33,7 @@ pub struct Sim {
     entity_ids: FxHashMap<EntityId, Entity>,
     world: hecs::World,
     graph: Graph,
-    pending_modified_chunks: FxHashMap<ChunkId, Vec<BlockUpdate>>,
+    pending_modified_chunks: FxHashMap<ChunkId, VoxelData>,
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
@@ -43,7 +43,7 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(cfg: Arc<SimConfig>) -> Self {
+    pub fn new(cfg: Arc<SimConfig>, save: &save::Save) -> Self {
         let mut result = Self {
             rng: SmallRng::from_entropy(),
             step: 0,
@@ -60,6 +60,7 @@ impl Sim {
             cfg,
         };
 
+        result.load(save).expect("TODO: Handle errors");
         ensure_nearby(
             &mut result.graph,
             &Position::origin(),
@@ -162,28 +163,28 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn load(
-        &self,
-        save: &save::Save,
-        node: NodeId,
-    ) -> Result<Vec<(ChunkId, SerializableVoxelData)>, save::DbError> {
-        let mut result = vec![];
+    pub fn load(&mut self, save: &save::Save) -> Result<(), save::DbError> {
         let read_guard = save.read()?;
         let mut read = read_guard.get()?;
-        if let Some(voxel_node) = read
-            .get_voxel_node(self.graph.hash_of(node))
-            .expect("TODO: handle error")
-        {
+        for node_hash in read.get_all_voxel_node_ids().expect("TODO: handle error") {
+            let Some(voxel_node) = read.get_voxel_node(node_hash).expect("TODO: Handle error")
+            else {
+                continue;
+            };
             for chunk in voxel_node.chunks.iter() {
                 let voxels: SerializableVoxelData =
                     postcard::from_bytes(&chunk.voxels).expect("TODO: Handle error");
                 let vertex = Vertex::iter()
                     .nth(chunk.vertex as usize)
                     .expect("TODO: Handle error");
-                result.push((ChunkId::new(node, vertex), voxels));
+                self.pending_modified_chunks.insert(
+                    ChunkId::new(self.graph.from_hash(node_hash), vertex),
+                    VoxelData::from_serializable(&voxels, self.cfg.chunk_size)
+                        .expect("TODO: Handle errors"),
+                );
             }
         }
-        Ok(result)
+        Ok(())
     }
 
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
@@ -268,7 +269,7 @@ impl Sim {
         spawns
     }
 
-    pub fn step(&mut self, save: &save::Save) -> (Spawns, StateDelta) {
+    pub fn step(&mut self) -> (Spawns, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
@@ -322,17 +323,15 @@ impl Sim {
         }
 
         let mut modified_chunks = vec![];
-        for node in fresh_nodes.iter() {
-            modified_chunks.append(&mut self.load(save, *node).expect("TODO: Handle errors"));
-        }
-        for (chunk, voxel_data) in modified_chunks.iter() {
-            self.modified_chunks.insert(*chunk);
-            self.graph.populate_chunk(
-                *chunk,
-                VoxelData::from_serializable(voxel_data, self.cfg.chunk_size)
-                    .expect("TODO: Handle errors"),
-                true,
-            );
+        for fresh_node in fresh_nodes.iter().copied() {
+            for vertex in Vertex::iter() {
+                let chunk = ChunkId::new(fresh_node, vertex);
+                if let Some(voxel_data) = self.pending_modified_chunks.remove(&chunk) {
+                    modified_chunks.push((chunk, voxel_data.to_serializable(self.cfg.chunk_size)));
+                    self.modified_chunks.insert(chunk);
+                    self.graph.populate_chunk(chunk, voxel_data, true)
+                }
+            }
         }
 
         if !fresh_nodes.is_empty() {
