@@ -36,7 +36,6 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
-    dirty_voxel_nodes: FxHashSet<NodeId>,
     modified_chunks: FxHashMap<NodeId, FxHashSet<Vertex>>,
 }
 
@@ -52,7 +51,6 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
-            dirty_voxel_nodes: FxHashSet::default(),
             modified_chunks: FxHashMap::default(),
             cfg,
         };
@@ -88,14 +86,9 @@ impl Sim {
         }
 
         let dirty_nodes = self.dirty_nodes.drain().collect::<Vec<_>>();
-        let dirty_voxel_nodes = self.dirty_voxel_nodes.drain().collect::<Vec<_>>();
         for node in dirty_nodes {
             let entities = self.snapshot_node(node);
             writer.put_entity_node(self.graph.hash_of(node), &entities)?;
-        }
-        for node in dirty_voxel_nodes {
-            let voxels = self.snapshot_voxel_node(node);
-            writer.put_voxel_node(self.graph.hash_of(node), &voxels)?;
         }
 
         drop(writer);
@@ -133,27 +126,6 @@ impl Sim {
                 component_data: vec![character_transforms, character_names],
             }],
         }
-    }
-
-    fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
-        let mut chunks = vec![];
-        let node_data = self.graph.get(node).as_ref().unwrap();
-        for &vertex in self.modified_chunks.get(&node).unwrap() {
-            let mut serialized_voxels = Vec::new();
-            let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
-                panic!("Unknown chunk listed as modified");
-            };
-            postcard_helpers::serialize(
-                &voxels.to_serializable(self.cfg.chunk_size),
-                &mut serialized_voxels,
-            )
-            .unwrap();
-            chunks.push(save::Chunk {
-                vertex: vertex as u32,
-                voxels: serialized_voxels,
-            })
-        }
-        save::VoxelNode { chunks }
     }
 
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
