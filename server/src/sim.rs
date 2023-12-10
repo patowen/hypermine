@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use common::dodeca::Vertex;
 use common::proto::BlockUpdate;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -36,7 +35,7 @@ pub struct Sim {
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
     dirty_nodes: FxHashSet<NodeId>,
-    modified_chunks: FxHashMap<NodeId, FxHashSet<Vertex>>,
+    modified_chunks: FxHashSet<ChunkId>,
 }
 
 impl Sim {
@@ -51,7 +50,7 @@ impl Sim {
             despawns: Vec::new(),
             graph_entities: GraphEntities::new(),
             dirty_nodes: FxHashSet::default(),
-            modified_chunks: FxHashMap::default(),
+            modified_chunks: FxHashSet::default(),
             cfg,
         };
 
@@ -196,11 +195,7 @@ impl Sim {
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
-        for chunk_id in self
-            .modified_chunks
-            .iter()
-            .flat_map(|pair| pair.1.iter().map(move |vert| ChunkId::new(*pair.0, *vert)))
-        {
+        for &chunk_id in self.modified_chunks.iter() {
             let voxels =
                 match self.graph.get(chunk_id.node).as_ref().unwrap().chunks[chunk_id.vertex] {
                     Chunk::Populated { ref voxels, .. } => voxels,
@@ -252,10 +247,7 @@ impl Sim {
             if !self.graph.update_block(&block_update) {
                 tracing::warn!("Block update received from ungenerated chunk");
             }
-            self.modified_chunks
-                .entry(block_update.chunk_id.node)
-                .or_default()
-                .insert(block_update.chunk_id.vertex);
+            self.modified_chunks.insert(block_update.chunk_id);
             accepted_block_updates.push(block_update);
         }
 
