@@ -108,7 +108,7 @@ impl Graph {
                     {
                         if let Chunk::Populated { modified: true, .. } = self[chunk_id] {
                             // Remove margins if next to a modified chunk
-                            new_data.data_mut(self.layout().dimension);
+                            new_data.replace_margin_with_void(self.layout().dimension);
                         }
                     }
                 }
@@ -145,6 +145,9 @@ impl Graph {
         else {
             return false;
         };
+        if voxels.is_solid() {
+            voxels.replace_margin_with_void(dimension);
+        }
         let voxel = voxels
             .data_mut(dimension)
             .get_mut(block_update.coords.to_index(dimension))
@@ -189,7 +192,7 @@ impl Graph {
         };
 
         if voxels.is_solid() {
-            voxels.data_mut(dimension);
+            voxels.replace_margin_with_void(dimension);
             *old_surface = surface.take().or(*old_surface);
         }
         true
@@ -268,18 +271,7 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(ref mut d) => d,
             VoxelData::Solid(mat) => {
-                let lwm = usize::from(dimension) + 2;
-                let mut data = vec![Material::Void; lwm.pow(3)];
-
-                // Populate all blocks except the margins, as margins are not fully implemented yet.
-                for i in 1..(lwm - 1) {
-                    for j in 1..(lwm - 1) {
-                        for k in 1..(lwm - 1) {
-                            data[i + j * lwm + k * lwm.pow(2)] = mat;
-                        }
-                    }
-                }
-                *self = VoxelData::Dense(data.into_boxed_slice());
+                *self = VoxelData::Dense(vec![mat; (usize::from(dimension) + 2).pow(3)].into());
                 self.data_mut(dimension)
             }
         }
@@ -289,6 +281,21 @@ impl VoxelData {
         match *self {
             VoxelData::Dense(ref d) => d[index],
             VoxelData::Solid(mat) => mat,
+        }
+    }
+
+    pub fn replace_margin_with_void(&mut self, dimension: u8) {
+        let data = self.data_mut(dimension);
+        let lwm = usize::from(dimension) + 2;
+        for z in 0..lwm {
+            for y in 0..lwm {
+                for x in 0..lwm {
+                    if x == 0 || x == lwm - 1 || y == 0 || y == lwm - 1 || z == 0 || z == lwm - 1 {
+                        // The current coordinates correspond to a margin point. Set it to void.
+                        data[x + y * lwm + z * lwm.pow(2)] = Material::Void;
+                    }
+                }
+            }
         }
     }
 
@@ -308,9 +315,9 @@ impl VoxelData {
 
         let mut data = vec![Material::Void; (usize::from(dimension) + 2).pow(3)];
         let mut input_index = 0;
-        for x in 0..dimension {
+        for z in 0..dimension {
             for y in 0..dimension {
-                for z in 0..dimension {
+                for x in 0..dimension {
                     data[Coords([x, y, z]).to_index(dimension)] = serializable.voxels[input_index];
                     input_index += 1;
                 }
