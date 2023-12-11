@@ -54,7 +54,7 @@ pub fn chunk_ray_cast(
     hit
 }
 
-/// Detect collisions where a sphere contacts the front side of a voxel face
+/// Detect intersections between a ray and the front side of a voxel face
 fn find_face_collision(
     voxel_data: &VoxelData,
     layout: &ChunkLayout,

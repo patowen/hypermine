@@ -14,7 +14,7 @@ use crate::{
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
 ///
-/// This function may return a `SphereCastError` if not enough chunks are generated, even if the ray never reaches an
+/// This function may return a `Err(OutOfBounds)` if not enough chunks are generated, even if the ray never reaches an
 /// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the center of
 /// the closest node with ungenerated chunks is greater than `cast_distance + collider_radius + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn sphere_cast(
@@ -23,7 +23,7 @@ pub fn sphere_cast(
     position: &Position,
     ray: &Ray,
     mut tanh_distance: f32,
-) -> Result<Option<GraphCastHit>, SphereCastError> {
+) -> Result<Option<GraphCastHit>, OutOfBounds> {
     // A collision check is assumed to be a miss until a collision is found.
     // This `hit` variable gets updated over time before being returned.
     let mut hit: Option<GraphCastHit> = None;
@@ -32,7 +32,7 @@ pub fn sphere_cast(
     while let Some((chunk, transform)) = traverser.next(tanh_distance) {
         let Some(chunk) = chunk else {
             // Collision checking on chunk outside of graph
-            return Err(SphereCastError::OutOfBounds);
+            return Err(OutOfBounds);
         };
         let Chunk::Populated {
             voxels: ref voxel_data,
@@ -40,7 +40,7 @@ pub fn sphere_cast(
         } = graph[chunk]
         else {
             // Collision checking on unpopulated chunk
-            return Err(SphereCastError::OutOfBounds);
+            return Err(OutOfBounds);
         };
 
         // Check collision within a single chunk
@@ -65,9 +65,7 @@ pub fn sphere_cast(
 }
 
 #[derive(Debug)]
-pub enum SphereCastError {
-    OutOfBounds,
-}
+pub struct OutOfBounds;
 
 /// Information about the intersection at the end of a ray segment.
 #[derive(Debug)]

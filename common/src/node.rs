@@ -210,11 +210,12 @@ impl IndexMut<ChunkId> for Graph {
     }
 }
 
+/// Coordinates for a discrete voxel within a chunk, not including margins
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Coords(pub [u8; 3]);
 
 impl Coords {
-    /// Returns the array index corresponding to these coordinates, including margins
+    /// Returns the array index in `VoxelData` corresponding to these coordinates
     pub fn to_index(&self, chunk_size: u8) -> usize {
         let chunk_size_with_margin = chunk_size as usize + 2;
         (self.0[0] as usize + 1)
@@ -298,6 +299,8 @@ impl VoxelData {
         }
     }
 
+    /// Returns a `VoxelData` with void margins based on the given `SerializableVoxelData`, or `None` if
+    /// the `SerializableVoxelData` came from a `VoxelData` with the wrong dimension.
     pub fn from_serializable(serializable: &SerializableVoxelData, dimension: u8) -> Option<Self> {
         if serializable.voxels.len() != usize::from(dimension).pow(3) {
             return None;
@@ -316,15 +319,17 @@ impl VoxelData {
         Some(VoxelData::Dense(data.into_boxed_slice()))
     }
 
+    /// Returns a `SerializableVoxelData` corresponding to `self`. Assumes that`self` is `Dense` and
+    /// has the right dimension, as it will panic or return incorrect data otherwise.
     pub fn to_serializable(&self, dimension: u8) -> SerializableVoxelData {
         let VoxelData::Dense(data) = self else {
             panic!("Only dense chunks can be serialized.");
         };
 
         let mut serializable: Vec<Material> = Vec::with_capacity(usize::from(dimension).pow(3));
-        for x in 0..dimension {
+        for z in 0..dimension {
             for y in 0..dimension {
-                for z in 0..dimension {
+                for x in 0..dimension {
                     serializable.push(data[Coords([x, y, z]).to_index(dimension)]);
                 }
             }
@@ -385,7 +390,7 @@ impl ChunkLayout {
     /// Takes in a single grid coordinate and returns a range containing all voxel coordinates surrounding it.
     #[inline]
     pub fn neighboring_voxels(&self, grid_coord: u8) -> impl Iterator<Item = u8> {
-        grid_coord.saturating_sub(1)..(grid_coord + 1).min(self.dimension())
+        grid_coord.saturating_sub(1)..grid_coord.saturating_add(1).min(self.dimension())
     }
 }
 

@@ -13,7 +13,7 @@ use crate::{
 ///
 /// The `tanh_distance` is the hyperbolic tangent of the cast_distance, or the distance along the ray to check for hits.
 ///
-/// This function may return a `RayCastError` if not enough chunks are generated, even if the ray never reaches an
+/// This function may return an `Err(OutOfBounds)` if not enough chunks are generated, even if the ray never reaches an
 /// ungenerated chunk. To prevent these errors, make sure that the distance between the ray's start point and the center of
 /// the closest node with ungenerated chunks is greater than `cast_distance + dodeca::BOUNDING_SPHERE_RADIUS`
 pub fn ray_cast(
@@ -21,7 +21,7 @@ pub fn ray_cast(
     position: &Position,
     ray: &Ray,
     mut tanh_distance: f32,
-) -> Result<Option<GraphCastHit>, RayCastError> {
+) -> Result<Option<GraphCastHit>, OutOfBounds> {
     // A ray cast is assumed to be a miss until a collision is found.
     // This `hit` variable gets updated over time before being returned.
     let mut hit: Option<GraphCastHit> = None;
@@ -30,7 +30,7 @@ pub fn ray_cast(
     while let Some((chunk, transform)) = traverser.next(tanh_distance) {
         let Some(chunk) = chunk else {
             // Ray reached chunk outside of graph
-            return Err(RayCastError::OutOfBounds);
+            return Err(OutOfBounds);
         };
         let Chunk::Populated {
             voxels: ref voxel_data,
@@ -38,7 +38,7 @@ pub fn ray_cast(
         } = graph[chunk]
         else {
             // Ray reached unpopulated chunk
-            return Err(RayCastError::OutOfBounds);
+            return Err(OutOfBounds);
         };
 
         hit = chunk_ray_cast(
@@ -63,9 +63,7 @@ pub fn ray_cast(
 }
 
 #[derive(Debug)]
-pub enum RayCastError {
-    OutOfBounds,
-}
+pub struct OutOfBounds;
 
 /// Information about the intersection at the end of a ray segment.
 #[derive(Debug)]
