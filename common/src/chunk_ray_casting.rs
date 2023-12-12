@@ -1,7 +1,7 @@
 use crate::{
     collision_math::Ray,
     math,
-    node::{ChunkLayout, Coords, VoxelAABB, VoxelData},
+    node::{ChunkLayout, CoordDirection, Coords, VoxelAABB, VoxelData},
     world::Material,
 };
 
@@ -17,7 +17,7 @@ pub struct ChunkCastHit {
 
     // Either +1 or -1, depending on whether the outside of the face that was hit was in the positive or
     // negative direction in `face_axis`.
-    pub face_direction: i8,
+    pub face_direction: CoordDirection,
 }
 
 /// Performs ray casting against the voxels in the chunk with the given `voxel_data`
@@ -86,22 +86,19 @@ fn find_face_collision(
             continue;
         }
 
-        // Whether we are approaching the front or back of the face. An approach from the positive t direction
-        // is 1, and an approach from the negative t direction is -1.
-        let collision_side = -math::mip(&ray.direction, &normal).signum();
-
-        // Which side we approach the plane from affects which voxel we want to use for collision checking.
-        // If exiting a chunk via a chunk boundary, collision chekcing is handled by a different chunk.
-        let voxel_t = if collision_side > 0.0 {
+        // Which side we approach the plane from affects which voxel we want to use for hit detection.
+        // If exiting a chunk via a chunk boundary, hit detection is handled by a different chunk.
+        // We also want to retain this face_direction for reporting the hit result later.
+        let (face_direction, voxel_t) = if math::mip(&ray.direction, &normal) < 0.0 {
             if t == 0 {
                 continue;
             }
-            t - 1
+            (CoordDirection::Plus, t - 1)
         } else {
             if t == layout.dimension() {
                 continue;
             }
-            t
+            (CoordDirection::Minus, t)
         };
 
         let ray_endpoint = ray.ray_point(new_tanh_distance);
@@ -129,7 +126,7 @@ fn find_face_collision(
             tanh_distance: new_tanh_distance,
             voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
             face_axis: t_axis as u32,
-            face_direction: collision_side as i8,
+            face_direction,
         });
     }
 
@@ -229,7 +226,7 @@ mod tests {
         ray: &Ray,
         tanh_distance: f32,
         expected_face_axis: u32,
-        expected_face_direction: i8,
+        expected_face_direction: CoordDirection,
     ) {
         let hit = chunk_ray_cast_wrapper(ctx, ray, tanh_distance);
         let hit = hit.expect("collision expected");
@@ -253,7 +250,7 @@ mod tests {
             [0.0, 1.5, 1.5],
             [1.5, 1.5, 1.5],
             |ray, tanh_distance| {
-                test_face_collision(&ctx, ray, tanh_distance, 0, -1);
+                test_face_collision(&ctx, ray, tanh_distance, 0, CoordDirection::Minus);
             },
         );
 
@@ -262,7 +259,7 @@ mod tests {
             [1.5, 1.5, 3.0],
             [1.5, 1.5, 1.5],
             |ray, tanh_distance| {
-                test_face_collision(&ctx, ray, tanh_distance, 2, 1);
+                test_face_collision(&ctx, ray, tanh_distance, 2, CoordDirection::Plus);
             },
         );
 

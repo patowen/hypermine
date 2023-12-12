@@ -2,7 +2,7 @@ use crate::{
     chunk_ray_casting::chunk_ray_cast,
     collision_math::Ray,
     graph::Graph,
-    node::{Chunk, ChunkId, Coords},
+    node::{Chunk, ChunkId, CoordDirection, Coords},
     proto::Position,
     traversal::RayTraverser,
 };
@@ -82,5 +82,5 @@ pub struct GraphCastHit {
 
     // Either +1 or -1, depending on whether the outside of the face that was hit was in the positive or
     // negative direction in `face_axis`.
-    pub face_direction: i8,
+    pub face_direction: CoordDirection,
 }
