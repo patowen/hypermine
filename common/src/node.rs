@@ -435,6 +435,9 @@ fn populate_node(graph: &mut Graph, node: NodeId) {
     });
 }
 
+/// Represents a direction in a particular axis. This struct is meant to be used with a coordinate axis,
+/// so when paired with the X-axis, it represents the postitive X-direction when set to Plus and the
+/// negative X-direction when set to Minus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoordDirection {
     Plus = 1,
@@ -442,6 +445,7 @@ pub enum CoordDirection {
 }
 
 impl CoordDirection {
+    /// Iterates through the two possible coordinate directions
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
         [CoordDirection::Plus, CoordDirection::Minus]
             .iter()

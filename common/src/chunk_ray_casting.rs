@@ -15,8 +15,7 @@ pub struct ChunkCastHit {
     /// Which of the three axes is orthogonal to the face of the block that was hit.
     pub face_axis: u32,
 
-    // Either +1 or -1, depending on whether the outside of the face that was hit was in the positive or
-    // negative direction in `face_axis`.
+    /// The direction along `face_axis` corresponding to the outside of the face that was hit.
     pub face_direction: CoordDirection,
 }
 
