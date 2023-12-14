@@ -108,22 +108,19 @@ fn find_face_collision(
             continue;
         }
 
-        // Whether we are approaching the front or back of the face. An approach from the positive t direction
-        // is 1, and an approach from the negative t direction is -1.
-        let collision_side = -math::mip(&ray.direction, &normal).signum();
-
-        // Which side we approach the plane from affects which voxel we want to use for collision checking.
-        // If exiting a chunk via a chunk boundary, collision chekcing is handled by a different chunk.
-        let voxel_t = if collision_side > 0.0 {
+        // Which side we approach the plane from affects which voxel we want to use for hit detection.
+        // If exiting a chunk via a chunk boundary, hit detection is handled by a different chunk.
+        // We also want to adjust the normal vector to always face outward from the hit block
+        let (normal, voxel_t) = if math::mip(&ray.direction, &normal) < 0.0 {
             if t == 0 {
                 continue;
             }
-            t - 1
+            (normal, t - 1)
         } else {
             if t == layout.dimension() {
                 continue;
             }
-            t
+            (-normal, t)
         };
 
         let ray_endpoint = ray.ray_point(new_tanh_distance);
@@ -149,7 +146,7 @@ fn find_face_collision(
         // A collision was found. Update the hit.
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
-            normal: normal * collision_side,
+            normal,
         });
     }
 

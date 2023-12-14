@@ -312,7 +312,7 @@ impl Sim {
         for (chunk_id, voxel_data) in msg.modified_chunks {
             let Some(voxel_data) = VoxelData::from_serializable(&voxel_data, self.cfg.chunk_size)
             else {
-                tracing::error!("Voxel data received from server is invalid");
+                tracing::error!("Voxel data received from server is of incorrect dimension");
                 continue;
             };
             self.graph.populate_chunk(chunk_id, voxel_data, true);
