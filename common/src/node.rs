@@ -46,16 +46,19 @@ impl Graph {
     pub fn get_chunk_neighbor(
         &self,
         chunk: ChunkId,
-        coord_axis: usize,
+        coord_axis: CoordAxis,
         coord_direction: CoordDirection,
     ) -> Option<ChunkId> {
         match coord_direction {
             CoordDirection::Plus => Some(ChunkId::new(
                 chunk.node,
-                chunk.vertex.adjacent_vertices()[coord_axis],
+                chunk.vertex.adjacent_vertices()[coord_axis as usize],
             )),
             CoordDirection::Minus => Some(ChunkId::new(
-                self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?,
+                self.neighbor(
+                    chunk.node,
+                    chunk.vertex.canonical_sides()[coord_axis as usize],
+                )?,
                 chunk.vertex,
             )),
         }
@@ -65,31 +68,37 @@ impl Graph {
         &self,
         mut chunk: ChunkId,
         mut coords: Coords,
-        coord_axis: usize,
+        coord_axis: CoordAxis,
         coord_direction: CoordDirection,
     ) -> Option<(ChunkId, Coords)> {
         if coords[coord_axis] == self.layout().dimension - 1
             && coord_direction == CoordDirection::Plus
         {
-            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis];
-            let coord_plane0 = (coord_axis + 1) % 3;
-            let coord_plane1 = (coord_axis + 2) % 3;
+            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
+            // Permute coordinates based on differences in the canonical orders between the old
+            // and new vertex
+            let [coord_plane0, coord_plane1] = coord_axis.other_axes();
             let mut new_coords = Coords([0; 3]);
-            for i in 0..3 {
-                if new_vertex.canonical_sides()[i] == chunk.vertex.canonical_sides()[coord_plane0] {
-                    new_coords[i] = coords[coord_plane0];
-                } else if new_vertex.canonical_sides()[i]
-                    == chunk.vertex.canonical_sides()[coord_plane1]
+            for current_axis in CoordAxis::iter() {
+                if new_vertex.canonical_sides()[current_axis as usize]
+                    == chunk.vertex.canonical_sides()[coord_plane0 as usize]
                 {
-                    new_coords[i] = coords[coord_plane1];
+                    new_coords[current_axis] = coords[coord_plane0];
+                } else if new_vertex.canonical_sides()[current_axis as usize]
+                    == chunk.vertex.canonical_sides()[coord_plane1 as usize]
+                {
+                    new_coords[current_axis] = coords[coord_plane1];
                 } else {
-                    new_coords[i] = coords[coord_axis];
+                    new_coords[current_axis] = coords[coord_axis];
                 }
             }
             coords = new_coords;
             chunk.vertex = new_vertex;
         } else if coords[coord_axis] == 0 && coord_direction == CoordDirection::Minus {
-            chunk.node = self.neighbor(chunk.node, chunk.vertex.canonical_sides()[coord_axis])?;
+            chunk.node = self.neighbor(
+                chunk.node,
+                chunk.vertex.canonical_sides()[coord_axis as usize],
+            )?;
         } else {
             coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_direction as i8);
         }
@@ -104,7 +113,7 @@ impl Graph {
         if new_data.is_solid() {
             // Loop through all six potential chunk neighbors. If any are modified, the `new_data` should have
             // its margin cleared.
-            'outer: for coord_axis in 0..3 {
+            'outer: for coord_axis in CoordAxis::iter() {
                 for coord_direction in CoordDirection::iter() {
                     if let Some(chunk_id) =
                         self.get_chunk_neighbor(chunk, coord_axis, coord_direction)
@@ -169,7 +178,7 @@ impl Graph {
     /// be called on that chunk to ensure that adjacent chunks are rendered, since they can no longer be assumed to be
     /// hidden by world generation.
     fn clear_adjacent_solid_chunk_margins(&mut self, chunk: ChunkId) {
-        for coord_axis in 0..3 {
+        for coord_axis in CoordAxis::iter() {
             for coord_direction in CoordDirection::iter() {
                 if let Some(chunk_id) = self.get_chunk_neighbor(chunk, coord_axis, coord_direction)
                 {
@@ -232,17 +241,17 @@ impl Coords {
     }
 }
 
-impl Index<usize> for Coords {
+impl Index<CoordAxis> for Coords {
     type Output = u8;
 
-    fn index(&self, coord_axis: usize) -> &u8 {
-        self.0.index(coord_axis)
+    fn index(&self, coord_axis: CoordAxis) -> &u8 {
+        self.0.index(coord_axis as usize)
     }
 }
 
-impl IndexMut<usize> for Coords {
-    fn index_mut(&mut self, coord_axis: usize) -> &mut u8 {
-        self.0.index_mut(coord_axis)
+impl IndexMut<CoordAxis> for Coords {
+    fn index_mut(&mut self, coord_axis: CoordAxis) -> &mut u8 {
+        self.0.index_mut(coord_axis as usize)
     }
 }
 
@@ -433,6 +442,41 @@ fn populate_node(graph: &mut Graph, node: NodeId) {
             .unwrap_or_else(NodeState::root),
         chunks: Chunks::default(),
     });
+}
+
+/// Represents a particular axis in a voxel grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoordAxis {
+    X = 0,
+    Y = 1,
+    Z = 2,
+}
+
+impl CoordAxis {
+    /// Iterates through the the axes in ascending order
+    pub fn iter() -> impl ExactSizeIterator<Item = Self> {
+        [Self::X, Self::Y, Self::Z].iter().copied()
+    }
+
+    /// Returns the pair axes orthogonal to the current axis
+    pub fn other_axes(self) -> [Self; 2] {
+        match self {
+            Self::X => [Self::Y, Self::Z],
+            Self::Y => [Self::Z, Self::X],
+            Self::Z => [Self::X, Self::Y],
+        }
+    }
+}
+
+impl From<usize> for CoordAxis {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Self::X,
+            1 => Self::Y,
+            2 => Self::Z,
+            _ => panic!("attempted to convert {value:?} to coordinate"),
+        }
+    }
 }
 
 /// Represents a direction in a particular axis. This struct is meant to be used with a coordinate axis,

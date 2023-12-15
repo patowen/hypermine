@@ -1,7 +1,7 @@
 use crate::{
     collision_math::Ray,
     math,
-    node::{ChunkLayout, CoordDirection, Coords, VoxelAABB, VoxelData},
+    node::{ChunkLayout, CoordAxis, CoordDirection, Coords, VoxelAABB, VoxelData},
     world::Material,
 };
 
@@ -13,7 +13,7 @@ pub struct ChunkCastHit {
     pub voxel_coords: Coords,
 
     /// Which of the three axes is orthogonal to the face of the block that was hit.
-    pub face_axis: u32,
+    pub face_axis: CoordAxis,
 
     /// The direction along `face_axis` corresponding to the outside of the face that was hit.
     pub face_direction: CoordDirection,
@@ -124,7 +124,7 @@ fn find_face_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
-            face_axis: t_axis as u32,
+            face_axis: CoordAxis::from(t_axis),
             face_direction,
         });
     }
@@ -224,7 +224,7 @@ mod tests {
         ctx: &TestRayCastContext,
         ray: &Ray,
         tanh_distance: f32,
-        expected_face_axis: u32,
+        expected_face_axis: CoordAxis,
         expected_face_direction: CoordDirection,
     ) {
         let hit = chunk_ray_cast_wrapper(ctx, ray, tanh_distance);
@@ -249,7 +249,13 @@ mod tests {
             [0.0, 1.5, 1.5],
             [1.5, 1.5, 1.5],
             |ray, tanh_distance| {
-                test_face_collision(&ctx, ray, tanh_distance, 0, CoordDirection::Minus);
+                test_face_collision(
+                    &ctx,
+                    ray,
+                    tanh_distance,
+                    CoordAxis::X,
+                    CoordDirection::Minus,
+                );
             },
         );
 
@@ -258,7 +264,7 @@ mod tests {
             [1.5, 1.5, 3.0],
             [1.5, 1.5, 1.5],
             |ray, tanh_distance| {
-                test_face_collision(&ctx, ray, tanh_distance, 2, CoordDirection::Plus);
+                test_face_collision(&ctx, ray, tanh_distance, CoordAxis::Z, CoordDirection::Plus);
             },
         );
 

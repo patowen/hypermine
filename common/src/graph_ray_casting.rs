@@ -2,7 +2,7 @@ use crate::{
     chunk_ray_casting::chunk_ray_cast,
     collision_math::Ray,
     graph::Graph,
-    node::{Chunk, ChunkId, CoordDirection, Coords},
+    node::{Chunk, ChunkId, CoordAxis, CoordDirection, Coords},
     proto::Position,
     traversal::RayTraverser,
 };
@@ -78,7 +78,7 @@ pub struct GraphCastHit {
     pub voxel_coords: Coords,
 
     /// Which of the three axes is orthogonal to the face of the block that was hit.
-    pub face_axis: u32,
+    pub face_axis: CoordAxis,
 
     /// The direction along `face_axis` corresponding to the outside of the face that was hit.
     pub face_direction: CoordDirection,

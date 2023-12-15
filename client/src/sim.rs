@@ -468,7 +468,7 @@ impl Sim {
             self.graph.get_block_neighbor(
                 hit.chunk,
                 hit.voxel_coords,
-                hit.face_axis as usize,
+                hit.face_axis,
                 hit.face_direction,
             )?
         } else {
