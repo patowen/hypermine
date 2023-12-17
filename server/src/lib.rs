@@ -56,7 +56,7 @@ impl Server {
     fn new(params: SimConfig, save: Save) -> Self {
         let cfg = Arc::new(params);
         Self {
-            sim: Sim::new(cfg.clone()),
+            sim: Sim::new(cfg.clone(), &save),
             cfg,
             clients: DenseSlotMap::default(),
             save,
