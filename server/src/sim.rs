@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
 use common::proto::{BlockUpdate, SerializableVoxelData};
@@ -60,7 +61,9 @@ impl Sim {
             cfg,
         };
 
-        result.load(save).expect("TODO: Handle errors");
+        result
+            .load(save)
+            .expect("save file must be of a valid format");
         ensure_nearby(
             &mut result.graph,
             &Position::origin(),
@@ -163,24 +166,22 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn load(&mut self, save: &save::Save) -> Result<(), save::DbError> {
+    pub fn load(&mut self, save: &save::Save) -> anyhow::Result<()> {
         let read_guard = save.read()?;
         let mut read = read_guard.get()?;
-        for node_hash in read.get_all_voxel_node_ids().expect("TODO: handle error") {
-            let Some(voxel_node) = read.get_voxel_node(node_hash).expect("TODO: Handle error")
-            else {
+        for node_hash in read.get_all_voxel_node_ids()? {
+            let Some(voxel_node) = read.get_voxel_node(node_hash)? else {
                 continue;
             };
             for chunk in voxel_node.chunks.iter() {
-                let voxels: SerializableVoxelData =
-                    postcard::from_bytes(&chunk.voxels).expect("TODO: Handle error");
+                let voxels: SerializableVoxelData = postcard::from_bytes(&chunk.voxels)?;
                 let vertex = Vertex::iter()
                     .nth(chunk.vertex as usize)
-                    .expect("TODO: Handle error");
+                    .context("deserializing vertex ID")?;
                 self.pending_modified_chunks.insert(
                     ChunkId::new(self.graph.from_hash(node_hash), vertex),
                     VoxelData::from_serializable(&voxels, self.cfg.chunk_size)
-                        .expect("TODO: Handle errors"),
+                        .context("deserializing voxel data")?,
                 );
             }
         }
