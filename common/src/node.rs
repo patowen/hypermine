@@ -2,7 +2,6 @@
 
 use std::ops::{Index, IndexMut};
 
-use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::collision_math::Ray;
@@ -455,6 +454,11 @@ pub enum CoordAxis {
     Z = 2,
 }
 
+/// Trying to convert a `usize` to a `CoordAxis` returns this struct if the provided
+/// `usize` is out-of-bounds
+#[derive(Debug, Clone)]
+pub struct CoordAxisOutOfBounds(usize);
+
 impl CoordAxis {
     /// Iterates through the the axes in ascending order
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
@@ -472,14 +476,14 @@ impl CoordAxis {
 }
 
 impl TryFrom<usize> for CoordAxis {
-    type Error = anyhow::Error;
+    type Error = CoordAxisOutOfBounds;
 
     fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(Self::X),
             1 => Ok(Self::Y),
             2 => Ok(Self::Z),
-            _ => Err(anyhow!("attempted to convert {value:?} to coordinate")),
+            _ => Err(CoordAxisOutOfBounds(value)),
         }
     }
 }
