@@ -456,8 +456,8 @@ pub enum CoordAxis {
 
 /// Trying to convert a `usize` to a `CoordAxis` returns this struct if the provided
 /// `usize` is out-of-bounds
-#[derive(Debug, Clone)]
-pub struct CoordAxisOutOfBounds(usize);
+#[derive(Debug, Clone, Copy)]
+pub struct CoordAxisOutOfBounds;
 
 impl CoordAxis {
     /// Iterates through the the axes in ascending order
@@ -483,7 +483,7 @@ impl TryFrom<usize> for CoordAxis {
             0 => Ok(Self::X),
             1 => Ok(Self::Y),
             2 => Ok(Self::Z),
-            _ => Err(CoordAxisOutOfBounds(value)),
+            _ => Err(CoordAxisOutOfBounds),
         }
     }
 }
