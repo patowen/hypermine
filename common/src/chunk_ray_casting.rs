@@ -124,7 +124,7 @@ fn find_face_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
-            face_axis: CoordAxis::from(t_axis),
+            face_axis: CoordAxis::try_from(t_axis).unwrap(),
             face_direction,
         });
     }
@@ -177,8 +177,8 @@ mod tests {
         }
     }
 
-    /// Helper method to create a `ChunkSphereCastContext` that can be used
-    /// in a closure to call sphere casting methods.
+    /// Helper method to set up common parameters that are used
+    /// in a passed-in closure to call ray casting methods.
     fn cast_with_test_ray(
         ctx: &TestRayCastContext,
         ray_start_grid_coords: [f32; 3],
@@ -238,7 +238,7 @@ mod tests {
     /// Tests that a suitable collision is found when approaching a single voxel from various angles and that
     /// no collision is found in paths that don't reach that voxel.
     #[test]
-    fn chunk_sphere_cast_examples() {
+    fn chunk_ray_cast_examples() {
         let ctx = TestRayCastContext::new();
 
         // Approach a single voxel from various angles. Ensure that a suitable collision is found each time.

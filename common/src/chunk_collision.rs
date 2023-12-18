@@ -350,8 +350,8 @@ mod tests {
         }
     }
 
-    /// Helper method to create a `ChunkSphereCastContext` that can be used
-    /// in a closure to call sphere casting methods.
+    /// Helper method to set up common parameters that are used
+    /// in a passed-in closure to call sphere casting methods.
     fn cast_with_test_ray(
         ctx: &TestSphereCastContext,
         ray_start_grid_coords: [f32; 3],

@@ -338,6 +338,7 @@ impl VoxelData {
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
+                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
                     data[Coords([x, y, z]).to_index(dimension)] = serializable.voxels[input_index];
                     input_index += 1;
                 }
@@ -357,6 +358,7 @@ impl VoxelData {
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
+                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
                     serializable.push(data[Coords([x, y, z]).to_index(dimension)]);
                 }
             }
@@ -452,6 +454,11 @@ pub enum CoordAxis {
     Z = 2,
 }
 
+/// Trying to convert a `usize` to a `CoordAxis` returns this struct if the provided
+/// `usize` is out-of-bounds
+#[derive(Debug, Clone, Copy)]
+pub struct CoordAxisOutOfBounds;
+
 impl CoordAxis {
     /// Iterates through the the axes in ascending order
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
@@ -468,13 +475,15 @@ impl CoordAxis {
     }
 }
 
-impl From<usize> for CoordAxis {
-    fn from(value: usize) -> Self {
+impl TryFrom<usize> for CoordAxis {
+    type Error = CoordAxisOutOfBounds;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::X,
-            1 => Self::Y,
-            2 => Self::Z,
-            _ => panic!("attempted to convert {value:?} to coordinate"),
+            0 => Ok(Self::X),
+            1 => Ok(Self::Y),
+            2 => Ok(Self::Z),
+            _ => Err(CoordAxisOutOfBounds),
         }
     }
 }
