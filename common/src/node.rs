@@ -339,6 +339,7 @@ impl VoxelData {
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
+                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
                     data[Coords([x, y, z]).to_index(dimension)] = serializable.voxels[input_index];
                     input_index += 1;
                 }
@@ -358,6 +359,7 @@ impl VoxelData {
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
+                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
                     serializable.push(data[Coords([x, y, z]).to_index(dimension)]);
                 }
             }
