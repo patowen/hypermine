@@ -124,7 +124,7 @@ fn find_face_collision(
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
             voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
-            face_axis: CoordAxis::from(t_axis),
+            face_axis: CoordAxis::try_from(t_axis).unwrap(),
             face_direction,
         });
     }

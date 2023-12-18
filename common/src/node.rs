@@ -2,6 +2,7 @@
 
 use std::ops::{Index, IndexMut};
 
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
 use crate::collision_math::Ray;
@@ -468,13 +469,15 @@ impl CoordAxis {
     }
 }
 
-impl From<usize> for CoordAxis {
-    fn from(value: usize) -> Self {
+impl TryFrom<usize> for CoordAxis {
+    type Error = anyhow::Error;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::X,
-            1 => Self::Y,
-            2 => Self::Z,
-            _ => panic!("attempted to convert {value:?} to coordinate"),
+            0 => Ok(Self::X),
+            1 => Ok(Self::Y),
+            2 => Ok(Self::Z),
+            _ => Err(anyhow!("attempted to convert {value:?} to coordinate")),
         }
     }
 }
