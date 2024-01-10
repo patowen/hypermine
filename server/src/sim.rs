@@ -173,18 +173,17 @@ impl Sim {
             if !self.modified_chunks.contains(&ChunkId::new(node, vertex)) {
                 continue;
             }
-            let mut serialized_voxels = Vec::new();
             let Chunk::Populated { ref voxels, .. } = node_data.chunks[vertex] else {
                 panic!("Unknown chunk listed as modified");
             };
-            postcard_helpers::serialize(
-                &voxels.to_serializable(self.cfg.chunk_size),
-                &mut serialized_voxels,
-            )
-            .unwrap();
             chunks.push(save::Chunk {
                 vertex: vertex as u32,
-                voxels: serialized_voxels,
+                voxels: voxels
+                    .to_serializable(self.cfg.chunk_size)
+                    .voxels
+                    .into_iter()
+                    .flat_map(|x| (x as u16).to_le_bytes())
+                    .collect(),
             })
         }
         save::VoxelNode { chunks }
