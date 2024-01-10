@@ -9,7 +9,7 @@ use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::proto::{BlockUpdate, Position, SerializableVoxelData};
-use crate::world::Material;
+use crate::world::{Material, materials};
 use crate::worldgen::NodeState;
 use crate::{math, Chunks};
 
@@ -312,7 +312,7 @@ impl VoxelData {
                 for x in 0..lwm {
                     if x == 0 || x == lwm - 1 || y == 0 || y == lwm - 1 || z == 0 || z == lwm - 1 {
                         // The current coordinates correspond to a margin point. Set it to void.
-                        data[x + y * lwm + z * lwm.pow(2)] = Material::Void;
+                        data[x + y * lwm + z * lwm.pow(2)] = materials::VOID;
                     }
                 }
             }
@@ -333,7 +333,7 @@ impl VoxelData {
             return None;
         }
 
-        let mut data = vec![Material::Void; (usize::from(dimension) + 2).pow(3)];
+        let mut data = vec![materials::VOID; (usize::from(dimension) + 2).pow(3)];
         let mut input_index = 0;
         for z in 0..dimension {
             for y in 0..dimension {

@@ -7,7 +7,7 @@ use crate::{
     math,
     node::{ChunkId, VoxelData},
     terraingen::VoronoiInfo,
-    world::Material,
+    world::{materials, Material},
     Plane,
 };
 
@@ -220,16 +220,16 @@ impl ChunkParams {
             && !(self.is_road || self.is_road_support)
         {
             // The whole chunk is above ground and not part of the road
-            return VoxelData::Solid(Material::Void);
+            return VoxelData::Solid(materials::VOID);
         }
 
         if (center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS) && !self.is_road {
             // The whole chunk is underground
             // TODO: More accurate VoxelData
-            return VoxelData::Solid(Material::Dirt);
+            return VoxelData::Solid(materials::DIRT);
         }
 
-        let mut voxels = VoxelData::Solid(Material::Void);
+        let mut voxels = VoxelData::Solid(materials::VOID);
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(self.node_spice, self.chunk as u64));
 
         self.generate_terrain(&mut voxels, &mut rng);
@@ -317,15 +317,15 @@ impl ChunkParams {
                 continue;
             }
 
-            let mut mat: Material = Material::Void;
+            let mut mat: Material = materials::VOID;
 
             if elevation < 0.075 {
                 if horizontal_distance < 0.15 {
                     // Inner
-                    mat = Material::WhiteBrick;
+                    mat = materials::WHITE_BRICK;
                 } else {
                     // Outer
-                    mat = Material::GreyBrick;
+                    mat = materials::GREY_BRICK;
                 }
             }
 
@@ -347,12 +347,12 @@ impl ChunkParams {
             }
 
             let mat = if self.trussing_at(coords) {
-                Material::WoodPlanks
+                materials::WOOD_PLANKS
             } else {
-                Material::Void
+                materials::VOID
             };
 
-            if mat != Material::Void {
+            if mat != materials::VOID {
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] = mat;
             }
         }
@@ -397,22 +397,22 @@ impl ChunkParams {
 
             let num_void_neighbors = neighbor_data
                 .iter()
-                .filter(|n| n.material == Material::Void)
+                .filter(|n| n.material == materials::VOID)
                 .count();
 
             // Only plant a tree if there is exactly one adjacent block of dirt or grass
             if num_void_neighbors == 5 {
                 for i in neighbor_data.iter() {
-                    if (i.material == Material::Dirt)
-                        || (i.material == Material::Grass)
-                        || (i.material == Material::MudGrass)
-                        || (i.material == Material::LushGrass)
-                        || (i.material == Material::TanGrass)
-                        || (i.material == Material::CoarseGrass)
+                    if (i.material == materials::DIRT)
+                        || (i.material == materials::GRASS)
+                        || (i.material == materials::MUD_GRASS)
+                        || (i.material == materials::LUSH_GRASS)
+                        || (i.material == materials::TAN_GRASS)
+                        || (i.material == materials::COARSE_GRASS)
                     {
-                        voxels.data_mut(self.dimension)[voxel_of_interest_index] = Material::Wood;
+                        voxels.data_mut(self.dimension)[voxel_of_interest_index] = materials::WOOD;
                         let leaf_location = index(self.dimension, i.coords_opposing);
-                        voxels.data_mut(self.dimension)[leaf_location] = Material::Leaves;
+                        voxels.data_mut(self.dimension)[leaf_location] = materials::LEAVES;
                     }
                 }
             }

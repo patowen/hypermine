@@ -17,7 +17,7 @@ use common::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
     sanitize_motion_input,
-    world::Material,
+    world::materials,
     EntityId, GraphEntities, SimConfig, Step,
 };
 
@@ -476,9 +476,9 @@ impl Sim {
         };
 
         let material = if placing {
-            Material::WoodPlanks
+            materials::WOOD_PLANKS
         } else {
-            Material::Void
+            materials::VOID
         };
 
         Some(BlockUpdate {

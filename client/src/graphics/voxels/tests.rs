@@ -6,7 +6,7 @@ use renderdoc::{RenderDoc, V110};
 
 use super::{surface_extraction, SurfaceExtraction};
 use crate::graphics::{Base, VkDrawIndirectCommand};
-use common::world::Material;
+use common::world::{Material, materials};
 
 struct SurfaceExtractionTest {
     gfx: Arc<Base>,
@@ -157,7 +157,7 @@ fn surface_extraction() {
     let mut test = SurfaceExtractionTest::new();
 
     for x in test.scratch.storage(0) {
-        *x = Material::Void;
+        *x = materials::VOID;
     }
 
     test.run();
@@ -168,7 +168,7 @@ fn surface_extraction() {
     );
 
     for x in test.scratch.storage(0) {
-        *x = Material::Dirt;
+        *x = materials::DIRT;
     }
 
     test.run();
@@ -180,12 +180,12 @@ fn surface_extraction() {
 
     let storage = test.scratch.storage(0);
     for x in &mut *storage {
-        *x = Material::Void;
+        *x = materials::VOID;
     }
     for z in 0..((DIMENSION + 2) / 2) {
         for y in 0..(DIMENSION + 2) {
             for x in 0..(DIMENSION + 2) {
-                storage[x + y * (DIMENSION + 2) + z * (DIMENSION + 2).pow(2)] = Material::Dirt;
+                storage[x + y * (DIMENSION + 2) + z * (DIMENSION + 2).pow(2)] = materials::DIRT;
             }
         }
     }
@@ -204,7 +204,7 @@ fn surface_extraction() {
             y: 0,
             z: 1,
             axis: 5,
-            mat: Material::Dirt,
+            mat: materials::DIRT,
             _padding: 0,
             occlusion: 0xFF,
         },
@@ -213,7 +213,7 @@ fn surface_extraction() {
             y: 0,
             z: 1,
             axis: 5,
-            mat: Material::Dirt,
+            mat: materials::DIRT,
             _padding: 0,
             occlusion: 0xFF,
         },
@@ -222,7 +222,7 @@ fn surface_extraction() {
             y: 1,
             z: 1,
             axis: 5,
-            mat: Material::Dirt,
+            mat: materials::DIRT,
             _padding: 0,
             occlusion: 0xFF,
         },
@@ -231,7 +231,7 @@ fn surface_extraction() {
             y: 1,
             z: 1,
             axis: 5,
-            mat: Material::Dirt,
+            mat: materials::DIRT,
             _padding: 0,
             occlusion: 0xFF,
         },

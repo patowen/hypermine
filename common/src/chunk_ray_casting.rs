@@ -2,7 +2,7 @@ use crate::{
     collision_math::Ray,
     math,
     node::{ChunkLayout, CoordAxis, CoordDirection, Coords, VoxelAABB, VoxelData},
-    world::Material,
+    world::materials,
 };
 
 pub struct ChunkCastHit {
@@ -137,12 +137,12 @@ fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [u8; 3])
     debug_assert!(coords[0] < layout.dimension());
     debug_assert!(coords[1] < layout.dimension());
     debug_assert!(coords[2] < layout.dimension());
-    voxel_data.get(Coords(coords).to_index(layout.dimension())) != Material::Void
+    voxel_data.get(Coords(coords).to_index(layout.dimension())) != materials::VOID
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::node::VoxelData;
+    use crate::{node::VoxelData, world::Material};
 
     use super::*;
 
@@ -158,12 +158,12 @@ mod tests {
 
             let mut ctx = TestRayCastContext {
                 layout: ChunkLayout::new(dimension),
-                voxel_data: VoxelData::Solid(Material::Void),
+                voxel_data: VoxelData::Solid(materials::VOID),
             };
 
             // Populate voxels. Consists of a single voxel with voxel coordinates (1, 1, 1). The cube corresponding
             // to this voxel has grid coordinates from (1, 1, 1) to (2, 2, 2)
-            ctx.set_voxel([1, 1, 1], Material::Dirt);
+            ctx.set_voxel([1, 1, 1], materials::DIRT);
 
             ctx
         }
