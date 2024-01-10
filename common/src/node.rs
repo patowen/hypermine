@@ -333,18 +333,18 @@ impl VoxelData {
             return None;
         }
 
+        let mut materials = serialized
+            .inner
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]));
+
         let mut data = vec![Material::Void; (usize::from(dimension) + 2).pow(3)];
-        let mut input_index = 0;
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
-                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
-                    data[Coords([x, y, z]).to_index(dimension)] = u16::from_le_bytes([
-                        serialized.inner[input_index],
-                        serialized.inner[input_index + 1],
-                    ])
-                    .try_into().ok()?;
-                    input_index += 2;
+                    // We cannot use a linear copy here because `data` has margins, while `serialized.inner` does not.
+                    data[Coords([x, y, z]).to_index(dimension)] =
+                        materials.next().unwrap().try_into().ok()?;
                 }
             }
         }
@@ -362,7 +362,7 @@ impl VoxelData {
         for z in 0..dimension {
             for y in 0..dimension {
                 for x in 0..dimension {
-                    // We cannot use a linear copy here because `data` has margins, while `serializable.voxels` does not.
+                    // We cannot use a linear copy here because `data` has margins, while `serialized.inner` does not.
                     serialized
                         .extend((data[Coords([x, y, z]).to_index(dimension)] as u16).to_le_bytes());
                 }
