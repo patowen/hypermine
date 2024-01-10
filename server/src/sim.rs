@@ -39,9 +39,11 @@ pub struct Sim {
     spawns: Vec<Entity>,
     despawns: Vec<EntityId>,
     graph_entities: GraphEntities,
+    /// All nodes that have entity-related information yet to be saved
     dirty_nodes: FxHashSet<NodeId>,
+    /// All nodes that have voxel-related information yet to be saved
     dirty_voxel_nodes: FxHashSet<NodeId>,
-    /// All chunks that have ever had any block updates applied to them and can no longer be regenerated with worldgen.
+    /// All chunks that have ever had any block updates applied to them and can no longer be regenerated with worldgen
     modified_chunks: FxHashSet<ChunkId>,
 }
 
