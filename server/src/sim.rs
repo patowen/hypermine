@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, SerializableVoxelData};
+use common::proto::{BlockUpdate, SerializedVoxelData};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -119,14 +119,16 @@ impl Sim {
             let Some(voxel_node) = read.get_voxel_node(node_hash)? else {
                 continue;
             };
-            for chunk in voxel_node.chunks.iter() {
-                let voxels: SerializableVoxelData = postcard::from_bytes(&chunk.voxels)?;
+            for chunk in voxel_node.chunks {
+                let voxels = SerializedVoxelData {
+                    inner: chunk.voxels,
+                };
                 let vertex = Vertex::iter()
                     .nth(chunk.vertex as usize)
                     .context("deserializing vertex ID")?;
                 self.preloaded_voxel_data.insert(
                     ChunkId::new(self.graph.from_hash(node_hash), vertex),
-                    VoxelData::from_serializable(&voxels, self.cfg.chunk_size)
+                    VoxelData::deserialize(&voxels, self.cfg.chunk_size)
                         .context("deserializing voxel data")?,
                 );
             }
@@ -178,12 +180,7 @@ impl Sim {
             };
             chunks.push(save::Chunk {
                 vertex: vertex as u32,
-                voxels: voxels
-                    .to_serializable(self.cfg.chunk_size)
-                    .voxels
-                    .into_iter()
-                    .flat_map(|x| (x as u16).to_le_bytes())
-                    .collect(),
+                voxels: voxels.serialize(self.cfg.chunk_size).inner,
             })
         }
         save::VoxelNode { chunks }
@@ -266,7 +263,7 @@ impl Sim {
 
             spawns
                 .voxel_data
-                .push((chunk_id, voxels.to_serializable(self.cfg.chunk_size)));
+                .push((chunk_id, voxels.serialize(self.cfg.chunk_size)));
         }
         spawns
     }
@@ -329,7 +326,7 @@ impl Sim {
             for vertex in Vertex::iter() {
                 let chunk = ChunkId::new(fresh_node, vertex);
                 if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk) {
-                    fresh_voxel_data.push((chunk, voxel_data.to_serializable(self.cfg.chunk_size)));
+                    fresh_voxel_data.push((chunk, voxel_data.serialize(self.cfg.chunk_size)));
                     self.modified_chunks.insert(chunk);
                     self.graph.populate_chunk(chunk, voxel_data, true)
                 }
