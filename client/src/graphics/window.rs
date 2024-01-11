@@ -261,7 +261,15 @@ impl Window {
                             self.window.set_cursor_visible(true);
                             mouse_captured = false;
                         }
-                        _ => {}
+                        _ => {
+                            if let Some(material_idx) = number_key_to_index(key) {
+                                if state == ElementState::Pressed {
+                                    if let Some(sim) = self.sim.as_mut() {
+                                        sim.select_material(material_idx);
+                                    }
+                                }
+                            }
+                        }
                     },
                     WindowEvent::Focused(focused) => {
                         if !focused {
@@ -353,6 +361,22 @@ impl Window {
                 Err(e) => panic!("queue_present: {e}"),
             };
         }
+    }
+}
+
+fn number_key_to_index(key: VirtualKeyCode) -> Option<usize> {
+    match key {
+        VirtualKeyCode::Key1 => Some(0),
+        VirtualKeyCode::Key2 => Some(1),
+        VirtualKeyCode::Key3 => Some(2),
+        VirtualKeyCode::Key4 => Some(3),
+        VirtualKeyCode::Key5 => Some(4),
+        VirtualKeyCode::Key6 => Some(5),
+        VirtualKeyCode::Key7 => Some(6),
+        VirtualKeyCode::Key8 => Some(7),
+        VirtualKeyCode::Key9 => Some(8),
+        VirtualKeyCode::Key0 => Some(9),
+        _ => None,
     }
 }
 

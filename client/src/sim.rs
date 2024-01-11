@@ -21,6 +21,19 @@ use common::{
     EntityId, GraphEntities, SimConfig, Step,
 };
 
+const MATERIAL_PALETTE: [Material; 10] = [
+    Material::WoodPlanks,
+    Material::Grass,
+    Material::Dirt,
+    Material::Sand,
+    Material::Snow,
+    Material::WhiteBrick,
+    Material::GreyBrick,
+    Material::Basalt,
+    Material::Water,
+    Material::Lava,
+];
+
 /// Game state
 pub struct Sim {
     // World state
@@ -59,6 +72,9 @@ pub struct Sim {
     place_block_pressed: bool,
     /// Whether the break-block button has been pressed since the last step
     break_block_pressed: bool,
+
+    selected_material: Material,
+
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
 }
@@ -88,6 +104,7 @@ impl Sim {
             jump_held: false,
             place_block_pressed: false,
             break_block_pressed: false,
+            selected_material: Material::WoodPlanks,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -137,6 +154,10 @@ impl Sim {
 
     pub fn set_place_block_pressed_true(&mut self) {
         self.place_block_pressed = true;
+    }
+
+    pub fn select_material(&mut self, idx: usize) {
+        self.selected_material = *MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]);
     }
 
     pub fn set_break_block_pressed_true(&mut self) {
@@ -476,7 +497,7 @@ impl Sim {
         };
 
         let material = if placing {
-            Material::WoodPlanks
+            self.selected_material
         } else {
             Material::Void
         };

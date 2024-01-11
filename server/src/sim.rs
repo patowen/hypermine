@@ -9,7 +9,8 @@ use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
-use tracing::{error_span, info, trace};
+use save::ComponentType;
+use tracing::{error, error_span, info, trace};
 
 use common::{
     character_controller, dodeca,
@@ -25,7 +26,7 @@ use common::{
     EntityId, SimConfig, Step,
 };
 
-use crate::postcard_helpers;
+use crate::postcard_helpers::{self, SaveEntity};
 
 pub struct Sim {
     cfg: Arc<SimConfig>,
@@ -139,35 +140,38 @@ impl Sim {
     }
 
     fn snapshot_node(&self, node: NodeId) -> save::EntityNode {
-        let mut ids = Vec::new();
-        let mut character_transforms = Vec::new();
-        let mut character_names = Vec::new();
-        let entities = self.graph_entities.get(node);
-
-        for &entity in entities {
-            // TODO: Handle entities other than characters
-            let mut q = self
-                .world
-                .query_one::<(&EntityId, &Position, &Character)>(entity)
-                .unwrap();
-            let Some((id, pos, ch)) = q.get() else {
+        let mut entities = Vec::new();
+        for &entity in self.graph_entities.get(node) {
+            let Ok(entity) = self.world.entity(entity) else {
+                error!("stale graph entity {:?}", entity);
                 continue;
             };
-            ids.push(id.to_bits());
-            postcard_helpers::serialize(pos.local.as_ref(), &mut character_transforms).unwrap();
-            postcard_helpers::serialize(&ch.name, &mut character_names).unwrap();
+            let Some(id) = entity.get::<&EntityId>() else {
+                continue;
+            };
+            let mut components = Vec::new();
+            if let Some(pos) = entity.get::<&Position>() {
+                components.push((
+                    ComponentType::Position as u64,
+                    postcard::to_stdvec(pos.local.as_ref()).unwrap(),
+                ));
+            }
+            if let Some(ch) = entity.get::<&Character>() {
+                components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
+            }
+            let mut repr = Vec::new();
+            postcard_helpers::serialize(
+                &SaveEntity {
+                    entity: id.to_bits().to_le_bytes(),
+                    components,
+                },
+                &mut repr,
+            )
+            .unwrap();
+            entities.push(repr);
         }
 
-        save::EntityNode {
-            archetypes: vec![save::Archetype {
-                entities: ids,
-                component_types: vec![
-                    save::ComponentType::Position.into(),
-                    save::ComponentType::Name.into(),
-                ],
-                component_data: vec![character_transforms, character_names],
-            }],
-        }
+        save::EntityNode { entities }
     }
 
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
