@@ -101,3 +101,18 @@ impl TryFrom<u16> for Material {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::Material;
+
+    #[test]
+    fn u16_to_material_consistency_check() {
+        for i in 0..Material::COUNT {
+            let index = u16::try_from(i).unwrap();
+            let material =
+                Material::try_from(index).expect("no missing entries in try_from match statement");
+            assert_eq!(index, material as u16);
+        }
+    }
+}
