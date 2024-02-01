@@ -239,6 +239,14 @@ impl Coords {
             + (self.0[1] as usize + 1) * chunk_size_with_margin
             + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
     }
+
+    pub fn offset_to_index(&self, chunk_size: u8, offset: [i8; 3]) -> usize {
+        let chunk_size_with_margin = chunk_size as isize + 2;
+        ((self.0[0] as isize + 1 + offset[0] as isize)
+            + (self.0[1] as isize + 1 + offset[1] as isize) * chunk_size_with_margin
+            + (self.0[2] as isize + 1 + offset[2] as isize) * chunk_size_with_margin.pow(2))
+            as usize
+    }
 }
 
 impl Index<CoordAxis> for Coords {
@@ -506,6 +514,24 @@ impl CoordDirection {
         [CoordDirection::Plus, CoordDirection::Minus]
             .iter()
             .copied()
+    }
+}
+
+impl std::ops::Mul for CoordDirection {
+    type Output = CoordDirection;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        if self == rhs {
+            CoordDirection::Plus
+        } else {
+            CoordDirection::Minus
+        }
+    }
+}
+
+impl std::ops::MulAssign for CoordDirection {
+    fn mul_assign(&mut self, rhs: Self) {
+        *self = *self * rhs;
     }
 }
 
