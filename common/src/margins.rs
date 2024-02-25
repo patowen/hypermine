@@ -1,9 +1,10 @@
 #[cfg(test)]
 mod tests {
     use crate::{
+        cursor::{CoordAxis, CoordDirection, Coords},
         dodeca::Vertex,
         graph::{Graph, NodeId},
-        node::{ChunkId, CoordAxis, CoordDirection, Coords},
+        node::ChunkId,
     };
 
     use super::*;

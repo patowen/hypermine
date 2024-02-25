@@ -1,8 +1,9 @@
 use crate::{
     chunk_ray_casting::chunk_ray_cast,
     collision_math::Ray,
+    cursor::{CoordAxis, CoordDirection, Coords},
     graph::Graph,
-    node::{Chunk, ChunkId, CoordAxis, CoordDirection, Coords},
+    node::{Chunk, ChunkId},
     proto::Position,
     traversal::RayTraverser,
 };

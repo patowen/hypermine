@@ -5,6 +5,7 @@ use std::ops::{Index, IndexMut};
 use serde::{Deserialize, Serialize};
 
 use crate::collision_math::Ray;
+use crate::cursor::{CoordAxis, CoordDirection, Coords};
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
@@ -227,42 +228,6 @@ impl IndexMut<ChunkId> for Graph {
     }
 }
 
-/// Coordinates for a discrete voxel within a chunk, not including margins
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Coords(pub [u8; 3]);
-
-impl Coords {
-    /// Returns the array index in `VoxelData` corresponding to these coordinates
-    pub fn to_index(&self, chunk_size: u8) -> usize {
-        let chunk_size_with_margin = chunk_size as usize + 2;
-        (self.0[0] as usize + 1)
-            + (self.0[1] as usize + 1) * chunk_size_with_margin
-            + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
-    }
-
-    pub fn offset_to_index(&self, chunk_size: u8, offset: [i8; 3]) -> usize {
-        let chunk_size_with_margin = chunk_size as isize + 2;
-        ((self.0[0] as isize + 1 + offset[0] as isize)
-            + (self.0[1] as isize + 1 + offset[1] as isize) * chunk_size_with_margin
-            + (self.0[2] as isize + 1 + offset[2] as isize) * chunk_size_with_margin.pow(2))
-            as usize
-    }
-}
-
-impl Index<CoordAxis> for Coords {
-    type Output = u8;
-
-    fn index(&self, coord_axis: CoordAxis) -> &u8 {
-        self.0.index(coord_axis as usize)
-    }
-}
-
-impl IndexMut<CoordAxis> for Coords {
-    fn index_mut(&mut self, coord_axis: CoordAxis) -> &mut u8 {
-        self.0.index_mut(coord_axis as usize)
-    }
-}
-
 pub struct Node {
     pub state: NodeState,
     /// We can only populate chunks which lie within a cube of populated nodes, so nodes on the edge
@@ -455,84 +420,6 @@ fn populate_node(graph: &mut Graph, node: NodeId) {
             .unwrap_or_else(NodeState::root),
         chunks: Chunks::default(),
     });
-}
-
-/// Represents a particular axis in a voxel grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoordAxis {
-    X = 0,
-    Y = 1,
-    Z = 2,
-}
-
-/// Trying to convert a `usize` to a `CoordAxis` returns this struct if the provided
-/// `usize` is out-of-bounds
-#[derive(Debug, Clone, Copy)]
-pub struct CoordAxisOutOfBounds;
-
-impl CoordAxis {
-    /// Iterates through the the axes in ascending order
-    pub fn iter() -> impl ExactSizeIterator<Item = Self> {
-        [Self::X, Self::Y, Self::Z].iter().copied()
-    }
-
-    /// Returns the pair axes orthogonal to the current axis
-    pub fn other_axes(self) -> [Self; 2] {
-        match self {
-            Self::X => [Self::Y, Self::Z],
-            Self::Y => [Self::Z, Self::X],
-            Self::Z => [Self::X, Self::Y],
-        }
-    }
-}
-
-impl TryFrom<usize> for CoordAxis {
-    type Error = CoordAxisOutOfBounds;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::X),
-            1 => Ok(Self::Y),
-            2 => Ok(Self::Z),
-            _ => Err(CoordAxisOutOfBounds),
-        }
-    }
-}
-
-/// Represents a direction in a particular axis. This struct is meant to be used with a coordinate axis,
-/// so when paired with the X-axis, it represents the postitive X-direction when set to Plus and the
-/// negative X-direction when set to Minus.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoordDirection {
-    Plus = 1,
-    Minus = -1,
-}
-
-impl CoordDirection {
-    /// Iterates through the two possible coordinate directions
-    pub fn iter() -> impl ExactSizeIterator<Item = Self> {
-        [CoordDirection::Plus, CoordDirection::Minus]
-            .iter()
-            .copied()
-    }
-}
-
-impl std::ops::Mul for CoordDirection {
-    type Output = CoordDirection;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        if self == rhs {
-            CoordDirection::Plus
-        } else {
-            CoordDirection::Minus
-        }
-    }
-}
-
-impl std::ops::MulAssign for CoordDirection {
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
