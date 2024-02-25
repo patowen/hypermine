@@ -124,7 +124,7 @@ impl Voxels {
         let mut nodes = nearby_nodes(
             &sim.graph,
             &view,
-            f64::from(self.config.local_simulation.view_distance),
+            self.config.local_simulation.view_distance,
         );
         histogram!(
             "frame.cpu.voxels.graph_traversal",
@@ -145,7 +145,7 @@ impl Voxels {
         for &(node, ref node_transform) in &nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
-            if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS as f32) {
+            if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
                 // Don't bother generating or drawing chunks from nodes that are wholly outside the
                 // frustum.
                 continue;
@@ -186,7 +186,7 @@ impl Voxels {
                             frame.drawn.push(slot);
                             // Transfer transform
                             frame.surface.transforms_mut()[slot.0 as usize] =
-                                node_transform * vertex.chunk_to_node().map(|x| x as f32);
+                                node_transform * vertex.chunk_to_node_f32();
                         }
                         if let (None, &VoxelData::Dense(ref data)) = (&surface, voxels) {
                             // Extract a surface so it can be drawn in future frames

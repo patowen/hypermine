@@ -136,7 +136,7 @@ impl Graph {
                     None => continue,
                     Some(x) => x,
                 };
-                let mat = na::convert::<_, na::Matrix4<T>>(*side.reflection());
+                let mat = side.reflection_f64().cast();
                 location = mat * location;
                 transform = mat * transform;
                 continue 'outer;
@@ -407,9 +407,9 @@ mod tests {
             assert_abs_diff_eq!(xf, na::Matrix4::identity(), epsilon = 1e-5);
         }
         {
-            let (node, xf) = graph.normalize_transform(NodeId::ROOT, Side::A.reflection());
+            let (node, xf) = graph.normalize_transform(NodeId::ROOT, Side::A.reflection_f32());
             assert_eq!(node, a);
-            assert_abs_diff_eq!(xf, Side::A.reflection(), epsilon = 1e-5);
+            assert_abs_diff_eq!(xf, Side::A.reflection_f32(), epsilon = 1e-5);
         }
     }
 
