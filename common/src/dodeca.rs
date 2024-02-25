@@ -443,7 +443,7 @@ mod tests {
     fn chunk_to_node() {
         // Chunk coordinates of (1, 1, 1) should be at the center of a dodecahedron.
         let mut chunk_corner_in_node_coordinates =
-            Vertex::A.chunk_to_node() * na::Vector4::new(1.0, 1.0, 1.0, 1.0);
+            Vertex::A.chunk_to_node_f64() * na::Vector4::new(1.0, 1.0, 1.0, 1.0);
         chunk_corner_in_node_coordinates /= chunk_corner_in_node_coordinates.w;
         assert_abs_diff_eq!(
             chunk_corner_in_node_coordinates,
@@ -455,8 +455,8 @@ mod tests {
     #[test]
     fn node_to_chunk() {
         assert_abs_diff_eq!(
-            Vertex::A.chunk_to_node().try_inverse().unwrap(),
-            Vertex::A.node_to_chunk(),
+            Vertex::A.chunk_to_node_f64().try_inverse().unwrap(),
+            Vertex::A.node_to_chunk_f64(),
             epsilon = 1e-10
         );
     }
