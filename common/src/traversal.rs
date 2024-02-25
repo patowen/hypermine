@@ -27,7 +27,7 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
                 continue;
             }
             visited.insert(neighbor);
-            let neighbor_transform = current_transform * side.reflection_f32();
+            let neighbor_transform = current_transform * side.reflection();
             let neighbor_p = neighbor_transform * math::origin();
             if math::distance(&start_p, &neighbor_p) > distance {
                 continue;
@@ -77,7 +77,7 @@ pub fn nearby_nodes(
             }
             pending.push(PendingNode {
                 id: neighbor,
-                transform: current.transform * side.reflection_f32(),
+                transform: current.transform * side.reflection(),
             });
             visited.insert(neighbor);
         }
@@ -106,8 +106,7 @@ impl<'a> RayTraverser<'a> {
         let mut closest_vertex = Vertex::A;
         let mut closest_vertex_cosh_distance = f32::INFINITY;
         for vertex in Vertex::iter() {
-            let vertex_cosh_distance =
-                (vertex.node_to_dual_f32() * position.local * math::origin()).w;
+            let vertex_cosh_distance = (vertex.node_to_dual() * position.local * math::origin()).w;
             if vertex_cosh_distance < closest_vertex_cosh_distance {
                 closest_vertex = vertex;
                 closest_vertex_cosh_distance = vertex_cosh_distance;
@@ -123,7 +122,7 @@ impl<'a> RayTraverser<'a> {
         // Precalculate the chunk boundaries for collision purposes. If the collider goes outside these bounds,
         // the corresponding neighboring chunk will also be used for collision checking.
         let klein_lower_boundary = radius.tanh();
-        let klein_upper_boundary = (Vertex::chunk_to_dual_factor_f32().atanh() - radius).tanh();
+        let klein_upper_boundary = (Vertex::chunk_to_dual_factor().atanh() - radius).tanh();
 
         Self {
             graph,
@@ -145,7 +144,7 @@ impl<'a> RayTraverser<'a> {
                 // Combine node and vertex, and convert node transform to chunk transform
                 return Some((
                     node.map(|node| ChunkId::new(node, vertex)),
-                    vertex.node_to_dual_f32() * node_transform,
+                    vertex.node_to_dual() * node_transform,
                 ));
             }
 
@@ -156,7 +155,7 @@ impl<'a> RayTraverser<'a> {
                 continue;
             };
 
-            let local_ray = vertex.node_to_dual_f32() * node_transform * self.ray;
+            let local_ray = vertex.node_to_dual() * node_transform * self.ray;
 
             // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
             // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
@@ -172,7 +171,7 @@ impl<'a> RayTraverser<'a> {
                     || klein_ray_end[axis] <= self.klein_lower_boundary
                 {
                     let side = vertex.canonical_sides()[axis];
-                    let next_node_transform = side.reflection_f32() * node_transform;
+                    let next_node_transform = side.reflection() * node_transform;
                     // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                     // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
                     // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners

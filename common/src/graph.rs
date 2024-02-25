@@ -407,9 +407,9 @@ mod tests {
             assert_abs_diff_eq!(xf, na::Matrix4::identity(), epsilon = 1e-5);
         }
         {
-            let (node, xf) = graph.normalize_transform(NodeId::ROOT, Side::A.reflection_f32());
+            let (node, xf) = graph.normalize_transform(NodeId::ROOT, Side::A.reflection());
             assert_eq!(node, a);
-            assert_abs_diff_eq!(xf, Side::A.reflection_f32(), epsilon = 1e-5);
+            assert_abs_diff_eq!(xf, Side::A.reflection(), epsilon = 1e-5);
         }
     }
 

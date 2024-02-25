@@ -186,7 +186,7 @@ impl Voxels {
                             frame.drawn.push(slot);
                             // Transfer transform
                             frame.surface.transforms_mut()[slot.0 as usize] =
-                                node_transform * vertex.chunk_to_node_f32();
+                                node_transform * vertex.chunk_to_node();
                         }
                         if let (None, &VoxelData::Dense(ref data)) = (&surface, voxels) {
                             // Extract a surface so it can be drawn in future frames

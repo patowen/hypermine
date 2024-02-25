@@ -45,7 +45,7 @@ impl Side {
 
     /// Outward normal vector of this side
     #[inline]
-    pub fn normal_f32(self) -> &'static na::Vector4<f32> {
+    pub fn normal(self) -> &'static na::Vector4<f32> {
         &SIDE_NORMALS_F32[self as usize]
     }
 
@@ -57,10 +57,11 @@ impl Side {
 
     /// Reflection across this side
     #[inline]
-    pub fn reflection_f32(self) -> &'static na::Matrix4<f32> {
+    pub fn reflection(self) -> &'static na::Matrix4<f32> {
         &REFLECTIONS_F32[self as usize]
     }
 
+    /// Reflection across this side
     #[inline]
     pub fn reflection_f64(self) -> &'static na::Matrix4<f64> {
         &REFLECTIONS_F64[self as usize]
@@ -149,8 +150,8 @@ impl Vertex {
     }
 
     /// Transform from euclidean chunk coordinates to hyperbolic node space
-    pub fn chunk_to_node_f32(self) -> na::Matrix4<f32> {
-        self.dual_to_node_f32() * na::Matrix4::new_scaling(1.0 / Self::dual_to_chunk_factor_f32())
+    pub fn chunk_to_node(self) -> na::Matrix4<f32> {
+        self.dual_to_node() * na::Matrix4::new_scaling(1.0 / Self::dual_to_chunk_factor())
     }
 
     /// Transform from euclidean chunk coordinates to hyperbolic node space
@@ -159,8 +160,8 @@ impl Vertex {
     }
 
     /// Transform from hyperbolic node space to euclidean chunk coordinates
-    pub fn node_to_chunk_f32(self) -> na::Matrix4<f32> {
-        na::Matrix4::new_scaling(Self::dual_to_chunk_factor_f32()) * self.node_to_dual_f32()
+    pub fn node_to_chunk(self) -> na::Matrix4<f32> {
+        na::Matrix4::new_scaling(Self::dual_to_chunk_factor()) * self.node_to_dual()
     }
 
     /// Transform from hyperbolic node space to euclidean chunk coordinates
@@ -169,7 +170,7 @@ impl Vertex {
     }
 
     /// Transform from cube-centric coordinates to dodeca-centric coordinates
-    pub fn dual_to_node_f32(self) -> &'static na::Matrix4<f32> {
+    pub fn dual_to_node(self) -> &'static na::Matrix4<f32> {
         &DUAL_TO_NODE_F32[self as usize]
     }
 
@@ -179,7 +180,7 @@ impl Vertex {
     }
 
     /// Transform from dodeca-centric coordinates to cube-centric coordinates
-    pub fn node_to_dual_f32(self) -> &'static na::Matrix4<f32> {
+    pub fn node_to_dual(self) -> &'static na::Matrix4<f32> {
         &NODE_TO_DUAL_F32[self as usize]
     }
 
@@ -191,7 +192,7 @@ impl Vertex {
     /// Scale factor used in conversion from cube-centric coordinates to euclidean chunk coordinates.
     /// Scaling the x, y, and z components of a vector in cube-centric coordinates by this value
     /// and dividing them by the w coordinate will yield euclidean chunk coordinates.
-    pub fn dual_to_chunk_factor_f32() -> f32 {
+    pub fn dual_to_chunk_factor() -> f32 {
         *DUAL_TO_CHUNK_FACTOR_F32
     }
 
@@ -205,7 +206,7 @@ impl Vertex {
     /// Scale factor used in conversion from euclidean chunk coordinates to cube-centric coordinates.
     /// Scaling the x, y, and z components of a vector in homogeneous euclidean chunk coordinates by this value
     /// and lorentz-normalizing the result will yield cube-centric coordinates.
-    pub fn chunk_to_dual_factor_f32() -> f32 {
+    pub fn chunk_to_dual_factor() -> f32 {
         *CHUNK_TO_DUAL_FACTOR_F32
     }
 
@@ -418,7 +419,7 @@ mod tests {
     fn side_is_facing() {
         for side in Side::iter() {
             assert!(!side.is_facing::<f32>(&math::origin()));
-            assert!(side.is_facing(&(side.reflection_f32() * math::origin())));
+            assert!(side.is_facing(&(side.reflection() * math::origin())));
         }
     }
 
@@ -442,7 +443,7 @@ mod tests {
     fn chunk_to_node() {
         // Chunk coordinates of (1, 1, 1) should be at the center of a dodecahedron.
         let mut chunk_corner_in_node_coordinates =
-            Vertex::A.chunk_to_node_f32() * na::Vector4::new(1.0, 1.0, 1.0, 1.0);
+            Vertex::A.chunk_to_node() * na::Vector4::new(1.0, 1.0, 1.0, 1.0);
         chunk_corner_in_node_coordinates /= chunk_corner_in_node_coordinates.w;
         assert_abs_diff_eq!(
             chunk_corner_in_node_coordinates,
@@ -454,8 +455,8 @@ mod tests {
     #[test]
     fn node_to_chunk() {
         assert_abs_diff_eq!(
-            Vertex::A.chunk_to_node_f32().try_inverse().unwrap(),
-            Vertex::A.node_to_chunk_f32(),
+            Vertex::A.chunk_to_node().try_inverse().unwrap(),
+            Vertex::A.node_to_chunk(),
             epsilon = 1e-10
         );
     }
