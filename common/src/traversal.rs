@@ -29,7 +29,7 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
             visited.insert(neighbor);
             let neighbor_transform = current_transform * side.reflection();
             let neighbor_p = neighbor_transform * math::origin();
-            if math::distance(&start_p, &neighbor_p) > distance {
+            if (-math::mip(&start_p, &neighbor_p)).acosh() > distance {
                 continue;
             }
             pending.push((neighbor, neighbor_transform));
@@ -62,7 +62,7 @@ pub fn nearby_nodes(
 
     while let Some(current) = pending.pop() {
         let current_p = current.transform * math::origin();
-        if math::distance(&start_p, &current_p) > distance {
+        if (-math::mip(&start_p, &current_p)).acosh() > distance {
             continue;
         }
         result.push((current.id, na::convert(current.transform)));
