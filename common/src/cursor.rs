@@ -169,6 +169,56 @@ impl std::ops::MulAssign for ChunkOrientation {
     }
 }
 
+/// Represents one of the 6 possible orientations a chunk can be viewed from, including reflections, that preserve the origin.
+/// This is analogous to a 3x3 rotation matrix with a restricted domain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SimpleChunkOrientation {
+    axes: [CoordAxis; 3],
+}
+
+impl SimpleChunkOrientation {
+    pub fn identity() -> Self {
+        SimpleChunkOrientation {
+            axes: [CoordAxis::X, CoordAxis::Y, CoordAxis::Z],
+        }
+    }
+
+    pub fn from_permutation(from: [Side; 3], to: [Side; 3]) -> Self {
+        assert!(from[0] != from[1] && from[0] != from[2] && from[1] != from[2]);
+        assert!(to[0] != to[1] && to[0] != to[2] && to[1] != to[2]);
+        SimpleChunkOrientation {
+            axes: from.map(|f| {
+                CoordAxis::try_from(
+                    to.iter()
+                        .position(|&t| f == t)
+                        .expect("from and to must have same set of sides"),
+                )
+                .unwrap()
+            }),
+        }
+    }
+}
+
+impl Index<CoordAxis> for SimpleChunkOrientation {
+    type Output = CoordAxis;
+
+    fn index(&self, index: CoordAxis) -> &Self::Output {
+        &self.axes[index as usize]
+    }
+}
+
+impl std::ops::Mul<Coords> for SimpleChunkOrientation {
+    type Output = Coords;
+
+    fn mul(self, rhs: Coords) -> Self::Output {
+        let mut result = Coords([0; 3]);
+        for axis in CoordAxis::iter() {
+            result[self[axis]] = rhs[axis];
+        }
+        result
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OrientedCoords {
     coords: Coords,

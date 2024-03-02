@@ -3,7 +3,7 @@
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-use crate::math;
+use crate::{cursor::SimpleChunkOrientation, math};
 
 /// Sides of a right dodecahedron
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -112,6 +112,14 @@ impl Vertex {
     #[inline]
     pub fn adjacent_vertices(self) -> [Vertex; 3] {
         ADJACENT_VERTICES[self as usize]
+    }
+
+    /// Chunk orientations adjacent to this vertex, opposite the sides in canonical order.
+    /// These orientations convert coordinates relative to a reflected version of the current
+    /// chunk to coordinates relative to the adjacent in its canonical orientation.
+    #[inline]
+    pub fn adjacent_chunk_orientations(self) -> &'static [SimpleChunkOrientation; 3] {
+        &ADJACENT_CHUNK_ORIENTATIONS[self as usize]
     }
 
     /// For each vertex of the cube dual to this dodecahedral vertex, provides an iterator of at
@@ -264,6 +272,33 @@ lazy_static! {
             }
         }
         result
+    };
+
+    static ref ADJACENT_CHUNK_ORIENTATIONS: [[SimpleChunkOrientation; 3]; VERTEX_COUNT] = {
+        let mut result = [[SimpleChunkOrientation::identity(); 3]; VERTEX_COUNT];
+    for vertex in 0..VERTEX_COUNT {
+        for result_index in 0..3 {
+            let mut test_sides = VERTEX_SIDES[vertex];
+            // Keep modifying the result_index'th element of test_sides until its three elements are all
+            // adjacent to a single vertex. Compare the natural permutation of sides to the canonical
+            // permutation of the sides for the chunk with those sides.
+            for side in Side::iter() {
+                if side == VERTEX_SIDES[vertex][result_index] {
+                    continue;
+                }
+                test_sides[result_index] = side;
+                if let Some(adjacent_vertex) =
+                    Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
+                {
+                    result[vertex][result_index] = SimpleChunkOrientation::from_permutation(
+                        test_sides,
+                        adjacent_vertex.canonical_sides(),
+                    );
+                }
+            }
+        }
+    }
+    result
     };
 
     /// Transform that converts from cube-centric coordinates to dodeca-centric coordinates

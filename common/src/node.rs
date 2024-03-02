@@ -76,24 +76,8 @@ impl Graph {
             && coord_direction == CoordDirection::Plus
         {
             let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
-            // Permute coordinates based on differences in the canonical orders between the old
-            // and new vertex
-            let [coord_plane0, coord_plane1] = coord_axis.other_axes();
-            let mut new_coords = Coords([0; 3]);
-            for current_axis in CoordAxis::iter() {
-                if new_vertex.canonical_sides()[current_axis as usize]
-                    == chunk.vertex.canonical_sides()[coord_plane0 as usize]
-                {
-                    new_coords[current_axis] = coords[coord_plane0];
-                } else if new_vertex.canonical_sides()[current_axis as usize]
-                    == chunk.vertex.canonical_sides()[coord_plane1 as usize]
-                {
-                    new_coords[current_axis] = coords[coord_plane1];
-                } else {
-                    new_coords[current_axis] = coords[coord_axis];
-                }
-            }
-            coords = new_coords;
+            let new_orientation = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize];
+            coords = new_orientation * coords;
             chunk.vertex = new_vertex;
         } else if coords[coord_axis] == 0 && coord_direction == CoordDirection::Minus {
             chunk.node = self.neighbor(
