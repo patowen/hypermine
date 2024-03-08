@@ -97,14 +97,6 @@ impl Coords {
             + (self.0[1] as usize + 1) * chunk_size_with_margin
             + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
     }
-
-    pub fn offset_to_index(&self, chunk_size: u8, offset: [i8; 3]) -> usize {
-        let chunk_size_with_margin = chunk_size as isize + 2;
-        ((self.0[0] as isize + 1 + offset[0] as isize)
-            + (self.0[1] as isize + 1 + offset[1] as isize) * chunk_size_with_margin
-            + (self.0[2] as isize + 1 + offset[2] as isize) * chunk_size_with_margin.pow(2))
-            as usize
-    }
 }
 
 impl Index<CoordAxis> for Coords {
@@ -123,8 +115,8 @@ impl IndexMut<CoordAxis> for Coords {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkDirection {
-    axis: CoordAxis,
-    direction: CoordDirection,
+    pub axis: CoordAxis,
+    pub direction: CoordDirection,
 }
 
 /// Represents one of the 48 possible orientations a chunk can be viewed from, including reflections.
@@ -216,6 +208,17 @@ impl std::ops::Mul<Coords> for SimpleChunkOrientation {
             result[self[axis]] = rhs[axis];
         }
         result
+    }
+}
+
+impl std::ops::Mul<ChunkDirection> for SimpleChunkOrientation {
+    type Output = ChunkDirection;
+
+    fn mul(self, rhs: ChunkDirection) -> Self::Output {
+        ChunkDirection {
+            axis: self[rhs.axis],
+            direction: rhs.direction,
+        }
     }
 }
 
