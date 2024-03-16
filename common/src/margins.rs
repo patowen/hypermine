@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use crate::{
-    cursor::{ChunkDirection, CoordAxis, CoordDirection, SimpleChunkOrientation},
+    cursor::{ChunkDirection, CoordAxis, CoordDirection, Coords, SimpleChunkOrientation},
     dodeca::Vertex,
     graph::Graph,
     math,
@@ -42,6 +42,7 @@ pub fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection)
     };
 
     let neighbor_direction = neighbor_orientation * direction; // TODO: Double-check that change of coordinates is in correct direction
+                                                               // TODO: This is wrong. we don't want the margins of the neighbor. We want the edges of the neighbor.
     let neighbor_margin_coord = match neighbor_direction.direction {
         CoordDirection::Plus => dimension + 1,
         CoordDirection::Minus => 0,
@@ -84,7 +85,7 @@ pub fn fix_margins2(
     destination_vertex: Vertex,
     destination: &mut VoxelData,
     direction: ChunkDirection,
-    source: &VoxelData,
+    source: &mut VoxelData,
 ) {
     let neighbor_orientation = match direction.direction {
         CoordDirection::Plus => {
@@ -94,33 +95,45 @@ pub fn fix_margins2(
     };
 
     let neighbor_direction = neighbor_orientation * direction; // TODO: Double-check that change of coordinates is in correct direction
-    let neighbor_margin_coord = match neighbor_direction.direction {
-        CoordDirection::Plus => dimension + 1,
-        CoordDirection::Minus => 0,
-    };
-    let mut margin_contents = VecDeque::with_capacity((dimension as usize).pow(2));
-    for j in 0..dimension {
-        for i in 0..dimension {
-            let neighbor_coords = CoordsWithMargins(math::tuv_to_xyz(
-                neighbor_direction.axis as usize,
-                [i + 1, j + 1, neighbor_margin_coord],
-            ));
-            margin_contents.push_back(source.get(neighbor_coords.to_index(dimension)));
-        }
-    }
-
-    let chunk_data = destination.data_mut(dimension);
     let margin_coord = match direction.direction {
         CoordDirection::Plus => dimension + 1,
         CoordDirection::Minus => 0,
     };
+    let neighbor_margin_coord = match neighbor_direction.direction {
+        CoordDirection::Plus => dimension + 1,
+        CoordDirection::Minus => 0,
+    };
+    let edge_coord = match direction.direction {
+        CoordDirection::Plus => dimension,
+        CoordDirection::Minus => 1,
+    };
+    let neighbor_edge_coord = match neighbor_direction.direction {
+        CoordDirection::Plus => dimension,
+        CoordDirection::Minus => 1,
+    };
+    let neighbor_chunk_data = source.data_mut(dimension);
+    let chunk_data = destination.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
-            let coords = CoordsWithMargins(math::tuv_to_xyz(
+            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [i + 1, j + 1, margin_coord],
-            ));
-            chunk_data[coords.to_index(dimension)] = margin_contents.pop_front().unwrap();
+            ))
+            .to_index(dimension)] = neighbor_chunk_data[Coords(math::tuv_to_xyz(
+                neighbor_direction.axis as usize,
+                [i + 1, j + 1, neighbor_edge_coord],
+            ))
+            .to_index(dimension)];
+
+            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                neighbor_direction.axis as usize,
+                [i + 1, j + 1, neighbor_margin_coord],
+            ))
+            .to_index(dimension)] = neighbor_chunk_data[Coords(math::tuv_to_xyz(
+                direction.axis as usize,
+                [i + 1, j + 1, edge_coord],
+            ))
+            .to_index(dimension)];
         }
     }
 }

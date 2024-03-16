@@ -96,37 +96,31 @@ impl Graph {
         let dimension = self.layout().dimension;
         // New solid chunks should have their margin cleared if they are adjacent to any modified chunks.
         // See the function description of VoxelData::clear_margin for why this is necessary.
-        if new_data.is_solid() {
-            // Loop through all six potential chunk neighbors. If any are modified, the `new_data` should have
-            // its margin cleared.
-            for chunk_direction in ChunkDirection::iter() {
-                if let Some(chunk_id) =
-                    self.get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+        // Loop through all six potential chunk neighbors. If any are modified, the `new_data` should have
+        // its margin cleared.
+        for chunk_direction in ChunkDirection::iter() {
+            if let Some(chunk_id) =
+                self.get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+            {
+                if let Chunk::Populated {
+                    modified,
+                    voxels: neighbor_voxels,
+                    surface,
+                    old_surface,
+                } = &mut self[chunk_id]
                 {
-                    if let Chunk::Populated {
-                        modified,
-                        voxels: neighbor_voxels,
-                        ..
-                    } = &mut self[chunk_id]
-                    {
-                        if !new_data.is_solid() || *modified {
-                            margins::fix_margins2(
-                                dimension,
-                                chunk.vertex,
-                                &mut new_data,
-                                chunk_direction,
-                                neighbor_voxels,
-                            );
-                        }
+                    if !new_data.is_solid() || *modified {
+                        margins::fix_margins2(
+                            dimension,
+                            chunk.vertex,
+                            &mut new_data,
+                            chunk_direction,
+                            neighbor_voxels,
+                        );
+                        *old_surface = surface.take().or(*old_surface);
                     }
                 }
             }
-        }
-
-        // Existing adjacent solid chunks should have their margins cleared if the chunk we're populating is modified.
-        // See the function description of VoxelData::clear_margin for why this is necessary.
-        if modified {
-            self.clear_adjacent_solid_chunk_margins(chunk);
         }
 
         // After clearing any margins we needed to clear, we can now insert the data into the graph
@@ -136,10 +130,6 @@ impl Graph {
             surface: None,
             old_surface: None,
         };
-
-        for chunk_direction in ChunkDirection::iter() {
-            margins::fix_margins(self, chunk, chunk_direction)
-        }
     }
 
     /// Tries to update the block at the given position to the given material.
