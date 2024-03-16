@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use crate::{
     cursor::{ChunkDirection, CoordAxis, CoordDirection, SimpleChunkOrientation},
+    dodeca::Vertex,
     graph::Graph,
     math,
-    node::{Chunk, ChunkId},
+    node::{Chunk, ChunkId, VoxelData},
 };
 
 pub fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection) {
@@ -63,6 +64,52 @@ pub fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection)
         panic!();
     };
     let chunk_data = chunk_data.data_mut(dimension);
+    let margin_coord = match direction.direction {
+        CoordDirection::Plus => dimension + 1,
+        CoordDirection::Minus => 0,
+    };
+    for j in 0..dimension {
+        for i in 0..dimension {
+            let coords = CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
+                [i + 1, j + 1, margin_coord],
+            ));
+            chunk_data[coords.to_index(dimension)] = margin_contents.pop_front().unwrap();
+        }
+    }
+}
+
+pub fn fix_margins2(
+    dimension: u8,
+    destination_vertex: Vertex,
+    destination: &mut VoxelData,
+    direction: ChunkDirection,
+    source: &VoxelData,
+) {
+    let neighbor_orientation = match direction.direction {
+        CoordDirection::Plus => {
+            destination_vertex.adjacent_chunk_orientations()[direction.axis as usize]
+        }
+        CoordDirection::Minus => SimpleChunkOrientation::identity(),
+    };
+
+    let neighbor_direction = neighbor_orientation * direction; // TODO: Double-check that change of coordinates is in correct direction
+    let neighbor_margin_coord = match neighbor_direction.direction {
+        CoordDirection::Plus => dimension + 1,
+        CoordDirection::Minus => 0,
+    };
+    let mut margin_contents = VecDeque::with_capacity((dimension as usize).pow(2));
+    for j in 0..dimension {
+        for i in 0..dimension {
+            let neighbor_coords = CoordsWithMargins(math::tuv_to_xyz(
+                neighbor_direction.axis as usize,
+                [i + 1, j + 1, neighbor_margin_coord],
+            ));
+            margin_contents.push_back(source.get(neighbor_coords.to_index(dimension)));
+        }
+    }
+
+    let chunk_data = destination.data_mut(dimension);
     let margin_coord = match direction.direction {
         CoordDirection::Plus => dimension + 1,
         CoordDirection::Minus => 0,

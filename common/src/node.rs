@@ -93,19 +93,30 @@ impl Graph {
 
     /// Populates a chunk with the given voxel data and ensures that margins are correctly cleared if necessary.
     pub fn populate_chunk(&mut self, chunk: ChunkId, mut new_data: VoxelData, modified: bool) {
+        let dimension = self.layout().dimension;
         // New solid chunks should have their margin cleared if they are adjacent to any modified chunks.
         // See the function description of VoxelData::clear_margin for why this is necessary.
         if new_data.is_solid() {
             // Loop through all six potential chunk neighbors. If any are modified, the `new_data` should have
             // its margin cleared.
-            'outer: for coord_axis in CoordAxis::iter() {
-                for coord_direction in CoordDirection::iter() {
-                    if let Some(chunk_id) =
-                        self.get_chunk_neighbor(chunk, coord_axis, coord_direction)
+            for chunk_direction in ChunkDirection::iter() {
+                if let Some(chunk_id) =
+                    self.get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+                {
+                    if let Chunk::Populated {
+                        modified,
+                        voxels: neighbor_voxels,
+                        ..
+                    } = &mut self[chunk_id]
                     {
-                        if let Chunk::Populated { modified: true, .. } = self[chunk_id] {
-                            new_data.clear_margin(self.layout().dimension);
-                            break 'outer;
+                        if !new_data.is_solid() || *modified {
+                            margins::fix_margins2(
+                                dimension,
+                                chunk.vertex,
+                                &mut new_data,
+                                chunk_direction,
+                                neighbor_voxels,
+                            );
                         }
                     }
                 }
