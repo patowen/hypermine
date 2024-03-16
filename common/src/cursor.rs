@@ -119,6 +119,39 @@ pub struct ChunkDirection {
     pub direction: CoordDirection,
 }
 
+impl ChunkDirection {
+    pub fn iter() -> impl ExactSizeIterator<Item = ChunkDirection> {
+        [
+            ChunkDirection {
+                axis: CoordAxis::X,
+                direction: CoordDirection::Plus,
+            },
+            ChunkDirection {
+                axis: CoordAxis::Y,
+                direction: CoordDirection::Plus,
+            },
+            ChunkDirection {
+                axis: CoordAxis::Z,
+                direction: CoordDirection::Plus,
+            },
+            ChunkDirection {
+                axis: CoordAxis::X,
+                direction: CoordDirection::Minus,
+            },
+            ChunkDirection {
+                axis: CoordAxis::Y,
+                direction: CoordDirection::Minus,
+            },
+            ChunkDirection {
+                axis: CoordAxis::Z,
+                direction: CoordDirection::Minus,
+            },
+        ]
+        .iter()
+        .copied()
+    }
+}
+
 /// Represents one of the 48 possible orientations a chunk can be viewed from, including reflections.
 /// This is analogous to a 3x3 rotation matrix with a restricted domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

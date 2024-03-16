@@ -7,7 +7,7 @@ use crate::{
     node::{Chunk, ChunkId},
 };
 
-fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection) {
+pub fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection) {
     let dimension = graph.layout().dimension();
     let (neighbor_chunk, neighbor_orientation) = match direction.direction {
         CoordDirection::Plus => (
@@ -36,7 +36,8 @@ fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection) {
         ..
     }) = graph.get_chunk(neighbor_chunk)
     else {
-        panic!();
+        // TODO: Decide best way to fix margins when neighboring chunk isn't generated yet
+        return;
     };
 
     let neighbor_direction = neighbor_orientation * direction; // TODO: Double-check that change of coordinates is in correct direction
