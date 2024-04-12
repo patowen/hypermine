@@ -386,6 +386,9 @@ impl Sim {
             no_clip: self.no_clip,
             block_update: self.get_local_character_block_update(),
         };
+        if let Some(block_update) = character_input.block_update.as_ref() {
+            tracing::info!("{:?}", block_update);
+        }
         let generation = self
             .prediction
             .push(&self.cfg, &self.graph, &character_input);

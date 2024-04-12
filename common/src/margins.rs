@@ -87,7 +87,6 @@ pub fn fix_margins2(
     direction: ChunkDirection,
     source: &mut VoxelData,
 ) {
-    // TODO: Double-check that change of coordinates is in correct direction
     let neighbor_orientation = match direction.direction {
         CoordDirection::Plus => {
             destination_vertex.adjacent_chunk_orientations()[direction.axis as usize]
@@ -117,11 +116,11 @@ pub fn fix_margins2(
             )))
             .to_index(dimension)];
 
-            chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
+            neighbor_chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
             )))
-            .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+            .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
             ))
@@ -176,7 +175,7 @@ mod tests {
         cursor::{CoordAxis, CoordDirection, Coords},
         dodeca::Vertex,
         graph::{Graph, NodeId},
-        node::ChunkId,
+        node::ChunkId, world::Material,
     };
 
     use super::*;
@@ -250,4 +249,23 @@ mod tests {
 
     #[test]
     fn foo() {}
+
+    #[test]
+    fn test_fix_margins2() {
+        let mut destination = VoxelData::Solid(Material::Void);
+        destination.data_mut(12)[Coords([11, 2, 10]).to_index(12)] = Material::WoodPlanks;
+
+        let mut source = VoxelData::Solid(Material::Void);
+        source.data_mut(12)[Coords([2, 10, 11]).to_index(12)] = Material::WoodPlanks;
+
+        println!("{:?}", Vertex::F.adjacent_vertices()[0]);
+        println!("{:?}", Vertex::J.adjacent_vertices()[2]);
+
+        fix_margins2(12, Vertex::F, &mut destination, ChunkDirection { axis: CoordAxis::X, direction: CoordDirection::Plus }, &mut source);
+
+        println!("{:?}", destination.get(CoordsWithMargins([12, 3, 11]).to_index(12)));
+        println!("{:?}", source.get(CoordsWithMargins([3, 11, 12]).to_index(12)));
+        println!("{:?}", destination.get(CoordsWithMargins([13, 3, 11]).to_index(12)));
+        println!("{:?}", source.get(CoordsWithMargins([3, 11, 13]).to_index(12)));
+    }
 }
