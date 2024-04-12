@@ -115,23 +115,24 @@ pub fn fix_margins2(
     let chunk_data = destination.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
+            // TODO: tuv_to_xyz doesn't work because the other two coordinates don't necessarily correspond.
             chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
-                [i + 1, j + 1, margin_coord],
+                [margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_chunk_data[Coords(math::tuv_to_xyz(
+            .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 neighbor_direction.axis as usize,
-                [i + 1, j + 1, neighbor_edge_coord],
+                [neighbor_edge_coord, i + 1, j + 1],
             ))
             .to_index(dimension)];
 
             chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 neighbor_direction.axis as usize,
-                [i + 1, j + 1, neighbor_margin_coord],
+                [neighbor_margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_chunk_data[Coords(math::tuv_to_xyz(
+            .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
-                [i + 1, j + 1, edge_coord],
+                [edge_coord, i + 1, j + 1],
             ))
             .to_index(dimension)];
         }

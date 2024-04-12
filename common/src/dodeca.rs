@@ -116,7 +116,7 @@ impl Vertex {
 
     /// Chunk orientations adjacent to this vertex, opposite the sides in canonical order.
     /// These orientations convert coordinates relative to a reflected version of the current
-    /// chunk to coordinates relative to the adjacent in its canonical orientation.
+    /// chunk to coordinates relative to the adjacent chunk in its canonical orientation.
     #[inline]
     pub fn adjacent_chunk_orientations(self) -> &'static [SimpleChunkOrientation; 3] {
         &ADJACENT_CHUNK_ORIENTATIONS[self as usize]
