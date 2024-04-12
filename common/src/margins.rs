@@ -87,6 +87,7 @@ pub fn fix_margins2(
     direction: ChunkDirection,
     source: &mut VoxelData,
 ) {
+    // TODO: Double-check that change of coordinates is in correct direction
     let neighbor_orientation = match direction.direction {
         CoordDirection::Plus => {
             destination_vertex.adjacent_chunk_orientations()[direction.axis as usize]
@@ -94,7 +95,6 @@ pub fn fix_margins2(
         CoordDirection::Minus => SimpleChunkOrientation::identity(),
     };
 
-    let neighbor_direction = neighbor_orientation * direction; // TODO: Double-check that change of coordinates is in correct direction
     let margin_coord = match direction.direction {
         CoordDirection::Plus => dimension + 1,
         CoordDirection::Minus => 0,
@@ -107,21 +107,20 @@ pub fn fix_margins2(
     let chunk_data = destination.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
-            // TODO: tuv_to_xyz doesn't work because the other two coordinates don't necessarily correspond.
             chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
-                neighbor_direction.axis as usize,
+            .to_index(dimension)] = neighbor_chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
-            ))
+            )))
             .to_index(dimension)];
 
-            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
-                neighbor_direction.axis as usize,
+            chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
-            ))
+            )))
             .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
@@ -156,6 +155,18 @@ impl std::ops::Index<CoordAxis> for CoordsWithMargins {
 impl std::ops::IndexMut<CoordAxis> for CoordsWithMargins {
     fn index_mut(&mut self, coord_axis: CoordAxis) -> &mut u8 {
         self.0.index_mut(coord_axis as usize)
+    }
+}
+
+impl std::ops::Mul<CoordsWithMargins> for SimpleChunkOrientation {
+    type Output = CoordsWithMargins;
+
+    fn mul(self, rhs: CoordsWithMargins) -> Self::Output {
+        let mut result = CoordsWithMargins([0; 3]);
+        for axis in CoordAxis::iter() {
+            result[self[axis]] = rhs[axis];
+        }
+        result
     }
 }
 
