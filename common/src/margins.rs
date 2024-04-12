@@ -99,15 +99,7 @@ pub fn fix_margins2(
         CoordDirection::Plus => dimension + 1,
         CoordDirection::Minus => 0,
     };
-    let neighbor_margin_coord = match neighbor_direction.direction {
-        CoordDirection::Plus => dimension + 1,
-        CoordDirection::Minus => 0,
-    };
     let edge_coord = match direction.direction {
-        CoordDirection::Plus => dimension,
-        CoordDirection::Minus => 1,
-    };
-    let neighbor_edge_coord = match neighbor_direction.direction {
         CoordDirection::Plus => dimension,
         CoordDirection::Minus => 1,
     };
@@ -122,13 +114,13 @@ pub fn fix_margins2(
             ))
             .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 neighbor_direction.axis as usize,
-                [neighbor_edge_coord, i + 1, j + 1],
+                [edge_coord, i + 1, j + 1],
             ))
             .to_index(dimension)];
 
             chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 neighbor_direction.axis as usize,
-                [neighbor_margin_coord, i + 1, j + 1],
+                [margin_coord, i + 1, j + 1],
             ))
             .to_index(dimension)] = neighbor_chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
