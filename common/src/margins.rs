@@ -110,16 +110,18 @@ pub fn fix_margins2(
                 direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
-                direction.axis as usize,
-                [edge_coord, i + 1, j + 1],
-            )))
+            .to_index(dimension)] = neighbor_chunk_data[(neighbor_orientation
+                * CoordsWithMargins(math::tuv_to_xyz(
+                    direction.axis as usize,
+                    [edge_coord, i + 1, j + 1],
+                )))
             .to_index(dimension)];
 
-            neighbor_chunk_data[(neighbor_orientation * CoordsWithMargins(math::tuv_to_xyz(
-                direction.axis as usize,
-                [margin_coord, i + 1, j + 1],
-            )))
+            neighbor_chunk_data[(neighbor_orientation
+                * CoordsWithMargins(math::tuv_to_xyz(
+                    direction.axis as usize,
+                    [margin_coord, i + 1, j + 1],
+                )))
             .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
@@ -175,7 +177,8 @@ mod tests {
         cursor::{CoordAxis, CoordDirection, Coords},
         dodeca::Vertex,
         graph::{Graph, NodeId},
-        node::ChunkId, world::Material,
+        node::ChunkId,
+        world::Material,
     };
 
     use super::*;
@@ -261,11 +264,32 @@ mod tests {
         println!("{:?}", Vertex::F.adjacent_vertices()[0]);
         println!("{:?}", Vertex::J.adjacent_vertices()[2]);
 
-        fix_margins2(12, Vertex::F, &mut destination, ChunkDirection { axis: CoordAxis::X, direction: CoordDirection::Plus }, &mut source);
+        fix_margins2(
+            12,
+            Vertex::F,
+            &mut destination,
+            ChunkDirection {
+                axis: CoordAxis::X,
+                direction: CoordDirection::Plus,
+            },
+            &mut source,
+        );
 
-        println!("{:?}", destination.get(CoordsWithMargins([12, 3, 11]).to_index(12)));
-        println!("{:?}", source.get(CoordsWithMargins([3, 11, 12]).to_index(12)));
-        println!("{:?}", destination.get(CoordsWithMargins([13, 3, 11]).to_index(12)));
-        println!("{:?}", source.get(CoordsWithMargins([3, 11, 13]).to_index(12)));
+        println!(
+            "{:?}",
+            destination.get(CoordsWithMargins([12, 3, 11]).to_index(12))
+        );
+        println!(
+            "{:?}",
+            source.get(CoordsWithMargins([3, 11, 12]).to_index(12))
+        );
+        println!(
+            "{:?}",
+            destination.get(CoordsWithMargins([13, 3, 11]).to_index(12))
+        );
+        println!(
+            "{:?}",
+            source.get(CoordsWithMargins([3, 11, 13]).to_index(12))
+        );
     }
 }
