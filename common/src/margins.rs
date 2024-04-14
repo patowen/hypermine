@@ -132,32 +132,37 @@ pub fn fix_margins2(
     }
 }
 
-pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData, direction: ChunkDirection) {
+/// Updates the margins of a given VoxelData to match the voxels they're next to. This is a good assumption to start
+/// with before taking into account neighboring chunks because it results in the least rendering and is generally accurate when
+/// the neighboring chunks are solid.
+pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
     // If voxels is solid, the margins are already set up the way they should be.
     if voxels.is_solid() {
         return;
     }
 
-    let margin_coord = match direction.direction {
-        CoordDirection::Plus => dimension + 1,
-        CoordDirection::Minus => 0,
-    };
-    let edge_coord = match direction.direction {
-        CoordDirection::Plus => dimension,
-        CoordDirection::Minus => 1,
-    };
-    let chunk_data = voxels.data_mut(dimension);
-    for j in 0..dimension {
-        for i in 0..dimension {
-            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
-                direction.axis as usize,
-                [margin_coord, i + 1, j + 1],
-            ))
-            .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
-                direction.axis as usize,
-                [edge_coord, i + 1, j + 1],
-            ))
-            .to_index(dimension)];
+    for direction in ChunkDirection::iter() {
+        let margin_coord = match direction.direction {
+            CoordDirection::Plus => dimension + 1,
+            CoordDirection::Minus => 0,
+        };
+        let edge_coord = match direction.direction {
+            CoordDirection::Plus => dimension,
+            CoordDirection::Minus => 1,
+        };
+        let chunk_data = voxels.data_mut(dimension);
+        for j in 0..dimension {
+            for i in 0..dimension {
+                chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                    direction.axis as usize,
+                    [margin_coord, i + 1, j + 1],
+                ))
+                .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                    direction.axis as usize,
+                    [edge_coord, i + 1, j + 1],
+                ))
+                .to_index(dimension)];
+            }
         }
     }
 }

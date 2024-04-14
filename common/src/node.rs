@@ -94,9 +94,8 @@ impl Graph {
     /// Populates a chunk with the given voxel data and ensures that margins are correctly fixed up if necessary.
     pub fn populate_chunk(&mut self, chunk: ChunkId, mut voxels: VoxelData, modified: bool) {
         let dimension = self.layout().dimension;
-        // Initialize and fix up margins for the chunk we're inserting along with any neighboring chunks
+        // Fix up margins for the chunk we're inserting along with any neighboring chunks
         for chunk_direction in ChunkDirection::iter() {
-            margins::initialize_margins(dimension, &mut voxels, chunk_direction);
             if let Some(Chunk::Populated {
                 modified: neighbor_modified,
                 voxels: neighbor_voxels,
