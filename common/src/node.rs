@@ -113,7 +113,7 @@ impl Graph {
                     || modified
                     || *neighbor_modified
                 {
-                    margins::fix_margins2(
+                    margins::fix_margins(
                         dimension,
                         chunk.vertex,
                         &mut voxels,

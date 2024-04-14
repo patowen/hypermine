@@ -91,7 +91,7 @@ pub struct Coords(pub [u8; 3]);
 
 impl Coords {
     /// Returns the array index in `VoxelData` corresponding to these coordinates
-    pub fn to_index(&self, chunk_size: u8) -> usize {
+    pub fn to_index(self, chunk_size: u8) -> usize {
         let chunk_size_with_margin = chunk_size as usize + 2;
         (self.0[0] as usize + 1)
             + (self.0[1] as usize + 1) * chunk_size_with_margin
