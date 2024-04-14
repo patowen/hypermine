@@ -13,6 +13,8 @@ use crate::{
 
 /// Ensure all nodes within `distance` of `start` exist
 pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
+    // We do a breadth-first instead of a depth-first traversal here to prevent too much error
+    // from accumulating due to repeated transformations being applied.
     let mut pending = VecDeque::<(NodeId, na::Matrix4<f32>)>::new();
     let mut visited = FxHashSet::<NodeId>::default();
 
@@ -50,6 +52,9 @@ pub fn nearby_nodes(
     }
 
     let mut result = Vec::new();
+
+    // We do a breadth-first instead of a depth-first traversal here to prevent too much error
+    // from accumulating due to repeated transformations being applied.
     let mut pending = VecDeque::<PendingNode>::new();
     let mut visited = FxHashSet::<NodeId>::default();
     let start_p = start.local * math::origin();
