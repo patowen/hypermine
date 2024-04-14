@@ -6,6 +6,7 @@ use crate::{
     graph::Graph,
     math,
     node::{Chunk, ChunkId, VoxelData},
+    world::Material,
 };
 
 pub fn fix_margins(graph: &mut Graph, chunk: ChunkId, direction: ChunkDirection) {
@@ -159,6 +160,55 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData, direction: Chun
             .to_index(dimension)];
         }
     }
+}
+
+pub fn update_margin_voxel(
+    graph: &mut Graph,
+    chunk: ChunkId,
+    coords: Coords,
+    direction: ChunkDirection,
+    material: Material,
+) {
+    let dimension = graph.layout().dimension();
+    let edge_coord = match direction.direction {
+        CoordDirection::Plus => dimension - 1,
+        CoordDirection::Minus => 0,
+    };
+    if coords[direction.axis] != edge_coord {
+        // There is nothing to do if we're not on an edge voxel.
+        return;
+    }
+    let Some(Chunk::Populated {
+        modified: _neighbor_modified,
+        voxels: neighbor_voxels,
+        surface: neighbor_surface,
+        old_surface: neighbor_old_surface,
+    }) = graph
+        .get_chunk_neighbor(chunk, direction.axis, direction.direction)
+        .map(|chunk_id| &mut graph[chunk_id])
+    else {
+        // If the neighboring chunk to check is not populated, there is nothing to do.
+        return;
+    };
+
+    let margin_coord = match direction.direction {
+        CoordDirection::Plus => dimension + 1,
+        CoordDirection::Minus => 0,
+    };
+    let neighbor_orientation = match direction.direction {
+        CoordDirection::Plus => chunk.vertex.adjacent_chunk_orientations()[direction.axis as usize],
+        CoordDirection::Minus => SimpleChunkOrientation::identity(),
+    };
+    let mut neighbor_coords = CoordsWithMargins([
+        coords[CoordAxis::X] + 1,
+        coords[CoordAxis::Y] + 1,
+        coords[CoordAxis::Z] + 1,
+    ]);
+    neighbor_coords[direction.axis] = margin_coord;
+    neighbor_coords = neighbor_orientation * neighbor_coords;
+
+    neighbor_voxels.data_mut(dimension)[neighbor_coords.to_index(dimension)] = material;
+    *neighbor_old_surface = neighbor_surface.take().or(*neighbor_old_surface);
 }
 
 /// Coordinates for a discrete voxel within a chunk, including margins
