@@ -102,8 +102,8 @@ pub fn fix_margins2(
         CoordDirection::Plus => dimension,
         CoordDirection::Minus => 1,
     };
-    let neighbor_chunk_data = source.data_mut(dimension);
     let chunk_data = destination.data_mut(dimension);
+    let neighbor_chunk_data = source.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
             chunk_data[CoordsWithMargins(math::tuv_to_xyz(
@@ -122,6 +122,36 @@ pub fn fix_margins2(
                     direction.axis as usize,
                     [margin_coord, i + 1, j + 1],
                 )))
+            .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
+                [edge_coord, i + 1, j + 1],
+            ))
+            .to_index(dimension)];
+        }
+    }
+}
+
+pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData, direction: ChunkDirection) {
+    // If voxels is solid, the margins are already set up the way they should be.
+    if voxels.is_solid() {
+        return;
+    }
+
+    let margin_coord = match direction.direction {
+        CoordDirection::Plus => dimension + 1,
+        CoordDirection::Minus => 0,
+    };
+    let edge_coord = match direction.direction {
+        CoordDirection::Plus => dimension,
+        CoordDirection::Minus => 1,
+    };
+    let chunk_data = voxels.data_mut(dimension);
+    for j in 0..dimension {
+        for i in 0..dimension {
+            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
+                [margin_coord, i + 1, j + 1],
+            ))
             .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],

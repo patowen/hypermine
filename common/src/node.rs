@@ -91,41 +91,44 @@ impl Graph {
         Some((chunk, coords))
     }
 
-    /// Populates a chunk with the given voxel data and ensures that margins are correctly cleared if necessary.
-    pub fn populate_chunk(&mut self, chunk: ChunkId, mut new_data: VoxelData, modified: bool) {
+    /// Populates a chunk with the given voxel data and ensures that margins are correctly fixed up if necessary.
+    pub fn populate_chunk(&mut self, chunk: ChunkId, mut voxels: VoxelData, modified: bool) {
         let dimension = self.layout().dimension;
-        // New solid chunks should have their margin cleared if they are adjacent to any modified chunks.
-        // See the function description of VoxelData::clear_margin for why this is necessary.
-        // Loop through all six potential chunk neighbors. If any are modified, the `new_data` should have
-        // its margin cleared.
+        // Initialize and fix up margins for the chunk we're inserting along with any neighboring chunks
         for chunk_direction in ChunkDirection::iter() {
-            if let Some(chunk_id) =
-                self.get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+            margins::initialize_margins(dimension, &mut voxels, chunk_direction);
+            if let Some(Chunk::Populated {
+                modified: neighbor_modified,
+                voxels: neighbor_voxels,
+                surface: neighbor_surface,
+                old_surface: neighbor_old_surface,
+            }) = self
+                .get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+                .map(|chunk_id| &mut self[chunk_id])
             {
-                if let Chunk::Populated {
-                    modified,
-                    voxels: neighbor_voxels,
-                    surface,
-                    old_surface,
-                } = &mut self[chunk_id]
+                // We need to fix up margins between the current chunk and the neighboring chunk if and only if
+                // there's a nontrivial surface between them. This can occur if either is modified or if neither
+                // is designated as solid. Note that if one is designated as solid, that means that it's deep enough
+                // in the terrain or up in the air that the surface between them will be trivial.
+                if (!voxels.is_solid() && !neighbor_voxels.is_solid())
+                    || modified
+                    || *neighbor_modified
                 {
-                    if !new_data.is_solid() || *modified {
-                        margins::fix_margins2(
-                            dimension,
-                            chunk.vertex,
-                            &mut new_data,
-                            chunk_direction,
-                            neighbor_voxels,
-                        );
-                        *old_surface = surface.take().or(*old_surface);
-                    }
+                    margins::fix_margins2(
+                        dimension,
+                        chunk.vertex,
+                        &mut voxels,
+                        chunk_direction,
+                        neighbor_voxels,
+                    );
+                    *neighbor_old_surface = neighbor_surface.take().or(*neighbor_old_surface);
                 }
             }
         }
 
         // After clearing any margins we needed to clear, we can now insert the data into the graph
         *self.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
-            voxels: new_data,
+            voxels,
             modified,
             surface: None,
             old_surface: None,
