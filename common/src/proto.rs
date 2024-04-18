@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{dodeca, graph::NodeId, EntityId, SimConfig, Step};
+use crate::{
+    dodeca,
+    graph::NodeId,
+    node::{ChunkId, Coords},
+    world::Material,
+    EntityId, SimConfig, Step,
+};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ClientHello {
@@ -50,6 +56,8 @@ pub struct Spawns {
     pub spawns: Vec<(EntityId, Vec<Component>)>,
     pub despawns: Vec<EntityId>,
     pub nodes: Vec<FreshNode>,
+    pub block_updates: Vec<BlockUpdate>,
+    pub voxel_data: Vec<(ChunkId, SerializedVoxelData)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -65,6 +73,20 @@ pub struct CharacterInput {
     pub movement: na::Vector3<f32>,
     pub jump: bool,
     pub no_clip: bool,
+    pub block_update: Option<BlockUpdate>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockUpdate {
+    pub chunk_id: ChunkId,
+    pub coords: Coords,
+    pub new_material: Material,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SerializedVoxelData {
+    /// Dense 3D array of 16-bit material tags for all voxels in this chunk
+    pub inner: Vec<u8>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

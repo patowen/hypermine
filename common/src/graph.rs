@@ -22,7 +22,7 @@ pub struct Graph {
 }
 
 impl Graph {
-    pub fn new(dimension: usize) -> Self {
+    pub fn new(dimension: u8) -> Self {
         let mut nodes = FxHashMap::default();
         nodes.insert(NodeId::ROOT, NodeContainer::new(None, 0));
         Self {
@@ -158,7 +158,7 @@ impl Graph {
                     None => continue,
                     Some(x) => x,
                 };
-                let mat = na::convert::<_, na::Matrix4<T>>(*side.reflection());
+                let mat = na::convert::<_, na::Matrix4<T>>(*side.reflection_f64());
                 location = mat * location;
                 transform = mat * transform;
                 continue 'outer;
@@ -249,6 +249,11 @@ impl Graph {
     #[inline]
     pub fn hash_of(&self, node: NodeId) -> u128 {
         node.0
+    }
+
+    #[inline]
+    pub fn from_hash(&self, hash: u128) -> NodeId {
+        NodeId(hash)
     }
 
     /// Ensure all shorter neighbors of a not-yet-created child node exist and return them, excluding the given parent node

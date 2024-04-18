@@ -9,16 +9,37 @@ use crate::{
 };
 use common::{
     character_controller,
+    collision_math::Ray,
     graph::{Graph, NodeId},
-    node::populate_fresh_nodes,
-    proto::{self, Character, CharacterInput, CharacterState, Command, Component, Position},
-    sanitize_motion_input, EntityId, GraphEntities, SimConfig, Step,
+    graph_ray_casting,
+    node::{populate_fresh_nodes, ChunkId, VoxelData},
+    proto::{
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
+    },
+    sanitize_motion_input,
+    world::Material,
+    EntityId, GraphEntities, SimConfig, Step,
 };
+
+const MATERIAL_PALETTE: [Material; 10] = [
+    Material::WoodPlanks,
+    Material::Grass,
+    Material::Dirt,
+    Material::Sand,
+    Material::Snow,
+    Material::WhiteBrick,
+    Material::GreyBrick,
+    Material::Basalt,
+    Material::Water,
+    Material::Lava,
+];
 
 /// Game state
 pub struct Sim {
     // World state
     pub graph: Graph,
+    /// Voxel data that have been downloaded from the server for chunks not yet introduced to the graph
+    pub preloaded_block_updates: FxHashMap<ChunkId, Vec<BlockUpdate>>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -47,16 +68,24 @@ pub struct Sim {
     jump_pressed: bool,
     /// Whether the jump button is currently held down
     jump_held: bool,
+    /// Whether the place-block button has been pressed since the last step
+    place_block_pressed: bool,
+    /// Whether the break-block button has been pressed since the last step
+    break_block_pressed: bool,
+
+    selected_material: Material,
+
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
 }
 
 impl Sim {
     pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
-        let mut graph = Graph::new(cfg.chunk_size as usize);
+        let mut graph = Graph::new(cfg.chunk_size);
         populate_fresh_nodes(&mut graph);
         Self {
             graph,
+            preloaded_block_updates: FxHashMap::default(),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -73,6 +102,9 @@ impl Sim {
             is_jumping: false,
             jump_pressed: false,
             jump_held: false,
+            place_block_pressed: false,
+            break_block_pressed: false,
+            selected_material: Material::WoodPlanks,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -120,6 +152,18 @@ impl Sim {
         self.jump_pressed = true;
     }
 
+    pub fn set_place_block_pressed_true(&mut self) {
+        self.place_block_pressed = true;
+    }
+
+    pub fn select_material(&mut self, idx: usize) {
+        self.selected_material = *MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]);
+    }
+
+    pub fn set_break_block_pressed_true(&mut self) {
+        self.break_block_pressed = true;
+    }
+
     pub fn cfg(&self) -> &SimConfig {
         &self.cfg
     }
@@ -141,6 +185,8 @@ impl Sim {
 
             // Send fresh input
             self.send_input(net);
+            self.place_block_pressed = false;
+            self.break_block_pressed = false;
 
             // Toggle no clip at the start of a new step
             if self.toggle_no_clip {
@@ -277,6 +323,21 @@ impl Sim {
             self.graph.insert_child(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
+        for block_update in msg.block_updates.into_iter() {
+            if !self.graph.update_block(&block_update) {
+                self.preloaded_block_updates
+                    .entry(block_update.chunk_id)
+                    .or_default()
+                    .push(block_update);
+            }
+        }
+        for (chunk_id, voxel_data) in msg.voxel_data {
+            let Some(voxel_data) = VoxelData::deserialize(&voxel_data, self.cfg.chunk_size) else {
+                tracing::error!("Voxel data received from server is of incorrect dimension");
+                continue;
+            };
+            self.graph.populate_chunk(chunk_id, voxel_data, true);
+        }
     }
 
     fn spawn(
@@ -323,6 +384,7 @@ impl Sim {
             movement: sanitize_motion_input(orientation * self.average_movement_input),
             jump: self.is_jumping,
             no_clip: self.no_clip,
+            block_update: self.get_local_character_block_update(),
         };
         let generation = self
             .prediction
@@ -355,6 +417,7 @@ impl Sim {
                 / (self.since_input_sent.as_secs_f32() / self.cfg.step_interval.as_secs_f32()),
             jump: self.is_jumping,
             no_clip: self.no_clip,
+            block_update: None,
         };
         character_controller::run_character_step(
             &self.cfg,
@@ -385,7 +448,12 @@ impl Sim {
     }
 
     pub fn view(&self) -> Position {
-        self.local_character_controller.oriented_position()
+        let mut pos = self.local_character_controller.oriented_position();
+        let up = self.graph.get_relative_up(&pos).unwrap();
+        pos.local *= common::math::translate_along(
+            &(up.as_ref() * (self.cfg.character.character_radius - 1e-3)),
+        );
+        pos
     }
 
     /// Destroy all aspects of an entity
@@ -406,5 +474,54 @@ impl Sim {
         self.world
             .despawn(entity)
             .expect("destroyed nonexistent entity");
+    }
+
+    /// Provides the logic for the player to be able to place and break blocks at will
+    fn get_local_character_block_update(&self) -> Option<BlockUpdate> {
+        let placing = if self.place_block_pressed {
+            true
+        } else if self.break_block_pressed {
+            false
+        } else {
+            return None;
+        };
+
+        let view_position = self.view();
+        let ray_casing_result = graph_ray_casting::ray_cast(
+            &self.graph,
+            &view_position,
+            &Ray::new(na::Vector4::w(), -na::Vector4::z()),
+            self.cfg.character.block_reach,
+        );
+
+        let Ok(ray_casting_result) = ray_casing_result else {
+            tracing::warn!("Tried to run a raycast beyond generated terrain.");
+            return None;
+        };
+
+        let hit = ray_casting_result?;
+
+        let block_pos = if placing {
+            self.graph.get_block_neighbor(
+                hit.chunk,
+                hit.voxel_coords,
+                hit.face_axis,
+                hit.face_direction,
+            )?
+        } else {
+            (hit.chunk, hit.voxel_coords)
+        };
+
+        let material = if placing {
+            self.selected_material
+        } else {
+            Material::Void
+        };
+
+        Some(BlockUpdate {
+            chunk_id: block_pos.0,
+            coords: block_pos.1,
+            new_material: material,
+        })
     }
 }

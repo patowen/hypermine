@@ -48,7 +48,7 @@ impl SimConfig {
         let voxel_size = x.voxel_size.unwrap_or(1.0);
         let meters_to_absolute = meters_to_absolute(chunk_size, voxel_size);
         SimConfig {
-            step_interval: Duration::from_secs(1) / x.rate.unwrap_or(10) as u32,
+            step_interval: Duration::from_secs(1) / x.rate.unwrap_or(30) as u32,
             view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             chunk_size,
@@ -64,8 +64,8 @@ fn meters_to_absolute(chunk_size: u8, voxel_size: f32) -> f32 {
     let a = dodeca::Vertex::A.chunk_to_node() * na::Vector4::new(1.0, 0.5, 0.5, 1.0);
     let b = dodeca::Vertex::A.chunk_to_node() * na::Vector4::new(0.0, 0.5, 0.5, 1.0);
     let minimum_chunk_face_separation = math::distance(&a, &b);
-    let absolute_voxel_size = minimum_chunk_face_separation / f64::from(chunk_size);
-    absolute_voxel_size as f32 / voxel_size
+    let absolute_voxel_size = minimum_chunk_face_separation / f32::from(chunk_size);
+    absolute_voxel_size / voxel_size
 }
 
 /// Static configuration information relevant to character physics as provided in configuration files
@@ -93,6 +93,8 @@ pub struct CharacterConfigRaw {
     pub ground_distance_tolerance: Option<f32>,
     /// Radius of the character in meters
     pub character_radius: Option<f32>,
+    /// How far a character can reach when placing blocks
+    pub block_reach: Option<f32>,
 }
 
 /// Static configuration information relevant to character physics
@@ -109,6 +111,7 @@ pub struct CharacterConfig {
     pub jump_speed: f32,
     pub ground_distance_tolerance: f32,
     pub character_radius: f32,
+    pub block_reach: f32,
 }
 
 impl CharacterConfig {
@@ -126,6 +129,7 @@ impl CharacterConfig {
             ground_distance_tolerance: x.ground_distance_tolerance.unwrap_or(0.2)
                 * meters_to_absolute,
             character_radius: x.character_radius.unwrap_or(0.4) * meters_to_absolute,
+            block_reach: x.block_reach.unwrap_or(10.0) * meters_to_absolute,
         }
     }
 }

@@ -100,11 +100,17 @@ impl Voxels {
             self.states.peek_mut(chunk).refcount -= 1;
         }
         while let Some(chunk) = self.worldgen.poll() {
-            sim.graph.get_mut(chunk.node).as_mut().unwrap().chunks[chunk.chunk] =
-                Chunk::Populated {
-                    surface: None,
-                    voxels: chunk.voxels,
-                };
+            let chunk_id = ChunkId::new(chunk.node, chunk.chunk);
+            sim.graph.populate_chunk(chunk_id, chunk.voxels, false);
+
+            // Now that the block is populated, we can apply any pending block updates the server
+            // provided that the client couldn't apply.
+            if let Some(block_updates) = sim.preloaded_block_updates.remove(&chunk_id) {
+                for block_update in block_updates {
+                    // The chunk was just populated, so a block update should always succeed.
+                    assert!(sim.graph.update_block(&block_update));
+                }
+            }
         }
 
         // Determine what to load/render
@@ -118,12 +124,9 @@ impl Voxels {
         let mut nodes = nearby_nodes(
             &sim.graph,
             &view,
-            f64::from(self.config.local_simulation.view_distance),
+            self.config.local_simulation.view_distance,
         );
-        histogram!(
-            "frame.cpu.voxels.graph_traversal",
-            graph_traversal_started.elapsed()
-        );
+        histogram!("frame.cpu.voxels.graph_traversal").record(graph_traversal_started.elapsed());
         // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
         // performance
         let view_pos = view.local * math::origin();
@@ -139,7 +142,7 @@ impl Voxels {
         for &(node, ref node_transform) in &nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
-            if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS as f32) {
+            if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
                 // Don't bother generating or drawing chunks from nodes that are wholly outside the
                 // frustum.
                 continue;
@@ -170,17 +173,19 @@ impl Voxels {
                     }
                     Populated {
                         ref mut surface,
+                        ref mut old_surface,
                         ref voxels,
-                    } => match (surface, voxels) {
-                        (&mut Some(slot), _) => {
+                        ..
+                    } => {
+                        if let Some(slot) = surface.or(*old_surface) {
                             // Render an already-extracted surface
                             self.states.get_mut(slot).refcount += 1;
                             frame.drawn.push(slot);
                             // Transfer transform
                             frame.surface.transforms_mut()[slot.0 as usize] =
-                                node_transform * vertex.chunk_to_node().map(|x| x as f32);
+                                node_transform * vertex.chunk_to_node();
                         }
-                        (&mut ref mut surface @ None, &VoxelData::Dense(ref data)) => {
+                        if let (None, &VoxelData::Dense(ref data)) = (&surface, voxels) {
                             // Extract a surface so it can be drawn in future frames
                             if frame.extracted.len() == self.config.chunk_load_parallelism as usize
                             {
@@ -192,7 +197,7 @@ impl Voxels {
                                     warn!("MAX_CHUNKS is too small");
                                     break;
                                 }
-                                Some(self.states.remove(slot))
+                                Some((slot, self.states.remove(slot)))
                             } else {
                                 None
                             };
@@ -206,13 +211,21 @@ impl Voxels {
                             *surface = Some(slot);
                             let storage = self.extraction_scratch.storage(scratch_slot);
                             storage.copy_from_slice(&data[..]);
-                            if let Some(lru) = removed {
+                            if let Some((lru_slot, lru)) = removed {
                                 if let Populated {
-                                    ref mut surface, ..
+                                    ref mut surface,
+                                    ref mut old_surface,
+                                    ..
                                 } =
                                     sim.graph.get_mut(lru.node).as_mut().unwrap().chunks[lru.chunk]
                                 {
-                                    *surface = None;
+                                    // Remove references to released slot IDs
+                                    if surface.map_or(false, |slot| lru_slot == slot) {
+                                        *surface = None;
+                                    }
+                                    if old_surface.map_or(false, |slot| lru_slot == slot) {
+                                        *old_surface = None;
+                                    }
                                 }
                             }
                             let node_is_odd = sim.graph.length(node) & 1 != 0;
@@ -224,8 +237,7 @@ impl Voxels {
                                 reverse_winding: vertex.parity() ^ node_is_odd,
                             });
                         }
-                        (None, &VoxelData::Solid(_)) => continue,
-                    },
+                    }
                 }
             }
         }
@@ -237,7 +249,7 @@ impl Voxels {
             cmd,
             &extractions,
         );
-        histogram!("frame.cpu.voxels.node_scan", node_scan_started.elapsed());
+        histogram!("frame.cpu.voxels.node_scan").record(node_scan_started.elapsed());
     }
 
     pub unsafe fn draw(
@@ -262,7 +274,7 @@ impl Voxels {
         for chunk in &frame.drawn {
             self.draw.draw(device, cmd, &self.surfaces, chunk.0);
         }
-        histogram!("frame.cpu.voxels.draw", started.elapsed());
+        histogram!("frame.cpu.voxels.draw").record(started.elapsed());
     }
 
     pub unsafe fn destroy(&mut self, device: &Device) {
