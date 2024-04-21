@@ -7,17 +7,18 @@ use crate::{
     world::Material,
 };
 
+/// Updates the margins of both `voxels` and `neighbor_voxels` at the side they meet at.
+/// It is assumed that `voxels` corresponds to a chunk that lies at `vertex` and that
+/// `neighbor_voxels` is at direction `direction` from `voxels`.
 pub fn fix_margins(
     dimension: u8,
-    destination_vertex: Vertex,
-    destination: &mut VoxelData,
+    vertex: Vertex,
+    voxels: &mut VoxelData,
     direction: ChunkDirection,
-    source: &mut VoxelData,
+    neighbor_voxels: &mut VoxelData,
 ) {
     let neighbor_orientation = match direction.sign {
-        CoordSign::Plus => {
-            destination_vertex.adjacent_chunk_orientations()[direction.axis as usize]
-        }
+        CoordSign::Plus => vertex.adjacent_chunk_orientations()[direction.axis as usize],
         CoordSign::Minus => SimpleChunkOrientation::identity(),
     };
 
@@ -29,27 +30,27 @@ pub fn fix_margins(
         CoordSign::Plus => dimension,
         CoordSign::Minus => 1,
     };
-    let chunk_data = destination.data_mut(dimension);
-    let neighbor_chunk_data = source.data_mut(dimension);
+    let voxel_data = voxels.data_mut(dimension);
+    let neighbor_voxel_data = neighbor_voxels.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
-            chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+            voxel_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_chunk_data[(neighbor_orientation
+            .to_index(dimension)] = neighbor_voxel_data[(neighbor_orientation
                 * CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
                     [edge_coord, i + 1, j + 1],
                 )))
             .to_index(dimension)];
 
-            neighbor_chunk_data[(neighbor_orientation
+            neighbor_voxel_data[(neighbor_orientation
                 * CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
                     [margin_coord, i + 1, j + 1],
                 )))
-            .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+            .to_index(dimension)] = voxel_data[CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
             ))
@@ -59,8 +60,8 @@ pub fn fix_margins(
 }
 
 /// Updates the margins of a given VoxelData to match the voxels they're next to. This is a good assumption to start
-/// with before taking into account neighboring chunks because it results in the least rendering and is generally accurate when
-/// the neighboring chunks are solid.
+/// with before taking into account neighboring chunks because it means that no surface will be present on the boundaries
+/// of the chunk, resulting in the least rendering. This is also generally accurate when the neighboring chunks are solid.
 pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
     // If voxels is solid, the margins are already set up the way they should be.
     if voxels.is_solid() {
@@ -93,6 +94,9 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
     }
 }
 
+/// Assuming that the voxel at `chunk` and `coords` is set to `material`, updates the cooresponding
+/// margin in the chunk at direction `direction` from `chunk` if such a margin exists. Unpopulated chunks
+/// are ignored.
 pub fn update_margin_voxel(
     graph: &mut Graph,
     chunk: ChunkId,
@@ -100,10 +104,11 @@ pub fn update_margin_voxel(
     direction: ChunkDirection,
     material: Material,
 ) {
+    let coords: CoordsWithMargins = coords.into();
     let dimension = graph.layout().dimension();
     let edge_coord = match direction.sign {
-        CoordSign::Plus => dimension - 1,
-        CoordSign::Minus => 0,
+        CoordSign::Plus => dimension,
+        CoordSign::Minus => 1,
     };
     if coords[direction.axis] != edge_coord {
         // There is nothing to do if we're not on an edge voxel.
@@ -130,7 +135,7 @@ pub fn update_margin_voxel(
         CoordSign::Plus => chunk.vertex.adjacent_chunk_orientations()[direction.axis as usize],
         CoordSign::Minus => SimpleChunkOrientation::identity(),
     };
-    let mut neighbor_coords = CoordsWithMargins::from(coords);
+    let mut neighbor_coords = coords;
     neighbor_coords[direction.axis] = margin_coord;
     neighbor_coords = neighbor_orientation * neighbor_coords;
 
@@ -195,7 +200,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fix_margins2() {
+    fn test_fix_margins() {
         let mut destination = VoxelData::Solid(Material::Void);
         destination.data_mut(12)[Coords([11, 2, 10]).to_index(12)] = Material::WoodPlanks;
 

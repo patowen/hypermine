@@ -73,10 +73,8 @@ impl Graph {
         coord_direction: CoordSign,
     ) -> Option<(ChunkId, Coords)> {
         if coords[coord_axis] == self.layout().dimension - 1 && coord_direction == CoordSign::Plus {
-            let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
-            let new_orientation = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize];
-            coords = new_orientation * coords;
-            chunk.vertex = new_vertex;
+            coords = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize] * coords;
+            chunk.vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
         } else if coords[coord_axis] == 0 && coord_direction == CoordSign::Minus {
             chunk.node = self.neighbor(
                 chunk.node,
@@ -104,9 +102,9 @@ impl Graph {
                 .map(|chunk_id| &mut self[chunk_id])
             {
                 // We need to fix up margins between the current chunk and the neighboring chunk if and only if
-                // there's a nontrivial surface between them. This can occur if either is modified or if neither
+                // there's a potential surface between them. This can occur if either is modified or if neither
                 // is designated as solid. Note that if one is designated as solid, that means that it's deep enough
-                // in the terrain or up in the air that the surface between them will be trivial.
+                // in the terrain or up in the air that there will be no surface between them.
                 if (!voxels.is_solid() && !neighbor_voxels.is_solid())
                     || modified
                     || *neighbor_modified
