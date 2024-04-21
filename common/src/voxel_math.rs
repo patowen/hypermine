@@ -108,6 +108,7 @@ impl IndexMut<CoordAxis> for Coords {
     }
 }
 
+/// Represents one of the six main directions within a chunk: positive or negative x, y, and z.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkDirection {
     pub axis: CoordAxis,
@@ -197,6 +198,7 @@ impl std::ops::MulAssign for ChunkOrientation {
 }
 
 /// Represents one of the 6 possible orientations a chunk can be viewed from, including reflections, that preserve the origin.
+/// In other words, any instance of this struct represents a permutation of the axes.
 /// This is analogous to a 3x3 rotation matrix with a restricted domain.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SimpleChunkOrientation {
