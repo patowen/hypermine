@@ -201,41 +201,52 @@ mod tests {
 
     #[test]
     fn test_fix_margins() {
-        let mut destination = VoxelData::Solid(Material::Void);
-        destination.data_mut(12)[Coords([11, 2, 10]).to_index(12)] = Material::WoodPlanks;
+        // This test case can set up empirically by placing blocks and printing their coordinates to confirm which
+        // coordinates are adjacent to each other.
 
-        let mut source = VoxelData::Solid(Material::Void);
-        source.data_mut(12)[Coords([2, 10, 11]).to_index(12)] = Material::WoodPlanks;
+        // `voxels` lives at vertex F
+        let mut voxels = VoxelData::Solid(Material::Void);
+        voxels.data_mut(12)[Coords([11, 2, 10]).to_index(12)] = Material::WoodPlanks;
 
-        println!("{:?}", Vertex::F.adjacent_vertices()[0]);
-        println!("{:?}", Vertex::J.adjacent_vertices()[2]);
+        // `neighbor_voxels` lives at vertex J
+        let mut neighbor_voxels = VoxelData::Solid(Material::Void);
+        neighbor_voxels.data_mut(12)[Coords([2, 10, 11]).to_index(12)] = Material::Grass;
+
+        // Sanity check that voxel adjacencies are as expected. If the test fails here, it's likely that "dodeca.rs" was
+        // redesigned, and the test itself will have to be fixed, rather than the code being tested.
+        assert_eq!(Vertex::F.adjacent_vertices()[0], Vertex::J);
+        assert_eq!(Vertex::J.adjacent_vertices()[2], Vertex::F);
+
+        // Sanity check that voxels are populated as expected, using `CoordsWithMargins` for consistency with the actual
+        // test case.
+        assert_eq!(
+            voxels.get(CoordsWithMargins([12, 3, 11]).to_index(12)),
+            Material::WoodPlanks
+        );
+        assert_eq!(
+            neighbor_voxels.get(CoordsWithMargins([3, 11, 12]).to_index(12)),
+            Material::Grass
+        );
 
         fix_margins(
             12,
             Vertex::F,
-            &mut destination,
+            &mut voxels,
             ChunkDirection {
                 axis: CoordAxis::X,
                 sign: CoordSign::Plus,
             },
-            &mut source,
+            &mut neighbor_voxels,
         );
 
-        println!(
-            "{:?}",
-            destination.get(CoordsWithMargins([12, 3, 11]).to_index(12))
+        // Actual verification: Check that the margins were set correctly
+        assert_eq!(
+            voxels.get(CoordsWithMargins([13, 3, 11]).to_index(12)),
+            Material::Grass
         );
-        println!(
-            "{:?}",
-            source.get(CoordsWithMargins([3, 11, 12]).to_index(12))
-        );
-        println!(
-            "{:?}",
-            destination.get(CoordsWithMargins([13, 3, 11]).to_index(12))
-        );
-        println!(
-            "{:?}",
-            source.get(CoordsWithMargins([3, 11, 13]).to_index(12))
+        assert_eq!(
+            neighbor_voxels.get(CoordsWithMargins([3, 11, 13]).to_index(12)),
+            Material::WoodPlanks
         );
     }
 }
