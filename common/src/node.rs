@@ -5,11 +5,11 @@ use std::ops::{Index, IndexMut};
 use serde::{Deserialize, Serialize};
 
 use crate::collision_math::Ray;
-use crate::cursor::{ChunkDirection, CoordAxis, CoordDirection, Coords};
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
+use crate::voxel_math::{ChunkDirection, CoordAxis, CoordDirection, Coords};
 use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::{margins, math, Chunks};

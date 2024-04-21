@@ -1,9 +1,9 @@
 use crate::{
-    cursor::{ChunkDirection, CoordAxis, CoordDirection, Coords, SimpleChunkOrientation},
     dodeca::Vertex,
     graph::Graph,
     math,
     node::{Chunk, ChunkId, VoxelData},
+    voxel_math::{ChunkDirection, CoordAxis, CoordDirection, Coords, SimpleChunkOrientation},
     world::Material,
 };
 
@@ -187,8 +187,8 @@ impl std::ops::Mul<CoordsWithMargins> for SimpleChunkOrientation {
 #[cfg(test)]
 mod tests {
     use crate::{
-        cursor::{CoordAxis, CoordDirection, Coords},
         dodeca::Vertex,
+        voxel_math::{CoordAxis, CoordDirection, Coords},
         world::Material,
     };
 

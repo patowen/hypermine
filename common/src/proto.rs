@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    cursor::Coords, dodeca, graph::NodeId, node::ChunkId, world::Material, EntityId, SimConfig,
+    dodeca, graph::NodeId, node::ChunkId, voxel_math::Coords, world::Material, EntityId, SimConfig,
     Step,
 };
 

@@ -3,7 +3,7 @@
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-use crate::{cursor::SimpleChunkOrientation, math};
+use crate::{math, voxel_math::SimpleChunkOrientation};
 
 /// Sides of a right dodecahedron
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]

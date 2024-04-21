@@ -86,12 +86,12 @@ pub struct GraphCastHit {
 mod tests {
     use crate::{
         collision_math::Ray,
-        cursor::Coords,
         dodeca::{self, Side, Vertex},
         graph::{Graph, NodeId},
         node::{populate_fresh_nodes, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
+        voxel_math::Coords,
         world::Material,
     };
 

@@ -1,11 +1,11 @@
 use crate::{
     chunk_ray_casting::chunk_ray_cast,
     collision_math::Ray,
-    cursor::{CoordAxis, CoordDirection, Coords},
     graph::Graph,
     node::{Chunk, ChunkId},
     proto::Position,
     traversal::RayTraverser,
+    voxel_math::{CoordAxis, CoordDirection, Coords},
 };
 
 /// Performs ray casting against the voxels in the `DualGraph`
