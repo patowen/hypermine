@@ -115,32 +115,39 @@ pub struct ChunkDirection {
 }
 
 impl ChunkDirection {
+    pub const PLUS_X: Self = ChunkDirection {
+        axis: CoordAxis::X,
+        sign: CoordSign::Plus,
+    };
+    pub const PLUS_Y: Self = ChunkDirection {
+        axis: CoordAxis::Y,
+        sign: CoordSign::Plus,
+    };
+    pub const PLUS_Z: Self = ChunkDirection {
+        axis: CoordAxis::Z,
+        sign: CoordSign::Plus,
+    };
+    pub const MINUS_X: Self = ChunkDirection {
+        axis: CoordAxis::X,
+        sign: CoordSign::Minus,
+    };
+    pub const MINUS_Y: Self = ChunkDirection {
+        axis: CoordAxis::Y,
+        sign: CoordSign::Minus,
+    };
+    pub const MINUS_Z: Self = ChunkDirection {
+        axis: CoordAxis::Z,
+        sign: CoordSign::Minus,
+    };
+
     pub fn iter() -> impl ExactSizeIterator<Item = ChunkDirection> {
         [
-            ChunkDirection {
-                axis: CoordAxis::X,
-                sign: CoordSign::Plus,
-            },
-            ChunkDirection {
-                axis: CoordAxis::Y,
-                sign: CoordSign::Plus,
-            },
-            ChunkDirection {
-                axis: CoordAxis::Z,
-                sign: CoordSign::Plus,
-            },
-            ChunkDirection {
-                axis: CoordAxis::X,
-                sign: CoordSign::Minus,
-            },
-            ChunkDirection {
-                axis: CoordAxis::Y,
-                sign: CoordSign::Minus,
-            },
-            ChunkDirection {
-                axis: CoordAxis::Z,
-                sign: CoordSign::Minus,
-            },
+            Self::PLUS_X,
+            Self::PLUS_Y,
+            Self::PLUS_Z,
+            Self::MINUS_X,
+            Self::MINUS_Y,
+            Self::MINUS_Z,
         ]
         .iter()
         .copied()
