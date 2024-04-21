@@ -3,7 +3,7 @@ use crate::{
     graph::Graph,
     math,
     node::{Chunk, ChunkId, VoxelData},
-    voxel_math::{ChunkDirection, CoordAxis, CoordDirection, Coords, SimpleChunkOrientation},
+    voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords, SimpleChunkOrientation},
     world::Material,
 };
 
@@ -14,20 +14,20 @@ pub fn fix_margins(
     direction: ChunkDirection,
     source: &mut VoxelData,
 ) {
-    let neighbor_orientation = match direction.direction {
-        CoordDirection::Plus => {
+    let neighbor_orientation = match direction.sign {
+        CoordSign::Plus => {
             destination_vertex.adjacent_chunk_orientations()[direction.axis as usize]
         }
-        CoordDirection::Minus => SimpleChunkOrientation::identity(),
+        CoordSign::Minus => SimpleChunkOrientation::identity(),
     };
 
-    let margin_coord = match direction.direction {
-        CoordDirection::Plus => dimension + 1,
-        CoordDirection::Minus => 0,
+    let margin_coord = match direction.sign {
+        CoordSign::Plus => dimension + 1,
+        CoordSign::Minus => 0,
     };
-    let edge_coord = match direction.direction {
-        CoordDirection::Plus => dimension,
-        CoordDirection::Minus => 1,
+    let edge_coord = match direction.sign {
+        CoordSign::Plus => dimension,
+        CoordSign::Minus => 1,
     };
     let chunk_data = destination.data_mut(dimension);
     let neighbor_chunk_data = source.data_mut(dimension);
@@ -68,13 +68,13 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
     }
 
     for direction in ChunkDirection::iter() {
-        let margin_coord = match direction.direction {
-            CoordDirection::Plus => dimension + 1,
-            CoordDirection::Minus => 0,
+        let margin_coord = match direction.sign {
+            CoordSign::Plus => dimension + 1,
+            CoordSign::Minus => 0,
         };
-        let edge_coord = match direction.direction {
-            CoordDirection::Plus => dimension,
-            CoordDirection::Minus => 1,
+        let edge_coord = match direction.sign {
+            CoordSign::Plus => dimension,
+            CoordSign::Minus => 1,
         };
         let chunk_data = voxels.data_mut(dimension);
         for j in 0..dimension {
@@ -101,9 +101,9 @@ pub fn update_margin_voxel(
     material: Material,
 ) {
     let dimension = graph.layout().dimension();
-    let edge_coord = match direction.direction {
-        CoordDirection::Plus => dimension - 1,
-        CoordDirection::Minus => 0,
+    let edge_coord = match direction.sign {
+        CoordSign::Plus => dimension - 1,
+        CoordSign::Minus => 0,
     };
     if coords[direction.axis] != edge_coord {
         // There is nothing to do if we're not on an edge voxel.
@@ -115,20 +115,20 @@ pub fn update_margin_voxel(
         surface: neighbor_surface,
         old_surface: neighbor_old_surface,
     }) = graph
-        .get_chunk_neighbor(chunk, direction.axis, direction.direction)
+        .get_chunk_neighbor(chunk, direction.axis, direction.sign)
         .map(|chunk_id| &mut graph[chunk_id])
     else {
         // If the neighboring chunk to check is not populated, there is nothing to do.
         return;
     };
 
-    let margin_coord = match direction.direction {
-        CoordDirection::Plus => dimension + 1,
-        CoordDirection::Minus => 0,
+    let margin_coord = match direction.sign {
+        CoordSign::Plus => dimension + 1,
+        CoordSign::Minus => 0,
     };
-    let neighbor_orientation = match direction.direction {
-        CoordDirection::Plus => chunk.vertex.adjacent_chunk_orientations()[direction.axis as usize],
-        CoordDirection::Minus => SimpleChunkOrientation::identity(),
+    let neighbor_orientation = match direction.sign {
+        CoordSign::Plus => chunk.vertex.adjacent_chunk_orientations()[direction.axis as usize],
+        CoordSign::Minus => SimpleChunkOrientation::identity(),
     };
     let mut neighbor_coords = CoordsWithMargins::from(coords);
     neighbor_coords[direction.axis] = margin_coord;
@@ -188,7 +188,7 @@ impl std::ops::Mul<CoordsWithMargins> for SimpleChunkOrientation {
 mod tests {
     use crate::{
         dodeca::Vertex,
-        voxel_math::{CoordAxis, CoordDirection, Coords},
+        voxel_math::{CoordAxis, CoordSign, Coords},
         world::Material,
     };
 
@@ -211,7 +211,7 @@ mod tests {
             &mut destination,
             ChunkDirection {
                 axis: CoordAxis::X,
-                direction: CoordDirection::Plus,
+                sign: CoordSign::Plus,
             },
             &mut source,
         );

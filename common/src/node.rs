@@ -9,7 +9,7 @@ use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
 use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
-use crate::voxel_math::{ChunkDirection, CoordAxis, CoordDirection, Coords};
+use crate::voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords};
 use crate::world::Material;
 use crate::worldgen::NodeState;
 use crate::{margins, math, Chunks};
@@ -48,14 +48,14 @@ impl Graph {
         &self,
         chunk: ChunkId,
         coord_axis: CoordAxis,
-        coord_direction: CoordDirection,
+        coord_direction: CoordSign,
     ) -> Option<ChunkId> {
         match coord_direction {
-            CoordDirection::Plus => Some(ChunkId::new(
+            CoordSign::Plus => Some(ChunkId::new(
                 chunk.node,
                 chunk.vertex.adjacent_vertices()[coord_axis as usize],
             )),
-            CoordDirection::Minus => Some(ChunkId::new(
+            CoordSign::Minus => Some(ChunkId::new(
                 self.neighbor(
                     chunk.node,
                     chunk.vertex.canonical_sides()[coord_axis as usize],
@@ -70,16 +70,14 @@ impl Graph {
         mut chunk: ChunkId,
         mut coords: Coords,
         coord_axis: CoordAxis,
-        coord_direction: CoordDirection,
+        coord_direction: CoordSign,
     ) -> Option<(ChunkId, Coords)> {
-        if coords[coord_axis] == self.layout().dimension - 1
-            && coord_direction == CoordDirection::Plus
-        {
+        if coords[coord_axis] == self.layout().dimension - 1 && coord_direction == CoordSign::Plus {
             let new_vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
             let new_orientation = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize];
             coords = new_orientation * coords;
             chunk.vertex = new_vertex;
-        } else if coords[coord_axis] == 0 && coord_direction == CoordDirection::Minus {
+        } else if coords[coord_axis] == 0 && coord_direction == CoordSign::Minus {
             chunk.node = self.neighbor(
                 chunk.node,
                 chunk.vertex.canonical_sides()[coord_axis as usize],
@@ -102,7 +100,7 @@ impl Graph {
                 surface: neighbor_surface,
                 old_surface: neighbor_old_surface,
             }) = self
-                .get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.direction)
+                .get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.sign)
                 .map(|chunk_id| &mut self[chunk_id])
             {
                 // We need to fix up margins between the current chunk and the neighboring chunk if and only if

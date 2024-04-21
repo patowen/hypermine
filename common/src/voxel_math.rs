@@ -50,33 +50,31 @@ impl TryFrom<usize> for CoordAxis {
 /// so when paired with the X-axis, it represents the postitive X-direction when set to Plus and the
 /// negative X-direction when set to Minus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CoordDirection {
+pub enum CoordSign {
     Plus = 1,
     Minus = -1,
 }
 
-impl CoordDirection {
+impl CoordSign {
     /// Iterates through the two possible coordinate directions
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
-        [CoordDirection::Plus, CoordDirection::Minus]
-            .iter()
-            .copied()
+        [CoordSign::Plus, CoordSign::Minus].iter().copied()
     }
 }
 
-impl std::ops::Mul for CoordDirection {
-    type Output = CoordDirection;
+impl std::ops::Mul for CoordSign {
+    type Output = CoordSign;
 
     fn mul(self, rhs: Self) -> Self::Output {
         if self == rhs {
-            CoordDirection::Plus
+            CoordSign::Plus
         } else {
-            CoordDirection::Minus
+            CoordSign::Minus
         }
     }
 }
 
-impl std::ops::MulAssign for CoordDirection {
+impl std::ops::MulAssign for CoordSign {
     fn mul_assign(&mut self, rhs: Self) {
         *self = *self * rhs;
     }
@@ -113,7 +111,7 @@ impl IndexMut<CoordAxis> for Coords {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkDirection {
     pub axis: CoordAxis,
-    pub direction: CoordDirection,
+    pub sign: CoordSign,
 }
 
 impl ChunkDirection {
@@ -121,27 +119,27 @@ impl ChunkDirection {
         [
             ChunkDirection {
                 axis: CoordAxis::X,
-                direction: CoordDirection::Plus,
+                sign: CoordSign::Plus,
             },
             ChunkDirection {
                 axis: CoordAxis::Y,
-                direction: CoordDirection::Plus,
+                sign: CoordSign::Plus,
             },
             ChunkDirection {
                 axis: CoordAxis::Z,
-                direction: CoordDirection::Plus,
+                sign: CoordSign::Plus,
             },
             ChunkDirection {
                 axis: CoordAxis::X,
-                direction: CoordDirection::Minus,
+                sign: CoordSign::Minus,
             },
             ChunkDirection {
                 axis: CoordAxis::Y,
-                direction: CoordDirection::Minus,
+                sign: CoordSign::Minus,
             },
             ChunkDirection {
                 axis: CoordAxis::Z,
-                direction: CoordDirection::Minus,
+                sign: CoordSign::Minus,
             },
         ]
         .iter()
@@ -170,7 +168,7 @@ impl std::ops::Mul<ChunkDirection> for ChunkOrientation {
     fn mul(self, rhs: ChunkDirection) -> Self::Output {
         ChunkDirection {
             axis: self[rhs.axis].axis,
-            direction: self[rhs.axis].direction * rhs.direction,
+            sign: self[rhs.axis].sign * rhs.sign,
         }
     }
 }
@@ -247,7 +245,7 @@ impl std::ops::Mul<ChunkDirection> for SimpleChunkOrientation {
     fn mul(self, rhs: ChunkDirection) -> Self::Output {
         ChunkDirection {
             axis: self[rhs.axis],
-            direction: rhs.direction,
+            sign: rhs.sign,
         }
     }
 }
