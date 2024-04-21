@@ -48,9 +48,9 @@ impl Graph {
         &self,
         chunk: ChunkId,
         coord_axis: CoordAxis,
-        coord_direction: CoordSign,
+        coord_sign: CoordSign,
     ) -> Option<ChunkId> {
-        match coord_direction {
+        match coord_sign {
             CoordSign::Plus => Some(ChunkId::new(
                 chunk.node,
                 chunk.vertex.adjacent_vertices()[coord_axis as usize],
@@ -70,18 +70,18 @@ impl Graph {
         mut chunk: ChunkId,
         mut coords: Coords,
         coord_axis: CoordAxis,
-        coord_direction: CoordSign,
+        coord_sign: CoordSign,
     ) -> Option<(ChunkId, Coords)> {
-        if coords[coord_axis] == self.layout().dimension - 1 && coord_direction == CoordSign::Plus {
+        if coords[coord_axis] == self.layout().dimension - 1 && coord_sign == CoordSign::Plus {
             coords = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize] * coords;
             chunk.vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
-        } else if coords[coord_axis] == 0 && coord_direction == CoordSign::Minus {
+        } else if coords[coord_axis] == 0 && coord_sign == CoordSign::Minus {
             chunk.node = self.neighbor(
                 chunk.node,
                 chunk.vertex.canonical_sides()[coord_axis as usize],
             )?;
         } else {
-            coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_direction as i8);
+            coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_sign as i8);
         }
 
         Some((chunk, coords))
