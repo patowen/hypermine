@@ -155,51 +155,11 @@ impl ChunkDirection {
     }
 }
 
-/// Represents one of the 48 possible orientations a chunk can be viewed from, including reflections.
-/// This is analogous to a 3x3 rotation matrix with a restricted domain.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ChunkOrientation {
-    directions: [ChunkDirection; 3],
-}
-
-impl Index<CoordAxis> for ChunkOrientation {
-    type Output = ChunkDirection;
-
-    fn index(&self, index: CoordAxis) -> &Self::Output {
-        &self.directions[index as usize]
-    }
-}
-
-impl std::ops::Mul<ChunkDirection> for ChunkOrientation {
-    type Output = ChunkDirection;
-
-    fn mul(self, rhs: ChunkDirection) -> Self::Output {
-        ChunkDirection {
-            axis: self[rhs.axis].axis,
-            sign: self[rhs.axis].sign * rhs.sign,
-        }
-    }
-}
-
-impl std::ops::Mul<ChunkOrientation> for ChunkOrientation {
-    type Output = ChunkOrientation;
-
-    fn mul(self, rhs: ChunkOrientation) -> Self::Output {
-        ChunkOrientation {
-            directions: rhs.directions.map(|d| self * d),
-        }
-    }
-}
-
-impl std::ops::MulAssign for ChunkOrientation {
-    fn mul_assign(&mut self, rhs: Self) {
-        *self = *self * rhs;
-    }
-}
-
 /// Represents one of the 6 possible orientations a chunk can be viewed from, including reflections, that preserve the origin.
 /// In other words, any instance of this struct represents a permutation of the axes.
 /// This is analogous to a 3x3 rotation matrix with a restricted domain.
+/// Note that it may make sense to define a more general `ChunkOrientation` class that takes three `ChunkDirection`s, to represent
+/// any cube rotation/reflection, but no use exists for it yet, so it has not yet been implemented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SimpleChunkOrientation {
     axes: [CoordAxis; 3],
@@ -212,6 +172,9 @@ impl SimpleChunkOrientation {
         }
     }
 
+    /// Constructs a `SimpleChunkOrientation` that, when left-multiplying a set of coordinates, moves from `from`'s reference
+    /// frame to `to`'s reference frame, where `from` and `to` are represented as three dodeca sides incident to a vertex
+    /// that determine the orientation of a chunk.
     pub fn from_permutation(from: [Side; 3], to: [Side; 3]) -> Self {
         assert!(from[0] != from[1] && from[0] != from[2] && from[1] != from[2]);
         assert!(to[0] != to[1] && to[0] != to[2] && to[1] != to[2]);
@@ -255,6 +218,96 @@ impl std::ops::Mul<ChunkDirection> for SimpleChunkOrientation {
         ChunkDirection {
             axis: self[rhs.axis],
             sign: rhs.sign,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::dodeca::Vertex;
+
+    use super::*;
+
+    fn coords_to_vector3(coords: Coords) -> na::Vector3<i32> {
+        na::Vector3::new(
+            coords[CoordAxis::X] as i32,
+            coords[CoordAxis::Y] as i32,
+            coords[CoordAxis::Z] as i32,
+        )
+    }
+
+    fn coord_axis_to_vector3(coord_axis: CoordAxis) -> na::Vector3<i32> {
+        let mut vector = na::Vector3::new(0, 0, 0);
+        vector[coord_axis as usize] = 1;
+        vector
+    }
+
+    fn chunk_direction_to_vector3(chunk_direction: ChunkDirection) -> na::Vector3<i32> {
+        let mut vector = na::Vector3::new(0, 0, 0);
+        vector[chunk_direction.axis as usize] = chunk_direction.sign as i32;
+        vector
+    }
+
+    fn simple_chunk_orientation_to_matrix3(
+        simple_chunk_orientation: SimpleChunkOrientation,
+    ) -> na::Matrix3<i32> {
+        na::Matrix::from_columns(&simple_chunk_orientation.axes.map(coord_axis_to_vector3))
+    }
+
+    // Helper function to return all permutations as a list of ordered triples
+    fn get_all_permutations() -> Vec<(usize, usize, usize)> {
+        let mut permutations = vec![];
+        for i in 0..3 {
+            for j in 0..3 {
+                if j == i {
+                    continue;
+                }
+                for k in 0..3 {
+                    if k == i || k == j {
+                        continue;
+                    }
+                    permutations.push((i, j, k));
+                }
+            }
+        }
+        permutations
+    }
+
+    #[test]
+    fn test_simple_chunk_orientation() {
+        let sides = Vertex::A.canonical_sides();
+
+        let example_coords = Coords([3, 5, 9]);
+
+        for (i, j, k) in get_all_permutations() {
+            let orientation = SimpleChunkOrientation::from_permutation(
+                [sides[0], sides[1], sides[2]],
+                [sides[i], sides[j], sides[k]],
+            );
+
+            // Test that the permutation goes in the expected direction
+            assert_eq!(
+                orientation * example_coords,
+                Coords([
+                    example_coords.0[i],
+                    example_coords.0[j],
+                    example_coords.0[k]
+                ])
+            );
+
+            // Test that the multiplication operations are consistent with matrix multiplication
+            assert_eq!(
+                coords_to_vector3(orientation * example_coords),
+                simple_chunk_orientation_to_matrix3(orientation)
+                    * coords_to_vector3(example_coords)
+            );
+            for chunk_direction in ChunkDirection::iter() {
+                assert_eq!(
+                    chunk_direction_to_vector3(orientation * chunk_direction),
+                    simple_chunk_orientation_to_matrix3(orientation)
+                        * chunk_direction_to_vector3(chunk_direction)
+                )
+            }
         }
     }
 }
