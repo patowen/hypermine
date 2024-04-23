@@ -91,6 +91,14 @@ impl Coords {
             + (self.0[1] as usize + 1) * chunk_size_with_margin
             + (self.0[2] as usize + 1) * chunk_size_with_margin.pow(2)
     }
+
+    /// Returns the x, y, or z coordinate that would correspond to the voxel meeting the chunk boundary in the direction of `sign`
+    pub fn edge_coord(chunk_size: u8, sign: CoordSign) -> u8 {
+        match sign {
+            CoordSign::Plus => chunk_size - 1,
+            CoordSign::Minus => 0,
+        }
+    }
 }
 
 impl Index<CoordAxis> for Coords {

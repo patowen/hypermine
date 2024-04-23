@@ -72,14 +72,19 @@ impl Graph {
         coord_axis: CoordAxis,
         coord_sign: CoordSign,
     ) -> Option<(ChunkId, Coords)> {
-        if coords[coord_axis] == self.layout().dimension - 1 && coord_sign == CoordSign::Plus {
-            coords = chunk.vertex.chunk_axis_permutations()[coord_axis as usize] * coords;
-            chunk.vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
-        } else if coords[coord_axis] == 0 && coord_sign == CoordSign::Minus {
-            chunk.node = self.neighbor(
-                chunk.node,
-                chunk.vertex.canonical_sides()[coord_axis as usize],
-            )?;
+        if coords[coord_axis] == Coords::edge_coord(self.layout().dimension, coord_sign) {
+            match coord_sign {
+                CoordSign::Plus => {
+                    coords = chunk.vertex.chunk_axis_permutations()[coord_axis as usize] * coords;
+                    chunk.vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
+                }
+                CoordSign::Minus => {
+                    chunk.node = self.neighbor(
+                        chunk.node,
+                        chunk.vertex.canonical_sides()[coord_axis as usize],
+                    )?;
+                }
+            }
         } else {
             coords[coord_axis] = coords[coord_axis].wrapping_add_signed(coord_sign as i8);
         }

@@ -17,19 +17,10 @@ pub fn fix_margins(
     direction: ChunkDirection,
     neighbor_voxels: &mut VoxelData,
 ) {
-    let neighbor_axis_permutation = match direction.sign {
-        CoordSign::Plus => vertex.chunk_axis_permutations()[direction.axis as usize],
-        CoordSign::Minus => ChunkAxisPermutation::IDENTITY,
-    };
+    let neighbor_axis_permutation = neighbor_axis_permutation(vertex, direction);
 
-    let margin_coord = match direction.sign {
-        CoordSign::Plus => dimension + 1,
-        CoordSign::Minus => 0,
-    };
-    let edge_coord = match direction.sign {
-        CoordSign::Plus => dimension,
-        CoordSign::Minus => 1,
-    };
+    let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
+    let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
     let voxel_data = voxels.data_mut(dimension);
     let neighbor_voxel_data = neighbor_voxels.data_mut(dimension);
     for j in 0..dimension {
@@ -68,14 +59,8 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
     }
 
     for direction in ChunkDirection::iter() {
-        let margin_coord = match direction.sign {
-            CoordSign::Plus => dimension + 1,
-            CoordSign::Minus => 0,
-        };
-        let edge_coord = match direction.sign {
-            CoordSign::Plus => dimension,
-            CoordSign::Minus => 1,
-        };
+        let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
+        let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
         let chunk_data = voxels.data_mut(dimension);
         for j in 0..dimension {
             for i in 0..dimension {
@@ -133,16 +118,20 @@ pub fn update_margin_voxel(
         CoordSign::Plus => dimension + 1,
         CoordSign::Minus => 0,
     };
-    let neighbor_axis_permutation = match direction.sign {
-        CoordSign::Plus => chunk.vertex.chunk_axis_permutations()[direction.axis as usize],
-        CoordSign::Minus => ChunkAxisPermutation::IDENTITY,
-    };
+    let neighbor_axis_permutation = neighbor_axis_permutation(chunk.vertex, direction);
     let mut neighbor_coords = coords;
     neighbor_coords[direction.axis] = margin_coord;
     neighbor_coords = neighbor_axis_permutation * neighbor_coords;
 
     neighbor_voxels.data_mut(dimension)[neighbor_coords.to_index(dimension)] = material;
     *neighbor_old_surface = neighbor_surface.take().or(*neighbor_old_surface);
+}
+
+fn neighbor_axis_permutation(vertex: Vertex, direction: ChunkDirection) -> ChunkAxisPermutation {
+    match direction.sign {
+        CoordSign::Plus => vertex.chunk_axis_permutations()[direction.axis as usize],
+        CoordSign::Minus => ChunkAxisPermutation::IDENTITY,
+    }
 }
 
 /// Coordinates for a discrete voxel within a chunk, including margins
@@ -156,6 +145,22 @@ impl CoordsWithMargins {
         (self.0[0] as usize)
             + (self.0[1] as usize) * chunk_size_with_margin
             + (self.0[2] as usize) * chunk_size_with_margin.pow(2)
+    }
+
+    /// Returns the x, y, or z coordinate that would correspond to the margin in the direction of `sign`
+    pub fn margin_coord(chunk_size: u8, sign: CoordSign) -> u8 {
+        match sign {
+            CoordSign::Plus => chunk_size + 1,
+            CoordSign::Minus => 0,
+        }
+    }
+
+    /// Returns the x, y, or z coordinate that would correspond to the voxel meeting the chunk boundary in the direction of `sign`
+    pub fn edge_coord(chunk_size: u8, sign: CoordSign) -> u8 {
+        match sign {
+            CoordSign::Plus => chunk_size,
+            CoordSign::Minus => 1,
+        }
     }
 }
 
