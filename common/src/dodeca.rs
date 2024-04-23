@@ -1,5 +1,7 @@
 //! Tools for processing the geometry of a right dodecahedron
 
+use std::array;
+
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
@@ -324,9 +326,8 @@ lazy_static! {
     // Which transformations have to be done after a reflection to switch reference frames from one vertex
     // to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
     static ref ADJACENT_CHUNK_ORIENTATIONS: [[SimpleChunkOrientation; 3]; VERTEX_COUNT] = {
-        let mut result = [[SimpleChunkOrientation::identity(); 3]; VERTEX_COUNT];
-        for vertex in 0..VERTEX_COUNT {
-            for result_index in 0..3 {
+        array::from_fn(|vertex| {
+            array::from_fn(|result_index| {
                 let mut test_sides = VERTEX_SIDES[vertex];
                 // Keep modifying the result_index'th element of test_sides until its three elements are all
                 // adjacent to a single vertex (determined using `Vertex::from_sides`).
@@ -335,20 +336,21 @@ lazy_static! {
                         continue;
                     }
                     test_sides[result_index] = side;
-                    if let Some(adjacent_vertex) =
+                    let Some(adjacent_vertex) =
                         Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
-                    {
-                        // Compare the natural permutation of sides after a reflection from `vertex` to `adjacent_vertex`
-                        // to the canonical permutation of the sides for `adjacent_vertex`.
-                        result[vertex][result_index] = SimpleChunkOrientation::from_permutation(
-                            test_sides,
-                            adjacent_vertex.canonical_sides(),
-                        );
-                    }
+                    else {
+                        continue;
+                    };
+                    // Compare the natural permutation of sides after a reflection from `vertex` to `adjacent_vertex`
+                    // to the canonical permutation of the sides for `adjacent_vertex`.
+                    return SimpleChunkOrientation::from_permutation(
+                        test_sides,
+                        adjacent_vertex.canonical_sides(),
+                    );
                 }
-            }
-        }
-        result
+                panic!("No suitable vertex found");
+            })
+        })
     };
 
     /// Transform that converts from cube-centric coordinates to dodeca-centric coordinates
