@@ -34,29 +34,26 @@ pub fn fix_margins(
     let neighbor_voxel_data = neighbor_voxels.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
-            // Use neighbor_voxel_data to set margins of voxel_data
-            voxel_data[CoordsWithMargins(math::tuv_to_xyz(
-                direction.axis as usize,
-                [margin_coord, i + 1, j + 1],
-            ))
-            .to_index(dimension)] = neighbor_voxel_data[(neighbor_axis_permutation
-                * CoordsWithMargins(math::tuv_to_xyz(
-                    direction.axis as usize,
-                    [edge_coord, i + 1, j + 1],
-                )))
-            .to_index(dimension)];
-
-            // Use voxel_data to set margins of neighbor_voxel_data
-            neighbor_voxel_data[(neighbor_axis_permutation
-                * CoordsWithMargins(math::tuv_to_xyz(
-                    direction.axis as usize,
-                    [margin_coord, i + 1, j + 1],
-                )))
-            .to_index(dimension)] = voxel_data[CoordsWithMargins(math::tuv_to_xyz(
+            // Determine coordinates of the edge voxel (to read from) and the margin voxel (to write to)
+            // in voxel_data's perspective. To convert to neighbor_voxel_data's perspective, left-multiply
+            // by neighbor_axis_permutation.
+            let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
                 [edge_coord, i + 1, j + 1],
-            ))
-            .to_index(dimension)];
+            ));
+            let coords_of_margin_voxel = CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
+                [margin_coord, i + 1, j + 1],
+            ));
+
+            // Use neighbor_voxel_data to set margins of voxel_data
+            voxel_data[coords_of_margin_voxel.to_index(dimension)] = neighbor_voxel_data
+                [(neighbor_axis_permutation * coords_of_edge_voxel).to_index(dimension)];
+
+            // Use voxel_data to set margins of neighbor_voxel_data
+            neighbor_voxel_data
+                [(neighbor_axis_permutation * coords_of_margin_voxel).to_index(dimension)] =
+                voxel_data[coords_of_edge_voxel.to_index(dimension)];
         }
     }
 }
@@ -82,15 +79,18 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
         let chunk_data = voxels.data_mut(dimension);
         for j in 0..dimension {
             for i in 0..dimension {
-                chunk_data[CoordsWithMargins(math::tuv_to_xyz(
-                    direction.axis as usize,
-                    [margin_coord, i + 1, j + 1],
-                ))
-                .to_index(dimension)] = chunk_data[CoordsWithMargins(math::tuv_to_xyz(
+                // Determine coordinates of the edge voxel (to read from) and the margin voxel (to write to).
+                let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
                     [edge_coord, i + 1, j + 1],
-                ))
-                .to_index(dimension)];
+                ));
+                let coords_of_margin_voxel = CoordsWithMargins(math::tuv_to_xyz(
+                    direction.axis as usize,
+                    [margin_coord, i + 1, j + 1],
+                ));
+
+                chunk_data[coords_of_margin_voxel.to_index(dimension)] =
+                    chunk_data[coords_of_edge_voxel.to_index(dimension)];
             }
         }
     }
