@@ -456,6 +456,57 @@ mod tests {
     }
 
     #[test]
+    fn adjacent_chunk_orientations() {
+        // Assumptions for this test to be valid. If any assertions in this section fail, the test itself
+        // needs to be modified
+        assert_eq!(Vertex::A.canonical_sides(), [Side::A, Side::B, Side::C]);
+        assert_eq!(Vertex::B.canonical_sides(), [Side::A, Side::B, Side::E]);
+
+        assert_eq!(Vertex::F.canonical_sides(), [Side::B, Side::C, Side::F]);
+        assert_eq!(Vertex::J.canonical_sides(), [Side::C, Side::F, Side::H]);
+
+        // Test cases
+
+        // Variables with name vertex_?_canonical_sides_reflected refer to the canonical sides
+        // of a particular vertex after a reflection that moves it to another vertex.
+        // For instance, vertex_a_canonical_sides_reflected is similar to Vertex::A.canonical_sides(),
+        // but one of the sides is changed to match Vertex B, but the order of the other two sides is left alone.
+        let vertex_a_canonical_sides_reflected = [Side::A, Side::B, Side::E];
+        let vertex_b_canonical_sides_reflected = [Side::A, Side::B, Side::C];
+        assert_eq!(
+            Vertex::A.adjacent_chunk_orientations()[2],
+            SimpleChunkOrientation::from_permutation(
+                vertex_a_canonical_sides_reflected,
+                Vertex::B.canonical_sides()
+            )
+        );
+        assert_eq!(
+            Vertex::B.adjacent_chunk_orientations()[2],
+            SimpleChunkOrientation::from_permutation(
+                vertex_b_canonical_sides_reflected,
+                Vertex::A.canonical_sides()
+            )
+        );
+
+        let vertex_f_canonical_sides_reflected = [Side::H, Side::C, Side::F];
+        let vertex_j_canonical_sides_reflected = [Side::C, Side::F, Side::B];
+        assert_eq!(
+            Vertex::F.adjacent_chunk_orientations()[0],
+            SimpleChunkOrientation::from_permutation(
+                vertex_f_canonical_sides_reflected,
+                Vertex::J.canonical_sides()
+            )
+        );
+        assert_eq!(
+            Vertex::J.adjacent_chunk_orientations()[2],
+            SimpleChunkOrientation::from_permutation(
+                vertex_j_canonical_sides_reflected,
+                Vertex::F.canonical_sides()
+            )
+        );
+    }
+
+    #[test]
     fn side_is_facing() {
         for side in Side::iter() {
             assert!(!side.is_facing::<f32>(&math::origin()));
