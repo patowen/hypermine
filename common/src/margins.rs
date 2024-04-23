@@ -117,10 +117,10 @@ pub fn update_margin_voxel(
         return;
     }
     let Some(Chunk::Populated {
-        modified: _neighbor_modified,
         voxels: neighbor_voxels,
         surface: neighbor_surface,
         old_surface: neighbor_old_surface,
+        ..
     }) = graph
         .get_chunk_neighbor(chunk, direction.axis, direction.sign)
         .map(|chunk_id| &mut graph[chunk_id])
@@ -160,6 +160,7 @@ impl CoordsWithMargins {
 }
 
 impl From<Coords> for CoordsWithMargins {
+    #[inline]
     fn from(value: Coords) -> Self {
         CoordsWithMargins([value.0[0] + 1, value.0[1] + 1, value.0[2] + 1])
     }
@@ -168,12 +169,14 @@ impl From<Coords> for CoordsWithMargins {
 impl std::ops::Index<CoordAxis> for CoordsWithMargins {
     type Output = u8;
 
+    #[inline]
     fn index(&self, coord_axis: CoordAxis) -> &u8 {
         self.0.index(coord_axis as usize)
     }
 }
 
 impl std::ops::IndexMut<CoordAxis> for CoordsWithMargins {
+    #[inline]
     fn index_mut(&mut self, coord_axis: CoordAxis) -> &mut u8 {
         self.0.index_mut(coord_axis as usize)
     }

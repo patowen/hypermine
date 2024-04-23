@@ -66,10 +66,9 @@ impl std::ops::Mul for CoordSign {
     type Output = CoordSign;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        if self == rhs {
-            CoordSign::Plus
-        } else {
-            CoordSign::Minus
+        match self == rhs {
+            true => CoordSign::Plus,
+            false => CoordSign::Minus,
         }
     }
 }
@@ -97,12 +96,14 @@ impl Coords {
 impl Index<CoordAxis> for Coords {
     type Output = u8;
 
+    #[inline]
     fn index(&self, coord_axis: CoordAxis) -> &u8 {
         self.0.index(coord_axis as usize)
     }
 }
 
 impl IndexMut<CoordAxis> for Coords {
+    #[inline]
     fn index_mut(&mut self, coord_axis: CoordAxis) -> &mut u8 {
         self.0.index_mut(coord_axis as usize)
     }
