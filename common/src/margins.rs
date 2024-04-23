@@ -19,7 +19,7 @@ pub fn fix_margins(
 ) {
     let neighbor_axis_permutation = match direction.sign {
         CoordSign::Plus => vertex.chunk_axis_permutations()[direction.axis as usize],
-        CoordSign::Minus => ChunkAxisPermutation::identity(),
+        CoordSign::Minus => ChunkAxisPermutation::IDENTITY,
     };
 
     let margin_coord = match direction.sign {
@@ -135,7 +135,7 @@ pub fn update_margin_voxel(
     };
     let neighbor_axis_permutation = match direction.sign {
         CoordSign::Plus => chunk.vertex.chunk_axis_permutations()[direction.axis as usize],
-        CoordSign::Minus => ChunkAxisPermutation::identity(),
+        CoordSign::Minus => ChunkAxisPermutation::IDENTITY,
     };
     let mut neighbor_coords = coords;
     neighbor_coords[direction.axis] = margin_coord;

@@ -165,11 +165,9 @@ pub struct ChunkAxisPermutation {
 }
 
 impl ChunkAxisPermutation {
-    pub fn identity() -> Self {
-        ChunkAxisPermutation {
-            axes: [CoordAxis::X, CoordAxis::Y, CoordAxis::Z],
-        }
-    }
+    pub const IDENTITY: Self = ChunkAxisPermutation {
+        axes: [CoordAxis::X, CoordAxis::Y, CoordAxis::Z],
+    };
 
     /// Constructs a `ChunkAxisPermutation` that, when left-multiplying a set of coordinates, moves from `from`'s reference
     /// frame to `to`'s reference frame, where `from` and `to` are represented as three dodeca sides incident to a vertex
