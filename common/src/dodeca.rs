@@ -5,7 +5,7 @@ use std::array;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 
-use crate::{math, voxel_math::SimpleChunkOrientation};
+use crate::{math, voxel_math::ChunkAxisPermutation};
 
 /// Sides of a right dodecahedron
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
@@ -128,12 +128,12 @@ impl Vertex {
         ADJACENT_VERTICES[self as usize]
     }
 
-    /// Chunk orientations adjacent to this vertex, opposite the sides in canonical order.
-    /// These orientations convert coordinates relative to a reflected version of the current
+    /// Chunk permutations adjacent to this vertex, opposite the sides in canonical order.
+    /// These permutations convert coordinates relative to a reflected version of the current
     /// chunk to coordinates relative to the adjacent chunk in its canonical orientation.
     #[inline]
-    pub fn adjacent_chunk_orientations(self) -> &'static [SimpleChunkOrientation; 3] {
-        &ADJACENT_CHUNK_ORIENTATIONS[self as usize]
+    pub fn chunk_axis_permutations(self) -> &'static [ChunkAxisPermutation; 3] {
+        &CHUNK_AXIS_PERMUTATIONS[self as usize]
     }
 
     /// For each vertex of the cube dual to this dodecahedral vertex, provides an iterator of at
@@ -325,7 +325,7 @@ lazy_static! {
 
     // Which transformations have to be done after a reflection to switch reference frames from one vertex
     // to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
-    static ref ADJACENT_CHUNK_ORIENTATIONS: [[SimpleChunkOrientation; 3]; VERTEX_COUNT] = {
+    static ref CHUNK_AXIS_PERMUTATIONS: [[ChunkAxisPermutation; 3]; VERTEX_COUNT] = {
         array::from_fn(|vertex| {
             array::from_fn(|result_index| {
                 let mut test_sides = VERTEX_SIDES[vertex];
@@ -343,7 +343,7 @@ lazy_static! {
                     };
                     // Compare the natural permutation of sides after a reflection from `vertex` to `adjacent_vertex`
                     // to the canonical permutation of the sides for `adjacent_vertex`.
-                    return SimpleChunkOrientation::from_permutation(
+                    return ChunkAxisPermutation::from_permutation(
                         test_sides,
                         adjacent_vertex.canonical_sides(),
                     );
@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn adjacent_chunk_orientations() {
+    fn adjacent_chunk_axis_permutations() {
         // Assumptions for this test to be valid. If any assertions in this section fail, the test itself
         // needs to be modified
         assert_eq!(Vertex::A.canonical_sides(), [Side::A, Side::B, Side::C]);
@@ -474,15 +474,15 @@ mod tests {
         let vertex_a_canonical_sides_reflected = [Side::A, Side::B, Side::E];
         let vertex_b_canonical_sides_reflected = [Side::A, Side::B, Side::C];
         assert_eq!(
-            Vertex::A.adjacent_chunk_orientations()[2],
-            SimpleChunkOrientation::from_permutation(
+            Vertex::A.chunk_axis_permutations()[2],
+            ChunkAxisPermutation::from_permutation(
                 vertex_a_canonical_sides_reflected,
                 Vertex::B.canonical_sides()
             )
         );
         assert_eq!(
-            Vertex::B.adjacent_chunk_orientations()[2],
-            SimpleChunkOrientation::from_permutation(
+            Vertex::B.chunk_axis_permutations()[2],
+            ChunkAxisPermutation::from_permutation(
                 vertex_b_canonical_sides_reflected,
                 Vertex::A.canonical_sides()
             )
@@ -491,15 +491,15 @@ mod tests {
         let vertex_f_canonical_sides_reflected = [Side::H, Side::C, Side::F];
         let vertex_j_canonical_sides_reflected = [Side::C, Side::F, Side::B];
         assert_eq!(
-            Vertex::F.adjacent_chunk_orientations()[0],
-            SimpleChunkOrientation::from_permutation(
+            Vertex::F.chunk_axis_permutations()[0],
+            ChunkAxisPermutation::from_permutation(
                 vertex_f_canonical_sides_reflected,
                 Vertex::J.canonical_sides()
             )
         );
         assert_eq!(
-            Vertex::J.adjacent_chunk_orientations()[2],
-            SimpleChunkOrientation::from_permutation(
+            Vertex::J.chunk_axis_permutations()[2],
+            ChunkAxisPermutation::from_permutation(
                 vertex_j_canonical_sides_reflected,
                 Vertex::F.canonical_sides()
             )

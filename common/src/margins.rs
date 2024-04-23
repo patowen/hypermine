@@ -3,7 +3,7 @@ use crate::{
     graph::Graph,
     math,
     node::{Chunk, ChunkId, VoxelData},
-    voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords, SimpleChunkOrientation},
+    voxel_math::{ChunkAxisPermutation, ChunkDirection, CoordAxis, CoordSign, Coords},
     world::Material,
 };
 
@@ -17,9 +17,9 @@ pub fn fix_margins(
     direction: ChunkDirection,
     neighbor_voxels: &mut VoxelData,
 ) {
-    let neighbor_orientation = match direction.sign {
-        CoordSign::Plus => vertex.adjacent_chunk_orientations()[direction.axis as usize],
-        CoordSign::Minus => SimpleChunkOrientation::identity(),
+    let neighbor_axis_permutation = match direction.sign {
+        CoordSign::Plus => vertex.chunk_axis_permutations()[direction.axis as usize],
+        CoordSign::Minus => ChunkAxisPermutation::identity(),
     };
 
     let margin_coord = match direction.sign {
@@ -39,7 +39,7 @@ pub fn fix_margins(
                 direction.axis as usize,
                 [margin_coord, i + 1, j + 1],
             ))
-            .to_index(dimension)] = neighbor_voxel_data[(neighbor_orientation
+            .to_index(dimension)] = neighbor_voxel_data[(neighbor_axis_permutation
                 * CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
                     [edge_coord, i + 1, j + 1],
@@ -47,7 +47,7 @@ pub fn fix_margins(
             .to_index(dimension)];
 
             // Use voxel_data to set margins of neighbor_voxel_data
-            neighbor_voxel_data[(neighbor_orientation
+            neighbor_voxel_data[(neighbor_axis_permutation
                 * CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
                     [margin_coord, i + 1, j + 1],
@@ -133,13 +133,13 @@ pub fn update_margin_voxel(
         CoordSign::Plus => dimension + 1,
         CoordSign::Minus => 0,
     };
-    let neighbor_orientation = match direction.sign {
-        CoordSign::Plus => chunk.vertex.adjacent_chunk_orientations()[direction.axis as usize],
-        CoordSign::Minus => SimpleChunkOrientation::identity(),
+    let neighbor_axis_permutation = match direction.sign {
+        CoordSign::Plus => chunk.vertex.chunk_axis_permutations()[direction.axis as usize],
+        CoordSign::Minus => ChunkAxisPermutation::identity(),
     };
     let mut neighbor_coords = coords;
     neighbor_coords[direction.axis] = margin_coord;
-    neighbor_coords = neighbor_orientation * neighbor_coords;
+    neighbor_coords = neighbor_axis_permutation * neighbor_coords;
 
     neighbor_voxels.data_mut(dimension)[neighbor_coords.to_index(dimension)] = material;
     *neighbor_old_surface = neighbor_surface.take().or(*neighbor_old_surface);
@@ -182,7 +182,7 @@ impl std::ops::IndexMut<CoordAxis> for CoordsWithMargins {
     }
 }
 
-impl std::ops::Mul<CoordsWithMargins> for SimpleChunkOrientation {
+impl std::ops::Mul<CoordsWithMargins> for ChunkAxisPermutation {
     type Output = CoordsWithMargins;
 
     fn mul(self, rhs: CoordsWithMargins) -> Self::Output {

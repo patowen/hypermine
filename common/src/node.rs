@@ -73,7 +73,7 @@ impl Graph {
         coord_sign: CoordSign,
     ) -> Option<(ChunkId, Coords)> {
         if coords[coord_axis] == self.layout().dimension - 1 && coord_sign == CoordSign::Plus {
-            coords = chunk.vertex.adjacent_chunk_orientations()[coord_axis as usize] * coords;
+            coords = chunk.vertex.chunk_axis_permutations()[coord_axis as usize] * coords;
             chunk.vertex = chunk.vertex.adjacent_vertices()[coord_axis as usize];
         } else if coords[coord_axis] == 0 && coord_sign == CoordSign::Minus {
             chunk.node = self.neighbor(
