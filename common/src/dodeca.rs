@@ -114,21 +114,40 @@ impl Vertex {
         sides_to_vertex()[a as usize][b as usize][c as usize]
     }
 
-    /// Sides incident to this vertex, in canonical order
+    /// Sides incident to this vertex, in canonical order.
+    /// 
+    /// This canonical order determines the X, Y, and Z axes of the chunk
+    /// corresponding to the vertex.
     #[inline]
     pub fn canonical_sides(self) -> [Side; 3] {
         vertex_sides()[self as usize]
     }
 
-    /// Vertices adjacent to this vertex, opposite the sides in canonical order
+    /// Vertices adjacent to this vertex in canonical order.
+    /// 
+    /// The canonical order of adjacent vertices is based on the canonical order
+    /// of sides incident to the vertex, as each of the three adjacent vertices
+    /// corresponds to one of the three sides. As for which side, when two
+    /// vertices are adjacent, they share two out of three sides of the
+    /// dodecahedron. The side they do _not_ share is the side they correspond
+    /// to.
+    /// 
+    /// Put another way, anything leaving a chunk in the negative-X direction
+    /// will end up crossing `canonical_sides()[0]`, while anything leaving a
+    /// chunk in the positive-X direction will end up arriving at
+    /// `adjacent_vertices()[0]`.
     #[inline]
     pub fn adjacent_vertices(self) -> [Vertex; 3] {
         adjacent_vertices()[self as usize]
     }
 
-    /// Chunk permutations adjacent to this vertex, opposite the sides in canonical order.
-    /// These permutations convert coordinates relative to a reflected version of the current
-    /// chunk to coordinates relative to the adjacent chunk in its canonical orientation.
+    /// Chunk axes permutations for vertices adjacent to this vertex in
+    /// canonical order.
+    /// 
+    /// The chunks of two adjacent vertices meet at a plane. When swiching
+    /// reference frames from one vertex to another, it is necessary to reflect
+    /// about this plane and then apply the permutation returned by this
+    /// function.
     #[inline]
     pub fn chunk_axis_permutations(self) -> &'static [ChunkAxisPermutation; 3] {
         &chunk_axis_permutations()[self as usize]
