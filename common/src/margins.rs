@@ -20,7 +20,7 @@ pub fn fix_margins(
     let neighbor_axis_permutation = neighbor_axis_permutation(vertex, direction);
 
     let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
-    let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
+    let boundary_coord = CoordsWithMargins::boundary_coord(dimension, direction.sign);
 
     // If two solid chunks are both void or both non-void, do nothing.
     if voxels.is_solid()
@@ -30,20 +30,20 @@ pub fn fix_margins(
         return;
     }
 
-    // If the neighbor is solid and consistent with the edge of the current chunk, do nothing.
+    // If the neighbor is solid and consistent with the boundary of the current chunk, do nothing.
     if !voxels.is_solid() && neighbor_voxels.is_solid() {
         let neighbor_is_void = neighbor_voxels.get(0) == Material::Void;
-        if all_voxels_at_edge(dimension, voxels, direction, |m| {
+        if all_voxels_at_face(dimension, voxels, direction, |m| {
             (m == Material::Void) == neighbor_is_void
         }) {
             return;
         }
     }
 
-    // If the current chunk is solid and consistent with the edge of the neighbor, do nothing.
+    // If the current chunk is solid and consistent with the boundary of the neighbor, do nothing.
     if voxels.is_solid() && !neighbor_voxels.is_solid() {
         let is_void = voxels.get(0) == Material::Void;
-        if all_voxels_at_edge(
+        if all_voxels_at_face(
             dimension,
             neighbor_voxels,
             neighbor_axis_permutation * direction,
@@ -58,12 +58,12 @@ pub fn fix_margins(
     let neighbor_voxel_data = neighbor_voxels.data_mut(dimension);
     for j in 0..dimension {
         for i in 0..dimension {
-            // Determine coordinates of the edge voxel (to read from) and the margin voxel (to write to)
+            // Determine coordinates of the boundary voxel (to read from) and the margin voxel (to write to)
             // in voxel_data's perspective. To convert to neighbor_voxel_data's perspective, left-multiply
             // by neighbor_axis_permutation.
-            let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
+            let coords_of_boundary_voxel = CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
-                [edge_coord, i + 1, j + 1],
+                [boundary_coord, i + 1, j + 1],
             ));
             let coords_of_margin_voxel = CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
@@ -72,32 +72,32 @@ pub fn fix_margins(
 
             // Use neighbor_voxel_data to set margins of voxel_data
             voxel_data[coords_of_margin_voxel.to_index(dimension)] = neighbor_voxel_data
-                [(neighbor_axis_permutation * coords_of_edge_voxel).to_index(dimension)];
+                [(neighbor_axis_permutation * coords_of_boundary_voxel).to_index(dimension)];
 
             // Use voxel_data to set margins of neighbor_voxel_data
             neighbor_voxel_data
                 [(neighbor_axis_permutation * coords_of_margin_voxel).to_index(dimension)] =
-                voxel_data[coords_of_edge_voxel.to_index(dimension)];
+                voxel_data[coords_of_boundary_voxel.to_index(dimension)];
         }
     }
 }
 
-/// Check if the given predicate `f` holds true for any voxel at the given edge of a chunk
-fn all_voxels_at_edge(
+/// Check if the given predicate `f` holds true for any voxel at the given face of a chunk
+fn all_voxels_at_face(
     dimension: u8,
     voxels: &VoxelData,
     direction: ChunkDirection,
     f: impl Fn(Material) -> bool,
 ) -> bool {
-    let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
+    let boundary_coord = CoordsWithMargins::boundary_coord(dimension, direction.sign);
     for j in 0..dimension {
         for i in 0..dimension {
-            let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
+            let coords_of_boundary_voxel = CoordsWithMargins(math::tuv_to_xyz(
                 direction.axis as usize,
-                [edge_coord, i + 1, j + 1],
+                [boundary_coord, i + 1, j + 1],
             ));
 
-            if !f(voxels.get(coords_of_edge_voxel.to_index(dimension))) {
+            if !f(voxels.get(coords_of_boundary_voxel.to_index(dimension))) {
                 return false;
             }
         }
@@ -117,14 +117,14 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
 
     for direction in ChunkDirection::iter() {
         let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
-        let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
+        let boundary_coord = CoordsWithMargins::boundary_coord(dimension, direction.sign);
         let chunk_data = voxels.data_mut(dimension);
         for j in 0..dimension {
             for i in 0..dimension {
-                // Determine coordinates of the edge voxel (to read from) and the margin voxel (to write to).
-                let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
+                // Determine coordinates of the boundary voxel (to read from) and the margin voxel (to write to).
+                let coords_of_boundary_voxel = CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
-                    [edge_coord, i + 1, j + 1],
+                    [boundary_coord, i + 1, j + 1],
                 ));
                 let coords_of_margin_voxel = CoordsWithMargins(math::tuv_to_xyz(
                     direction.axis as usize,
@@ -132,7 +132,7 @@ pub fn initialize_margins(dimension: u8, voxels: &mut VoxelData) {
                 ));
 
                 chunk_data[coords_of_margin_voxel.to_index(dimension)] =
-                    chunk_data[coords_of_edge_voxel.to_index(dimension)];
+                    chunk_data[coords_of_boundary_voxel.to_index(dimension)];
             }
         }
     }
@@ -147,17 +147,17 @@ pub fn reconcile_margin_voxels(
     coords: Coords,
     direction: ChunkDirection,
 ) {
-    let coords_of_edge_voxel: CoordsWithMargins = coords.into();
+    let coords_of_boundary_voxel: CoordsWithMargins = coords.into();
     let dimension = graph.layout().dimension();
 
-    // There is nothing to do if we're not on an edge voxel.
-    if coords_of_edge_voxel[direction.axis]
-        != CoordsWithMargins::edge_coord(dimension, direction.sign)
+    // There is nothing to do if we're not on a boundary voxel.
+    if coords_of_boundary_voxel[direction.axis]
+        != CoordsWithMargins::boundary_coord(dimension, direction.sign)
     {
         return;
     }
 
-    let mut coords_of_margin_voxel = coords_of_edge_voxel;
+    let mut coords_of_margin_voxel = coords_of_boundary_voxel;
     coords_of_margin_voxel[direction.axis] =
         CoordsWithMargins::margin_coord(dimension, direction.sign);
 
@@ -180,7 +180,8 @@ pub fn reconcile_margin_voxels(
         ..
     } = &graph[neighbor_chunk]
     {
-        neighbor_voxels.get((neighbor_axis_permutation * coords_of_edge_voxel).to_index(dimension))
+        neighbor_voxels
+            .get((neighbor_axis_permutation * coords_of_boundary_voxel).to_index(dimension))
     } else {
         return;
     };
@@ -247,7 +248,7 @@ impl CoordsWithMargins {
     }
 
     /// Returns the x, y, or z coordinate that would correspond to the voxel meeting the chunk boundary in the direction of `sign`
-    pub fn edge_coord(chunk_size: u8, sign: CoordSign) -> u8 {
+    pub fn boundary_coord(chunk_size: u8, sign: CoordSign) -> u8 {
         match sign {
             CoordSign::Plus => chunk_size,
             CoordSign::Minus => 1,
