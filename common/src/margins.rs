@@ -151,7 +151,7 @@ pub fn reconcile_margin_voxels(
     let dimension = graph.layout().dimension();
 
     // There is nothing to do if we're not on an edge voxel.
-    if coords[direction.axis] != CoordsWithMargins::edge_coord(dimension, direction.sign) {
+    if coords_of_edge_voxel[direction.axis] != CoordsWithMargins::edge_coord(dimension, direction.sign) {
         return;
     }
 
@@ -426,11 +426,6 @@ mod tests {
         else {
             unreachable!("node_neighbor_chunk should have been populated by this test");
         };
-        for i in 0..14usize.pow(3) {
-            if current_voxels.get(i) != Material::Void {
-                println!("{i} is {:?}", current_voxels.get(i));
-            }
-        }
         assert_eq!(
             current_voxels.get(CoordsWithMargins([6, 13, 10]).to_index(12)),
             Material::Slate
