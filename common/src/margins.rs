@@ -190,7 +190,6 @@ pub fn reconcile_margin_voxels(
         voxels: neighbor_voxels,
         surface: neighbor_surface,
         old_surface: neighbor_old_surface,
-        ..
     } = &mut graph[neighbor_chunk]
     else {
         unreachable!();
@@ -211,7 +210,6 @@ pub fn reconcile_margin_voxels(
         voxels,
         surface,
         old_surface,
-        ..
     } = &mut graph[chunk]
     else {
         unreachable!();

@@ -175,7 +175,6 @@ impl Voxels {
                         ref mut surface,
                         ref mut old_surface,
                         ref voxels,
-                        ..
                     } => {
                         if let Some(slot) = surface.or(*old_surface) {
                             // Render an already-extracted surface

@@ -101,7 +101,6 @@ impl Graph {
                 voxels: neighbor_voxels,
                 surface: neighbor_surface,
                 old_surface: neighbor_old_surface,
-                ..
             }) = self
                 .get_chunk_neighbor(chunk, chunk_direction.axis, chunk_direction.sign)
                 .map(|chunk_id| &mut self[chunk_id])
