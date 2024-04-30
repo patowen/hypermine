@@ -21,6 +21,39 @@ pub fn fix_margins(
 
     let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
     let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
+
+    // If two solid chunks are both void or both non-void, do nothing.
+    if voxels.is_solid()
+        && neighbor_voxels.is_solid()
+        && (voxels.get(0) == Material::Void) == (neighbor_voxels.get(0) == Material::Void)
+    {
+        return;
+    }
+
+    // If the neighbor is solid and consistent with the edge of the current chunk, do nothing.
+    if !voxels.is_solid() && neighbor_voxels.is_solid() {
+        let neighbor_is_void = neighbor_voxels.get(0) == Material::Void;
+        if all_voxels_at_edge(dimension, voxels, direction, |m| {
+            (m == Material::Void) == neighbor_is_void
+        }) {
+            return;
+        }
+    }
+
+    // If the current chunk is solid and consistent with the edge of the neighbor, do nothing.
+    if voxels.is_solid() && !neighbor_voxels.is_solid() {
+        let is_void = voxels.get(0) == Material::Void;
+        if all_voxels_at_edge(
+            dimension,
+            neighbor_voxels,
+            neighbor_axis_permutation * direction,
+            |m| (m == Material::Void) == is_void,
+        ) {
+            return;
+        }
+    }
+
+    // Otherwise, both chunks need to be dense, and margins should be reconciled between them.
     let voxel_data = voxels.data_mut(dimension);
     let neighbor_voxel_data = neighbor_voxels.data_mut(dimension);
     for j in 0..dimension {
@@ -47,6 +80,30 @@ pub fn fix_margins(
                 voxel_data[coords_of_edge_voxel.to_index(dimension)];
         }
     }
+}
+
+/// Check if the given predicate `f` holds true for any voxel at the given edge of a chunk
+fn all_voxels_at_edge(
+    dimension: u8,
+    voxels: &VoxelData,
+    direction: ChunkDirection,
+    f: impl Fn(Material) -> bool,
+) -> bool {
+    let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
+    for j in 0..dimension {
+        for i in 0..dimension {
+            let coords_of_edge_voxel = CoordsWithMargins(math::tuv_to_xyz(
+                direction.axis as usize,
+                [edge_coord, i + 1, j + 1],
+            ));
+
+            if !f(voxels.get(coords_of_edge_voxel.to_index(dimension))) {
+                return false;
+            }
+        }
+    }
+
+    true
 }
 
 /// Updates the margins of a given VoxelData to match the voxels they're next to. This is a good assumption to start
