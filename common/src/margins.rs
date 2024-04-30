@@ -147,20 +147,19 @@ pub fn reconcile_margin_voxels(
     coords: Coords,
     direction: ChunkDirection,
 ) {
-    let coords: CoordsWithMargins = coords.into();
+    let coords_of_edge_voxel: CoordsWithMargins = coords.into();
     let dimension = graph.layout().dimension();
-    let edge_coord = CoordsWithMargins::edge_coord(dimension, direction.sign);
-    let margin_coord = CoordsWithMargins::margin_coord(dimension, direction.sign);
 
     // There is nothing to do if we're not on an edge voxel.
-    if coords[direction.axis] != edge_coord {
+    if coords[direction.axis] != CoordsWithMargins::edge_coord(dimension, direction.sign) {
         return;
     }
 
+    let mut coords_of_margin_voxel = coords_of_edge_voxel;
+    coords_of_margin_voxel[direction.axis] =
+        CoordsWithMargins::margin_coord(dimension, direction.sign);
+
     let neighbor_axis_permutation = neighbor_axis_permutation(chunk.vertex, direction);
-    let mut neighbor_coords = coords;
-    neighbor_coords[direction.axis] = margin_coord;
-    neighbor_coords = neighbor_axis_permutation * neighbor_coords;
     let Some(neighbor_chunk) = graph.get_chunk_neighbor(chunk, direction.axis, direction.sign)
     else {
         // If there's no neighbor chunk, there is nothing to do.
@@ -179,7 +178,7 @@ pub fn reconcile_margin_voxels(
         ..
     } = &graph[neighbor_chunk]
     {
-        neighbor_voxels.get(neighbor_coords.to_index(dimension))
+        neighbor_voxels.get((neighbor_axis_permutation * coords_of_edge_voxel).to_index(dimension))
     } else {
         return;
     };
@@ -194,7 +193,8 @@ pub fn reconcile_margin_voxels(
     else {
         unreachable!();
     };
-    neighbor_voxels.data_mut(dimension)[neighbor_coords.to_index(dimension)] = material;
+    neighbor_voxels.data_mut(dimension)
+        [(neighbor_axis_permutation * coords_of_margin_voxel).to_index(dimension)] = material;
     *neighbor_old_surface = neighbor_surface.take().or(*neighbor_old_surface);
 
     // Update the current chunk's margin to the neighbor chunk's material.
@@ -214,7 +214,7 @@ pub fn reconcile_margin_voxels(
     else {
         unreachable!();
     };
-    voxels.data_mut(dimension)[coords.to_index(dimension)] = neighbor_material;
+    voxels.data_mut(dimension)[coords_of_margin_voxel.to_index(dimension)] = neighbor_material;
     *old_surface = surface.take().or(*old_surface);
 }
 
@@ -401,7 +401,7 @@ mod tests {
             else {
                 unreachable!()
             };
-            voxels.data_mut(12)[Coords([0, 7, 9]).to_index(12)] = Material::Slate;
+            voxels.data_mut(12)[Coords([5, 9, 11]).to_index(12)] = Material::Slate;
         }
 
         // Reconcile margins
@@ -426,8 +426,13 @@ mod tests {
         else {
             unreachable!("node_neighbor_chunk should have been populated by this test");
         };
+        for i in 0..14usize.pow(3) {
+            if current_voxels.get(i) != Material::Void {
+                println!("{i} is {:?}", current_voxels.get(i));
+            }
+        }
         assert_eq!(
-            current_voxels.get(CoordsWithMargins([0, 8, 10]).to_index(12)),
+            current_voxels.get(CoordsWithMargins([6, 13, 10]).to_index(12)),
             Material::Slate
         );
 
