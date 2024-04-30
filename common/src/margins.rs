@@ -151,7 +151,9 @@ pub fn reconcile_margin_voxels(
     let dimension = graph.layout().dimension();
 
     // There is nothing to do if we're not on an edge voxel.
-    if coords_of_edge_voxel[direction.axis] != CoordsWithMargins::edge_coord(dimension, direction.sign) {
+    if coords_of_edge_voxel[direction.axis]
+        != CoordsWithMargins::edge_coord(dimension, direction.sign)
+    {
         return;
     }
 
