@@ -93,7 +93,7 @@ impl Graph {
     }
 
     /// Populates a chunk with the given voxel data and ensures that margins are correctly fixed up if necessary.
-    pub fn populate_chunk(&mut self, chunk: ChunkId, mut voxels: VoxelData, modified: bool) {
+    pub fn populate_chunk(&mut self, chunk: ChunkId, mut voxels: VoxelData) {
         let dimension = self.layout().dimension;
         // Fix up margins for the chunk we're inserting along with any neighboring chunks
         for chunk_direction in ChunkDirection::iter() {
@@ -121,7 +121,6 @@ impl Graph {
         // After clearing any margins we needed to clear, we can now insert the data into the graph
         *self.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
             voxels,
-            modified,
             surface: None,
             old_surface: None,
         };
@@ -136,7 +135,6 @@ impl Graph {
         // Update the block
         let Some(Chunk::Populated {
             voxels,
-            modified,
             surface,
             old_surface,
         }) = self.get_chunk_mut(block_update.chunk_id)
@@ -149,7 +147,6 @@ impl Graph {
             .expect("coords are in-bounds");
 
         *voxel = block_update.new_material;
-        *modified = true;
         *old_surface = surface.take().or(*old_surface);
 
         for chunk_direction in ChunkDirection::iter() {
@@ -193,7 +190,6 @@ pub enum Chunk {
     Generating,
     Populated {
         voxels: VoxelData,
-        modified: bool,
         surface: Option<SlotId>,
         old_surface: Option<SlotId>,
     },

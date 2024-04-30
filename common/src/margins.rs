@@ -345,7 +345,6 @@ mod tests {
         for chunk in [current_chunk, node_neighbor_chunk, vertex_neighbor_chunk] {
             *graph.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
                 voxels: VoxelData::Solid(Material::Void),
-                modified: false,
                 surface: None,
                 old_surface: None,
             };
