@@ -153,10 +153,11 @@ impl Voxels {
         let mut num_fresh_nodes = 0;
         let mut num_generatable_fresh_nodes = 0;
         let mut num_ungeneratable_fresh_nodes = 0;
+        let mut workqueue_has_capacity = true;
         for &(node, ref node_transform) in &nodes {
+            let profile_frustum_sub = subprofile(&mut profile_frustum);
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
-            let profile_frustum_sub = subprofile(&mut profile_frustum);
             if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
                 // Don't bother generating or drawing chunks from nodes that are wholly outside the
                 // frustum.
@@ -177,6 +178,9 @@ impl Voxels {
                     Generating => continue,
                     Fresh => {
                         drop(profile_get_chunk_sub);
+                        if !workqueue_has_capacity {
+                            continue;
+                        }
                         num_fresh_nodes += 1;
                         let _profile_fresh_sub = subprofile(&mut profile_fresh);
                         let mut profile_fresh_generatable_sub =
@@ -190,6 +194,8 @@ impl Voxels {
                             num_generatable_fresh_nodes += 1;
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                 sim.graph[chunk] = Generating;
+                            } else {
+                                workqueue_has_capacity = false;
                             }
                         } else {
                             num_ungeneratable_fresh_nodes += 1;
