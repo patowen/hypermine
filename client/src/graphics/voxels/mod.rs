@@ -16,7 +16,14 @@ use crate::{
     Config, Loader, Sim,
 };
 use common::{
-    dodeca::{self, Vertex}, graph::NodeId, lru_slab::SlotId, math, multiprofile, node::{Chunk, ChunkId, VoxelData}, profile, subprofile, traversal::nearby_nodes, LruSlab
+    dodeca::{self, Vertex},
+    graph::NodeId,
+    lru_slab::SlotId,
+    math, multiprofile,
+    node::{Chunk, ChunkId, VoxelData},
+    profile, subprofile,
+    traversal::nearby_nodes,
+    LruSlab,
 };
 
 use surface::Surface;
@@ -140,6 +147,8 @@ impl Voxels {
         let mut profile_frustum = multiprofile("f.prepare_voxels.node_scan.frustum");
         let mut profile_get_chunk = multiprofile("f.prepare_voxels.node_scan.get_chunk");
         let mut profile_fresh = multiprofile("f.prepare_voxels.node_scan.fresh");
+        let mut profile_fresh_generatable =
+            multiprofile("f.prepare_voxels.node_scan.fresh.generatable");
         let mut profile_populated = multiprofile("f.prepare_voxels.node_scan.populated");
         let mut num_fresh_nodes = 0;
         let mut num_generatable_fresh_nodes = 0;
@@ -170,6 +179,8 @@ impl Voxels {
                         drop(profile_get_chunk_sub);
                         num_fresh_nodes += 1;
                         let _profile_fresh_sub = subprofile(&mut profile_fresh);
+                        let mut profile_fresh_generatable_sub =
+                            subprofile(&mut profile_fresh_generatable);
                         // Generate voxel data
                         if let Some(params) = common::worldgen::ChunkParams::new(
                             self.surfaces.dimension() as u8,
@@ -182,6 +193,7 @@ impl Voxels {
                             }
                         } else {
                             num_ungeneratable_fresh_nodes += 1;
+                            profile_fresh_generatable_sub.cancel();
                         }
                         continue;
                     }

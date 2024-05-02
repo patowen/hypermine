@@ -115,15 +115,23 @@ impl Drop for Multiprofile {
     }
 }
 
-pub struct SubProfile<'a>(&'a mut Multiprofile, Instant);
+pub struct SubProfile<'a>(&'a mut Multiprofile, Instant, bool);
 
 pub fn subprofile(multiprofile: &mut Multiprofile) -> SubProfile {
-    SubProfile(multiprofile, Instant::now())
+    SubProfile(multiprofile, Instant::now(), true)
+}
+
+impl<'a> SubProfile<'a> {
+    pub fn cancel(&mut self) {
+        self.2 = false;
+    }
 }
 
 impl<'a> Drop for SubProfile<'a> {
     fn drop(&mut self) {
-        self.0 .1 += Instant::now() - self.1;
+        if self.2 {
+            self.0 .1 += Instant::now() - self.1;
+        }
     }
 }
 
