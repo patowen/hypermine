@@ -3,6 +3,7 @@ use std::time::Instant;
 use std::{f32, os::raw::c_char};
 
 use ash::{khr, vk};
+use common::profile;
 use lahar::DedicatedImage;
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 use tracing::{error, info};
@@ -149,13 +150,17 @@ impl Window {
                 },
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested => {
+                        let profile_handle_net = profile("f.handle_net");
                         while let Ok(msg) = self.net.incoming.try_recv() {
                             self.handle_net(msg);
                         }
+                        drop(profile_handle_net);
 
                         if let Some(sim) = self.sim.as_mut() {
+                            let _profile_predraw = profile("f.pre_draw");
                             let this_frame = Instant::now();
                             let dt = this_frame - last_frame;
+                            metrics::histogram!("f").record(dt.as_secs_f32());
                             sim.set_movement_input(na::Vector3::new(
                                 right as u8 as f32 - left as u8 as f32,
                                 up as u8 as f32 - down as u8 as f32,
@@ -174,6 +179,7 @@ impl Window {
                             last_frame = this_frame;
                         }
 
+                        let _profile_draw = profile("f.draw");
                         self.draw();
                     }
                     WindowEvent::Resized(_) => {
@@ -249,6 +255,7 @@ impl Window {
                             down = state == ElementState::Pressed;
                         }
                         KeyCode::Space => {
+                            let _ = common::READY_TO_PROFILE.set(());
                             if let Some(sim) = self.sim.as_mut() {
                                 if !jump && state == ElementState::Pressed {
                                     sim.set_jump_pressed_true();

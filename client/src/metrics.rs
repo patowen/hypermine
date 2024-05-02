@@ -32,6 +32,7 @@ impl Recorder {
                 percentile_50 = ?Duration::from_nanos(histogram.value_at_quantile(0.50)),
                 percentile_75 = ?Duration::from_nanos(histogram.value_at_quantile(0.75)),
                 max = ?Duration::from_nanos(histogram.value_at_quantile(1.0)),
+                count = histogram.len(),
                 "metric"
             );
         }
@@ -103,6 +104,9 @@ struct Handle {
 
 impl metrics::HistogramFn for Handle {
     fn record(&self, value: f64) {
+        if common::READY_TO_PROFILE.get().is_none() {
+            return;
+        }
         let mut histograms = self.recorder.histograms.read().unwrap();
         let mut histogram = match histograms.get(&self.key) {
             Some(x) => x.lock().unwrap(),

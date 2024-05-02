@@ -1,5 +1,8 @@
 #![allow(clippy::needless_borrowed_reference)]
 
+use std::{sync::OnceLock, time::Instant};
+
+use metrics::histogram;
 use rand::{
     distributions::{Distribution, Standard},
     Rng,
@@ -80,6 +83,20 @@ impl<F: FnOnce()> Drop for Defer<F> {
         if let Some(f) = self.0.take() {
             f()
         }
+    }
+}
+
+pub static READY_TO_PROFILE: OnceLock<()> = OnceLock::new();
+
+pub struct Profile(&'static str, Instant);
+
+pub fn profile(name: &'static str) -> Profile {
+    Profile(name, Instant::now())
+}
+
+impl Drop for Profile {
+    fn drop(&mut self) {
+        histogram!(self.0).record(Instant::now() - self.1);
     }
 }
 
