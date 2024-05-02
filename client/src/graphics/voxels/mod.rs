@@ -141,6 +141,9 @@ impl Voxels {
         let mut profile_get_chunk = multiprofile("f.prepare_voxels.node_scan.get_chunk");
         let mut profile_fresh = multiprofile("f.prepare_voxels.node_scan.fresh");
         let mut profile_populated = multiprofile("f.prepare_voxels.node_scan.populated");
+        let mut num_fresh_nodes = 0;
+        let mut num_generatable_fresh_nodes = 0;
+        let mut num_ungeneratable_fresh_nodes = 0;
         for &(node, ref node_transform) in &nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
@@ -165,6 +168,7 @@ impl Voxels {
                     Generating => continue,
                     Fresh => {
                         drop(profile_get_chunk_sub);
+                        num_fresh_nodes += 1;
                         let _profile_fresh_sub = subprofile(&mut profile_fresh);
                         // Generate voxel data
                         if let Some(params) = common::worldgen::ChunkParams::new(
@@ -172,9 +176,12 @@ impl Voxels {
                             &sim.graph,
                             chunk,
                         ) {
+                            num_generatable_fresh_nodes += 1;
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                 sim.graph[chunk] = Generating;
                             }
+                        } else {
+                            num_ungeneratable_fresh_nodes += 1;
                         }
                         continue;
                     }
@@ -249,6 +256,9 @@ impl Voxels {
                 }
             }
         }
+        histogram!("num_fresh_nodes").record(num_fresh_nodes);
+        histogram!("num_generatable_fresh_nodes").record(num_generatable_fresh_nodes);
+        histogram!("num_ungeneratable_fresh_nodes").record(num_ungeneratable_fresh_nodes);
         drop(profile_node_scan);
         self.extraction_scratch.extract(
             device,
