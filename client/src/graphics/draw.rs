@@ -266,9 +266,7 @@ impl Draw {
         let view = sim.as_ref().map_or_else(Position::origin, |sim| sim.view());
         let projection = frustum.projection(1.0e-4);
         let view_projection = projection.matrix() * math::mtranspose(&view.local);
-        let profile_loader_drive = profile("f.loader_drive");
         self.loader.drive();
-        drop(profile_loader_drive);
 
         let device = &*self.gfx.device;
         let state_index = self.next_state;
@@ -424,7 +422,6 @@ impl Draw {
 
         // Record the actual rendering commands
         if let Some(ref mut voxels) = self.voxels {
-            let _profile_voxels_draw = profile("f.voxels_draw");
             voxels.draw(
                 device,
                 &self.loader,

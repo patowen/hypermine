@@ -16,14 +16,7 @@ use crate::{
     Config, Loader, Sim,
 };
 use common::{
-    dodeca,
-    dodeca::Vertex,
-    graph::NodeId,
-    lru_slab::SlotId,
-    math,
-    node::{Chunk, ChunkId, VoxelData},
-    traversal::nearby_nodes,
-    LruSlab,
+    dodeca::{self, Vertex}, graph::NodeId, lru_slab::SlotId, math, node::{Chunk, ChunkId, VoxelData}, profile, traversal::nearby_nodes, LruSlab
 };
 
 use surface::Surface;
@@ -121,25 +114,30 @@ impl Voxels {
             return;
         }
         let graph_traversal_started = Instant::now();
+        let profile_nearby_nodes = profile("f.prepare_voxels.nearby_nodes");
         let mut nodes = nearby_nodes(
             &sim.graph,
             &view,
             self.config.local_simulation.view_distance,
         );
+        drop(profile_nearby_nodes);
         histogram!("frame.cpu.voxels.graph_traversal").record(graph_traversal_started.elapsed());
         // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
         // performance. Sorting by `mip` in descending order is equivalent to sorting by distance
         // in ascending order.
         let view_pos = view.local * math::origin();
+        let profile_sort_nodes = profile("f.prepare_voxels.sort_nodes");
         nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
             math::mip(&view_pos, &(xf_b * math::origin()))
                 .partial_cmp(&math::mip(&view_pos, &(xf_a * math::origin())))
                 .unwrap_or(std::cmp::Ordering::Less)
         });
+        drop(profile_sort_nodes);
         let node_scan_started = Instant::now();
         let frustum_planes = frustum.planes();
         let local_to_view = math::mtranspose(&view.local);
         let mut extractions = Vec::new();
+        let profile_node_scan = profile("f.prepare_voxels.node_scan");
         for &(node, ref node_transform) in &nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
@@ -241,6 +239,7 @@ impl Voxels {
                 }
             }
         }
+        drop(profile_node_scan);
         self.extraction_scratch.extract(
             device,
             &self.surface_extraction,
