@@ -1,6 +1,9 @@
 #![allow(clippy::needless_borrowed_reference)]
 
-use std::{sync::OnceLock, time::Instant};
+use std::{
+    sync::OnceLock,
+    time::{Duration, Instant},
+};
 
 use metrics::histogram;
 use rand::{
@@ -97,6 +100,30 @@ pub fn profile(name: &'static str) -> Profile {
 impl Drop for Profile {
     fn drop(&mut self) {
         histogram!(self.0).record(Instant::now() - self.1);
+    }
+}
+
+pub struct Multiprofile(&'static str, Duration);
+
+pub fn multiprofile(name: &'static str) -> Multiprofile {
+    Multiprofile(name, Duration::ZERO)
+}
+
+impl Drop for Multiprofile {
+    fn drop(&mut self) {
+        histogram!(self.0).record(self.1);
+    }
+}
+
+pub struct SubProfile<'a>(&'a mut Multiprofile, Instant);
+
+pub fn subprofile(multiprofile: &mut Multiprofile) -> SubProfile {
+    SubProfile(multiprofile, Instant::now())
+}
+
+impl<'a> Drop for SubProfile<'a> {
+    fn drop(&mut self) {
+        self.0 .1 += Instant::now() - self.1;
     }
 }
 
