@@ -3,12 +3,7 @@ use std::collections::VecDeque;
 use fxhash::FxHashSet;
 
 use crate::{
-    collision_math::Ray,
-    dodeca::{self, Side, Vertex},
-    graph::{Graph, NodeId},
-    math,
-    node::ChunkId,
-    proto::Position,
+    collision_math::Ray, dodeca::{self, Side, Vertex}, graph::{Graph, NodeId}, math, node::ChunkId, profile, proto::Position
 };
 
 /// Ensure all nodes within `distance` of `start` exist
@@ -53,6 +48,7 @@ pub fn nearby_nodes(
     }
 
     let mut result = Vec::new();
+    let _profile_nearby_nodes = profile("f.nearby_nodes");
 
     // We do a breadth-first instead of a depth-first traversal here to ensure that we take the
     // minimal path to each node. This greatly helps prevent error from accumulating due to

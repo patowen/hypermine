@@ -9,7 +9,7 @@ use metrics::histogram;
 use super::{fog, voxels, Base, Fog, Frustum, GltfScene, Meshes, Voxels};
 use crate::{Asset, Config, Loader, Sim};
 use common::proto::{Character, Position};
-use common::{math, SimConfig};
+use common::{math, profile, SimConfig};
 
 /// Manages rendering, independent of what is being rendered to
 pub struct Draw {
@@ -266,7 +266,9 @@ impl Draw {
         let view = sim.as_ref().map_or_else(Position::origin, |sim| sim.view());
         let projection = frustum.projection(1.0e-4);
         let view_projection = projection.matrix() * math::mtranspose(&view.local);
+        let profile_loader_drive = profile("f.loader_drive");
         self.loader.drive();
+        drop(profile_loader_drive);
 
         let device = &*self.gfx.device;
         let state_index = self.next_state;
@@ -353,6 +355,7 @@ impl Draw {
         );
 
         if let (Some(voxels), Some(sim)) = (self.voxels.as_mut(), sim.as_mut()) {
+            let _profile_prepare_voxels = profile("f.prepare_voxels");
             voxels.prepare(
                 device,
                 state.voxels.as_mut().unwrap(),
@@ -421,6 +424,7 @@ impl Draw {
 
         // Record the actual rendering commands
         if let Some(ref mut voxels) = self.voxels {
+            let _profile_voxels_draw = profile("f.voxels_draw");
             voxels.draw(
                 device,
                 &self.loader,
@@ -431,6 +435,7 @@ impl Draw {
         }
 
         if let Some(sim) = sim.as_deref() {
+            let _profile_draw_nearby_nodes = profile("f.draw_nearby_nodes");
             for (node, transform) in
                 nearby_nodes(&sim.graph, &view, self.cfg.local_simulation.view_distance)
             {
