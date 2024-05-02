@@ -16,7 +16,14 @@ use crate::{
     Config, Loader, Sim,
 };
 use common::{
-    dodeca::{self, Vertex}, graph::NodeId, lru_slab::SlotId, math, node::{Chunk, ChunkId, VoxelData}, profile, traversal::nearby_nodes, LruSlab
+    dodeca::{self, Vertex},
+    graph::NodeId,
+    lru_slab::SlotId,
+    math,
+    node::{Chunk, ChunkId, VoxelData},
+    profile,
+    traversal::nearby_nodes,
+    LruSlab,
 };
 
 use surface::Surface;
@@ -125,11 +132,10 @@ impl Voxels {
         // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
         // performance. Sorting by `mip` in descending order is equivalent to sorting by distance
         // in ascending order.
-        let view_pos = view.local * math::origin();
         let profile_sort_nodes = profile("f.prepare_voxels.sort_nodes");
         nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
-            math::mip(&view_pos, &(xf_b * math::origin()))
-                .partial_cmp(&math::mip(&view_pos, &(xf_a * math::origin())))
+            xf_a[(3, 3)]
+                .partial_cmp(&xf_b[(3, 3)])
                 .unwrap_or(std::cmp::Ordering::Less)
         });
         drop(profile_sort_nodes);
