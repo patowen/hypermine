@@ -150,14 +150,11 @@ impl Window {
                 },
                 Event::WindowEvent { event, .. } => match event {
                     WindowEvent::RedrawRequested => {
-                        let profile_handle_net = profile("f.handle_net");
                         while let Ok(msg) = self.net.incoming.try_recv() {
                             self.handle_net(msg);
                         }
-                        drop(profile_handle_net);
 
                         if let Some(sim) = self.sim.as_mut() {
-                            let _profile_predraw = profile("f.pre_draw");
                             let this_frame = Instant::now();
                             let dt = this_frame - last_frame;
                             metrics::histogram!("f").record(dt.as_secs_f32());
@@ -179,7 +176,6 @@ impl Window {
                             last_frame = this_frame;
                         }
 
-                        let _profile_draw = profile("f.draw");
                         self.draw();
                     }
                     WindowEvent::Resized(_) => {
@@ -328,8 +324,11 @@ impl Window {
         let draw = self.draw.as_mut().unwrap();
         unsafe {
             // Wait for a frame's worth of rendering resources to become available
+            let profile_wait = profile("f.wait");
             draw.wait();
+            drop(profile_wait);
             // Get the index of the swapchain image we'll render to
+            let profile_frame_id = profile("f.frame_id");
             let frame_id = loop {
                 // Check whether the window has been resized or similar
                 if self.swapchain_needs_update {
@@ -352,11 +351,13 @@ impl Window {
                     }
                 }
             };
+            drop(profile_frame_id);
             let aspect_ratio =
                 swapchain.state.extent.width as f32 / swapchain.state.extent.height as f32;
             let frame = &swapchain.state.frames[frame_id as usize];
             let frustum = Frustum::from_vfov(f32::consts::FRAC_PI_4 * 1.2, aspect_ratio);
             // Render the frame
+            let profile_draw_draw = profile("f.drawdraw");
             draw.draw(
                 self.sim.as_mut(),
                 frame.buffer,
@@ -365,7 +366,9 @@ impl Window {
                 frame.present,
                 &frustum,
             );
+            drop(profile_draw_draw);
             // Submit the frame to be presented on the window
+            let _profile_submit = profile("f.submit");
             match swapchain.queue_present(frame_id) {
                 Ok(false) => {}
                 Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
