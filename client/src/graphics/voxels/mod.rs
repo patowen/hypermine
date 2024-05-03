@@ -19,9 +19,9 @@ use common::{
     dodeca::{self, Vertex},
     graph::NodeId,
     lru_slab::SlotId,
-    math, multiprofile,
+    math,
     node::{Chunk, ChunkId, VoxelData},
-    profile, subprofile, LruSlab,
+    profile, LruSlab,
 };
 
 use surface::Surface;
