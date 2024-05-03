@@ -126,18 +126,17 @@ impl Voxels {
         let local_to_view = math::mtranspose(&view.local);
         let mut extractions = Vec::new();
         let profile_node_scan = profile("f.prepare_voxels.node_scan");
-        let mut profile_frustum = multiprofile("f.prepare_voxels.node_scan.frustum");
-        let mut profile_get_chunk = multiprofile("f.prepare_voxels.node_scan.get_chunk");
-        let mut profile_fresh = multiprofile("f.prepare_voxels.node_scan.fresh");
-        let mut profile_fresh_generatable =
-            multiprofile("f.prepare_voxels.node_scan.fresh.generatable");
-        let mut profile_populated = multiprofile("f.prepare_voxels.node_scan.populated");
-        let mut num_fresh_nodes = 0;
-        let mut num_generatable_fresh_nodes = 0;
-        let mut num_ungeneratable_fresh_nodes = 0;
+        //let mut profile_frustum = multiprofile("f.prepare_voxels.node_scan.frustum");
+        //let mut profile_get_chunk = multiprofile("f.prepare_voxels.node_scan.get_chunk");
+        //let mut profile_fresh = multiprofile("f.prepare_voxels.node_scan.fresh");
+        //let mut profile_fresh_generatable = multiprofile("f.prepare_voxels.node_scan.fresh.generatable");
+        //let mut profile_populated = multiprofile("f.prepare_voxels.node_scan.populated");
+        //let mut num_fresh_nodes = 0;
+        //let mut num_generatable_fresh_nodes = 0;
+        //let mut num_ungeneratable_fresh_nodes = 0;
         let mut workqueue_has_capacity = true;
         for &(node, ref node_transform) in nearby_nodes {
-            let profile_frustum_sub = subprofile(&mut profile_frustum);
+            //let profile_frustum_sub = subprofile(&mut profile_frustum);
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
             if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
@@ -145,13 +144,13 @@ impl Voxels {
                 // frustum.
                 continue;
             }
-            drop(profile_frustum_sub);
+            //drop(profile_frustum_sub);
 
             use Chunk::*;
             for vertex in Vertex::iter() {
                 let chunk = ChunkId::new(node, vertex);
                 // Fetch existing chunk, or extract surface of new chunk
-                let profile_get_chunk_sub = subprofile(&mut profile_get_chunk);
+                //let profile_get_chunk_sub = subprofile(&mut profile_get_chunk);
                 match sim
                     .graph
                     .get_chunk_mut(chunk)
@@ -159,29 +158,28 @@ impl Voxels {
                 {
                     Generating => continue,
                     Fresh => {
-                        drop(profile_get_chunk_sub);
+                        //drop(profile_get_chunk_sub);
                         if !workqueue_has_capacity {
                             continue;
                         }
-                        num_fresh_nodes += 1;
-                        let _profile_fresh_sub = subprofile(&mut profile_fresh);
-                        let mut profile_fresh_generatable_sub =
-                            subprofile(&mut profile_fresh_generatable);
+                        //num_fresh_nodes += 1;
+                        //let _profile_fresh_sub = subprofile(&mut profile_fresh);
+                        //let mut profile_fresh_generatable_sub = subprofile(&mut profile_fresh_generatable);
                         // Generate voxel data
                         if let Some(params) = common::worldgen::ChunkParams::new(
                             self.surfaces.dimension() as u8,
                             &sim.graph,
                             chunk,
                         ) {
-                            num_generatable_fresh_nodes += 1;
+                            //num_generatable_fresh_nodes += 1;
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                 sim.graph[chunk] = Generating;
                             } else {
                                 workqueue_has_capacity = false;
                             }
                         } else {
-                            num_ungeneratable_fresh_nodes += 1;
-                            profile_fresh_generatable_sub.cancel();
+                            //num_ungeneratable_fresh_nodes += 1;
+                            //profile_fresh_generatable_sub.cancel();
                         }
                         continue;
                     }
@@ -190,8 +188,8 @@ impl Voxels {
                         ref mut old_surface,
                         ref voxels,
                     } => {
-                        drop(profile_get_chunk_sub);
-                        let _profile_populated_sub = subprofile(&mut profile_populated);
+                        //drop(profile_get_chunk_sub);
+                        //let _profile_populated_sub = subprofile(&mut profile_populated);
                         if let Some(slot) = surface.or(*old_surface) {
                             // Render an already-extracted surface
                             self.states.get_mut(slot).refcount += 1;
@@ -256,9 +254,9 @@ impl Voxels {
                 }
             }
         }
-        histogram!("num_fresh_nodes").record(num_fresh_nodes);
-        histogram!("num_generatable_fresh_nodes").record(num_generatable_fresh_nodes);
-        histogram!("num_ungeneratable_fresh_nodes").record(num_ungeneratable_fresh_nodes);
+        //histogram!("num_fresh_nodes").record(num_fresh_nodes);
+        //histogram!("num_generatable_fresh_nodes").record(num_generatable_fresh_nodes);
+        //histogram!("num_ungeneratable_fresh_nodes").record(num_ungeneratable_fresh_nodes);
         drop(profile_node_scan);
         self.extraction_scratch.extract(
             device,
