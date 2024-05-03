@@ -67,7 +67,7 @@ pub fn nearby_nodes(
         if -math::mip(&start_p, &current_p) > distance.cosh() {
             continue;
         }
-        result.push((current.id, na::convert(current.transform)));
+        result.push((current.id, current.transform));
 
         for side in Side::iter() {
             let neighbor = match graph.neighbor(current.id, side) {

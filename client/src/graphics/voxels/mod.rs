@@ -21,9 +21,7 @@ use common::{
     lru_slab::SlotId,
     math, multiprofile,
     node::{Chunk, ChunkId, VoxelData},
-    profile, subprofile,
-    traversal::nearby_nodes,
-    LruSlab,
+    profile, subprofile, LruSlab,
 };
 
 use surface::Surface;
@@ -89,6 +87,7 @@ impl Voxels {
         device: &Device,
         frame: &mut Frame,
         sim: &mut Sim,
+        nearby_nodes: &Vec<(NodeId, na::Matrix4<f32>)>,
         cmd: vk::CommandBuffer,
         frustum: &Frustum,
     ) {
@@ -121,24 +120,7 @@ impl Voxels {
             return;
         }
         let graph_traversal_started = Instant::now();
-        let profile_nearby_nodes = profile("f.prepare_voxels.nearby_nodes");
-        let mut nodes = nearby_nodes(
-            &sim.graph,
-            &view,
-            self.config.local_simulation.view_distance,
-        );
-        drop(profile_nearby_nodes);
         histogram!("frame.cpu.voxels.graph_traversal").record(graph_traversal_started.elapsed());
-        // Sort nodes by distance to the view to prioritize loading closer data and improve early Z
-        // performance. Sorting by `mip` in descending order is equivalent to sorting by distance
-        // in ascending order.
-        let profile_sort_nodes = profile("f.prepare_voxels.sort_nodes");
-        nodes.sort_unstable_by(|&(_, ref xf_a), &(_, ref xf_b)| {
-            xf_a[(3, 3)]
-                .partial_cmp(&xf_b[(3, 3)])
-                .unwrap_or(std::cmp::Ordering::Less)
-        });
-        drop(profile_sort_nodes);
         let node_scan_started = Instant::now();
         let frustum_planes = frustum.planes();
         let local_to_view = math::mtranspose(&view.local);
@@ -154,7 +136,7 @@ impl Voxels {
         let mut num_generatable_fresh_nodes = 0;
         let mut num_ungeneratable_fresh_nodes = 0;
         let mut workqueue_has_capacity = true;
-        for &(node, ref node_transform) in &nodes {
+        for &(node, ref node_transform) in nearby_nodes {
             let profile_frustum_sub = subprofile(&mut profile_frustum);
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * math::origin();
