@@ -252,6 +252,12 @@ impl Draw {
         let device = &*self.gfx.device;
         let state = &mut self.states[self.next_state];
         device.wait_for_fences(&[state.fence], true, !0).unwrap();
+        self.yakui_vulkan
+            .transfers_finished(&yakui_vulkan::VulkanContext::new(
+                device,
+                self.gfx.queue,
+                self.gfx.memory_properties,
+            ));
         state.in_flight = false;
     }
 
@@ -362,7 +368,6 @@ impl Draw {
         );
         timestamp_index += 1;
 
-        self.yakui_vulkan.transfers_finished(&yakui_vulkan_context);
         self.yakui_vulkan
             .transfer(yakui_paint_dom, &yakui_vulkan_context, cmd);
 
