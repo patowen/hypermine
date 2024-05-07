@@ -18,7 +18,7 @@ impl GuiState {
         self.show_gui = !self.show_gui;
     }
 
-    /// Prepare the GUI for rendering. This should be called betweenfas sdf asdf
+    /// Prepare the GUI for rendering. This should be called between
     /// Yakui::start and yakui::finish.
     pub fn prepare_gui(&self, sim: &Sim) {
         if !self.show_gui {
