@@ -15,7 +15,7 @@ use winit::{
     window::{CursorGrabMode, Window as WinitWindow, WindowBuilder},
 };
 
-use super::gui::GuiState;
+use super::gui::{self, GuiState};
 use super::{Base, Core, Draw, Frustum};
 use crate::Net;
 use crate::{net, Config, Sim};
@@ -59,6 +59,7 @@ pub struct Window {
     draw: Option<Draw>,
     sim: Option<Sim>,
     gui_state: GuiState,
+    yak: yakui::Yakui,
     net: Net,
 }
 
@@ -96,6 +97,7 @@ impl Window {
             draw: None,
             sim: None,
             gui_state: GuiState::new(),
+            yak: yakui::Yakui::new(),
             net,
         }
     }
@@ -351,17 +353,30 @@ impl Window {
                     }
                 }
             };
-            let aspect_ratio =
-                swapchain.state.extent.width as f32 / swapchain.state.extent.height as f32;
+            let extent = swapchain.state.extent;
+            let aspect_ratio = extent.width as f32 / extent.height as f32;
             let frame = &swapchain.state.frames[frame_id as usize];
             let frustum = Frustum::from_vfov(f32::consts::FRAC_PI_4 * 1.2, aspect_ratio);
+            // Render the GUI
+            self.yak
+                .set_surface_size([extent.width as f32, extent.height as f32].into());
+            self.yak
+                .set_unscaled_viewport(yakui::geometry::Rect::from_pos_size(
+                    Default::default(),
+                    [extent.width as f32, extent.height as f32].into(),
+                ));
+            self.yak.start();
+            if let Some(sim) = self.sim.as_ref() {
+                gui::gui(&self.gui_state, sim);
+            }
+            self.yak.finish();
             // Render the frame
             draw.draw(
                 self.sim.as_mut(),
-                &self.gui_state,
+                self.yak.paint(),
                 frame.buffer,
                 frame.depth_view,
-                swapchain.state.extent,
+                extent,
                 frame.present,
                 &frustum,
             );

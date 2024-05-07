@@ -6,7 +6,6 @@ use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
 
-use super::gui::{self, GuiState};
 use super::{fog, voxels, Base, Fog, Frustum, GltfScene, Meshes, Voxels};
 use crate::{Asset, Config, Loader, Sim};
 use common::proto::{Character, Position};
@@ -275,7 +274,7 @@ impl Draw {
     pub unsafe fn draw(
         &mut self,
         mut sim: Option<&mut Sim>,
-        gui_state: &GuiState,
+        yakui_paint_dom: &yakui::paint::PaintDom,
         framebuffer: vk::Framebuffer,
         depth_view: vk::ImageView,
         extent: vk::Extent2D,
@@ -295,22 +294,6 @@ impl Draw {
 
         let yakui_vulkan_context =
             yakui_vulkan::VulkanContext::new(device, self.gfx.queue, self.gfx.memory_properties);
-
-        self.yak
-            .set_surface_size([extent.width as f32, extent.height as f32].into());
-        self.yak
-            .set_unscaled_viewport(yakui::geometry::Rect::from_pos_size(
-                Default::default(),
-                [extent.width as f32, extent.height as f32].into(),
-            ));
-
-        self.yak.start();
-        if let Some(sim) = sim.as_ref() {
-            gui::gui(gui_state, sim);
-        }
-        self.yak.finish();
-
-        let paint = self.yak.paint();
 
         // We're using this state again, so put the fence back in the unsignaled state and compute
         // the next frame to use
@@ -381,7 +364,7 @@ impl Draw {
 
         self.yakui_vulkan.transfers_finished(&yakui_vulkan_context);
         self.yakui_vulkan
-            .transfer(paint, &yakui_vulkan_context, cmd);
+            .transfer(yakui_paint_dom, &yakui_vulkan_context, cmd);
 
         // Schedule transfer of uniform data. Note that we defer actually preparing the data to just
         // before submitting the command buffer so time-sensitive values can be set with minimum
@@ -514,7 +497,7 @@ impl Draw {
         self.fog.draw(device, state.common_ds, cmd);
 
         self.yakui_vulkan
-            .paint(paint, &yakui_vulkan_context, cmd, extent);
+            .paint(yakui_paint_dom, &yakui_vulkan_context, cmd, extent);
 
         // Finish up
         device.cmd_end_render_pass(cmd);
