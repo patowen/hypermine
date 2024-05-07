@@ -15,7 +15,7 @@ use winit::{
     window::{CursorGrabMode, Window as WinitWindow, WindowBuilder},
 };
 
-use super::gui::{self, GuiState};
+use super::gui_state::GuiState;
 use super::{Base, Core, Draw, Frustum};
 use crate::Net;
 use crate::{net, Config, Sim};
@@ -367,7 +367,7 @@ impl Window {
                 ));
             self.yak.start();
             if let Some(sim) = self.sim.as_ref() {
-                gui::gui(&self.gui_state, sim);
+                self.gui_state.prepare_gui(sim);
             }
             self.yak.finish();
             // Render the frame
