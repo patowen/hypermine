@@ -24,11 +24,11 @@ impl GuiState {
         if !self.show_gui {
             return;
         }
-    
+
         align(Alignment::CENTER, || {
             colored_box(Color::BLACK.with_alpha(0.9), [5.0, 5.0]);
         });
-    
+
         align(Alignment::TOP_LEFT, || {
             pad(Pad::all(8.0), || {
                 colored_box_container(Color::BLACK.with_alpha(0.7), || {
