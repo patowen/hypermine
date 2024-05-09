@@ -15,7 +15,7 @@ use winit::{
     window::{CursorGrabMode, Window as WinitWindow, WindowBuilder},
 };
 
-use super::gui_state::GuiState;
+use super::gui::GuiState;
 use super::{Base, Core, Draw, Frustum};
 use crate::Net;
 use crate::{net, Config, Sim};
