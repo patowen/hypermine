@@ -19,8 +19,8 @@ impl GuiState {
     }
 
     /// Prepare the GUI for rendering. This should be called between
-    /// Yakui::start and yakui::finish.
-    pub fn prepare_gui(&self, sim: &Sim) {
+    /// Yakui::start and Yakui::finish.
+    pub fn run(&self, sim: &Sim) {
         if !self.show_gui {
             return;
         }

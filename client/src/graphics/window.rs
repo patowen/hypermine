@@ -367,7 +367,7 @@ impl Window {
                 ));
             self.yak.start();
             if let Some(sim) = self.sim.as_ref() {
-                self.gui_state.prepare_gui(sim);
+                self.gui_state.run(sim);
             }
             self.yak.finish();
             // Render the frame
