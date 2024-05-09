@@ -52,8 +52,6 @@ pub struct Draw {
     character_model: Asset<GltfScene>,
     /// Yakui Vulkan context
     pub yakui_vulkan: yakui_vulkan::YakuiVulkan,
-    /// Yakui context
-    pub yak: yakui::Yakui,
 }
 
 /// Maximum number of simultaneous frames in flight
@@ -225,7 +223,6 @@ impl Draw {
 
                 character_model,
                 yakui_vulkan,
-                yak: yakui::Yakui::new(),
             }
         }
     }
