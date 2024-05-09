@@ -48,10 +48,11 @@ pub struct Draw {
     /// Reusable storage for barriers that prevent races between buffer upload and read
     buffer_barriers: Vec<vk::BufferMemoryBarrier<'static>>,
 
+    /// Yakui Vulkan context
+    yakui_vulkan: yakui_vulkan::YakuiVulkan,
+
     /// Miscellany
     character_model: Asset<GltfScene>,
-    /// Yakui Vulkan context
-    pub yakui_vulkan: yakui_vulkan::YakuiVulkan,
 }
 
 /// Maximum number of simultaneous frames in flight
@@ -183,13 +184,6 @@ impl Draw {
 
             gfx.save_pipeline_cache();
 
-            let character_model = loader.load(
-                "character model",
-                super::GlbFile {
-                    path: "character.glb".into(),
-                },
-            );
-
             let mut yakui_vulkan_options = yakui_vulkan::Options::default();
             yakui_vulkan_options.render_pass = gfx.render_pass;
             yakui_vulkan_options.subpass = 1;
@@ -200,6 +194,13 @@ impl Draw {
             for _ in 0..PIPELINE_DEPTH {
                 yakui_vulkan.transfers_submitted();
             }
+
+            let character_model = loader.load(
+                "character model",
+                super::GlbFile {
+                    path: "character.glb".into(),
+                },
+            );
 
             Self {
                 gfx,
@@ -221,8 +222,9 @@ impl Draw {
                 buffer_barriers: Vec::new(),
                 image_barriers: Vec::new(),
 
-                character_model,
                 yakui_vulkan,
+
+                character_model,
             }
         }
     }
@@ -543,6 +545,7 @@ impl Draw {
                 state.fence,
             )
             .unwrap();
+        self.yakui_vulkan.transfers_submitted();
         state.used = true;
         state.in_flight = true;
         histogram!("frame.cpu").record(draw_started.elapsed());

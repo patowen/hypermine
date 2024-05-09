@@ -388,7 +388,6 @@ impl Window {
                 }
                 Err(e) => panic!("queue_present: {e}"),
             };
-            draw.yakui_vulkan.transfers_submitted();
         }
     }
 }
