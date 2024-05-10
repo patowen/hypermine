@@ -141,7 +141,7 @@ impl Base {
                                 .queue_priorities(&[1.0])])
                             .enabled_extension_names(&device_exts)
                             .push_next(
-                                &mut vk::PhysicalDeviceDescriptorIndexingFeatures::default()
+                                &mut vk::PhysicalDeviceVulkan12Features::default()
                                     .descriptor_binding_partially_bound(true),
                             ),
                         None,

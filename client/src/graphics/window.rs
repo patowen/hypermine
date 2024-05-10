@@ -367,7 +367,7 @@ impl Window {
                 ));
             self.yak.start();
             if let Some(sim) = self.sim.as_ref() {
-                self.gui_state.prepare_gui(sim);
+                self.gui_state.run(sim);
             }
             self.yak.finish();
             // Render the frame
@@ -388,7 +388,6 @@ impl Window {
                 }
                 Err(e) => panic!("queue_present: {e}"),
             };
-            draw.yakui_vulkan.transfers_submitted();
         }
     }
 }
