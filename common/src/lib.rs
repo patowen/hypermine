@@ -28,6 +28,7 @@ pub mod node;
 mod plane;
 pub mod proto;
 mod sim_config;
+mod single_block_sphere_collision_checker;
 pub mod terraingen;
 pub mod traversal;
 pub mod voxel_math;

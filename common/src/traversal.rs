@@ -9,7 +9,28 @@ use crate::{
     math,
     node::ChunkId,
     proto::Position,
+    single_block_sphere_collision_checker,
 };
+
+// TODO: There's probably a nice algorithm here, but I should actually use something I already tested before: single_block_sphere_collision_checker.
+// Then, I can try and optimize with this if I want to.
+fn convex_hull_sphere_intersection(
+    hull: &[na::Vector4<f32>],
+    center: na::Vector4<f32>,
+    radius: f32,
+) -> bool {
+    loop {
+        let face_of_interest = hull.iter().enumerate().max_by_key(|(i, face)| 0);
+    }
+}
+
+fn sphere_intersects_chunk(center: na::Vector4<f32>, radius: f32) -> bool {
+    single_block_sphere_collision_checker::check_collision(center.cast(), radius.into())
+}
+
+fn sphere_intersects_node(center: na::Vector4<f32>, radius: f32) -> bool {
+    Vertex::iter().any(|vertex| sphere_intersects_chunk(vertex.node_to_dual() * center, radius))
+}
 
 /// Ensure all nodes within `distance` of `start` exist
 pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
@@ -36,6 +57,52 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
                 continue;
             }
             pending.push_back((neighbor, neighbor_transform));
+        }
+    }
+}
+
+pub fn ensure_nearby_exact(graph: &mut Graph, start: &Position, distance: f32) {
+    let mut pending = VecDeque::<(NodeId, na::Vector4<f32>)>::new();
+    let mut visited = FxHashSet::<NodeId>::default();
+
+    pending.push_back((start.node, start.local * math::origin()));
+    visited.insert(start.node);
+
+    while let Some((node, start_from_node)) = pending.pop_front() {
+        for side in Side::iter() {
+            let start_from_neighbor = side.reflection() * start_from_node;
+            if start_from_neighbor.w > distance.cosh() {
+                continue;
+            }
+            let neighbor = graph.ensure_neighbor(node, side);
+            if visited.contains(&neighbor) {
+                continue;
+            }
+            visited.insert(neighbor);
+            pending.push_back((neighbor, start_from_neighbor));
+        }
+    }
+}
+
+pub fn ensure_nearby_exact_with_full_cubes() {
+    let mut pending = VecDeque::<(NodeId, na::Vector4<f32>)>::new();
+    let mut visited = FxHashSet::<NodeId>::default();
+
+    pending.push_back((start.node, start.local * math::origin()));
+    visited.insert(start.node);
+
+    while let Some((node, start_from_node)) = pending.pop_front() {
+        for side in Side::iter() {
+            let start_from_neighbor = side.reflection() * start_from_node;
+            if start_from_neighbor.w > distance.cosh() {
+                continue;
+            }
+            let neighbor = graph.ensure_neighbor(node, side);
+            if visited.contains(&neighbor) {
+                continue;
+            }
+            visited.insert(neighbor);
+            pending.push_back((neighbor, start_from_neighbor));
         }
     }
 }
@@ -231,12 +298,34 @@ mod tests {
     // and traverse the expected number of nodes
     #[test]
     fn traversal_functions_example() {
+        let start = Position {
+            node: NodeId::ROOT,
+            local: math::translate_along(&na::Vector3::new(0.1, -0.3, 0.2)),
+        };
+
         let mut graph = Graph::new(1);
-        ensure_nearby(&mut graph, &Position::origin(), 0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0);
+        ensure_nearby(
+            &mut graph,
+            &start,
+            0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
+        );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
         println!("{}", graph.len());
 
-        let nodes = nearby_nodes(&graph, &Position::origin(), 0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0);
+        let mut graph = Graph::new(1);
+        ensure_nearby_exact(
+            &mut graph,
+            &start,
+            0.047727328 * 120.0,
+        );
+        //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        println!("{}", graph.len());
+
+        let nodes = nearby_nodes(
+            &graph,
+            &start,
+            0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
+        );
         //assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
         println!("{}", nodes.len());
     }
