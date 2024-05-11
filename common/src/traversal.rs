@@ -94,7 +94,7 @@ pub fn ensure_nearby_exact_with_full_cubes(graph: &mut Graph, start: &Position, 
     while let Some((node, start_from_node)) = pending.pop_front() {
         for side in Side::iter() {
             let start_from_neighbor = side.reflection() * start_from_node;
-            if start_from_neighbor.w > distance.cosh() {
+            if !sphere_intersects_node(start_from_neighbor, distance) {
                 continue;
             }
             let neighbor = graph.ensure_neighbor(node, side);
@@ -103,6 +103,17 @@ pub fn ensure_nearby_exact_with_full_cubes(graph: &mut Graph, start: &Position, 
             }
             visited.insert(neighbor);
             pending.push_back((neighbor, start_from_neighbor));
+        }
+        for vertex in Vertex::iter() {
+            if sphere_intersects_chunk(vertex.node_to_dual() * start_from_node, distance) {
+                let a0 = graph.ensure_neighbor(node, vertex.canonical_sides()[0]);
+                let a1 = graph.ensure_neighbor(node, vertex.canonical_sides()[1]);
+                let a2 = graph.ensure_neighbor(node, vertex.canonical_sides()[2]);
+                let b0 = graph.ensure_neighbor(a1, vertex.canonical_sides()[2]);
+                let b1 = graph.ensure_neighbor(a2, vertex.canonical_sides()[0]);
+                let b2 = graph.ensure_neighbor(a0, vertex.canonical_sides()[1]);
+                graph.ensure_neighbor(b0, vertex.canonical_sides()[0]);
+            }
         }
     }
 }
@@ -300,8 +311,17 @@ mod tests {
     fn traversal_functions_example() {
         let start = Position {
             node: NodeId::ROOT,
-            local: math::translate_along(&na::Vector3::new(0.01, -0.03, 0.02)),
+            local: math::translate_along(&na::Vector3::new(0.00, 0.00, 0.00)),
         };
+
+        let mut graph = Graph::new(1);
+        ensure_nearby(
+            &mut graph,
+            &start,
+            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
+        );
+        //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        println!("{}", graph.len());
 
         let mut graph = Graph::new(1);
         ensure_nearby(
@@ -314,6 +334,24 @@ mod tests {
 
         let mut graph = Graph::new(1);
         ensure_nearby_exact(
+            &mut graph,
+            &start,
+            0.047727328 * 90.0,
+        );
+        //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        println!("{}", graph.len());
+
+        let mut graph = Graph::new(1);
+        ensure_nearby(
+            &mut graph,
+            &start,
+            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 2.0,
+        );
+        //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        println!("{}", graph.len());
+
+        let mut graph = Graph::new(1);
+        ensure_nearby_exact_with_full_cubes(
             &mut graph,
             &start,
             0.047727328 * 90.0,
