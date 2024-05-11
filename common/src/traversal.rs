@@ -46,16 +46,16 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
 
     while let Some((node, current_transform)) = pending.pop_front() {
         for side in Side::iter() {
-            let neighbor = graph.ensure_neighbor(node, side);
-            if visited.contains(&neighbor) {
-                continue;
-            }
-            visited.insert(neighbor);
             let neighbor_transform = current_transform * side.reflection();
             let neighbor_p = neighbor_transform * math::origin();
             if -math::mip(&start_p, &neighbor_p) > distance.cosh() {
                 continue;
             }
+            let neighbor = graph.ensure_neighbor(node, side);
+            if visited.contains(&neighbor) {
+                continue;
+            }
+            visited.insert(neighbor);
             pending.push_back((neighbor, neighbor_transform));
         }
     }
@@ -71,7 +71,7 @@ pub fn ensure_nearby_exact(graph: &mut Graph, start: &Position, distance: f32) {
     while let Some((node, start_from_node)) = pending.pop_front() {
         for side in Side::iter() {
             let start_from_neighbor = side.reflection() * start_from_node;
-            if start_from_neighbor.w > distance.cosh() {
+            if !sphere_intersects_node(start_from_neighbor, distance) {
                 continue;
             }
             let neighbor = graph.ensure_neighbor(node, side);
@@ -84,7 +84,7 @@ pub fn ensure_nearby_exact(graph: &mut Graph, start: &Position, distance: f32) {
     }
 }
 
-pub fn ensure_nearby_exact_with_full_cubes() {
+pub fn ensure_nearby_exact_with_full_cubes(graph: &mut Graph, start: &Position, distance: f32) {
     let mut pending = VecDeque::<(NodeId, na::Vector4<f32>)>::new();
     let mut visited = FxHashSet::<NodeId>::default();
 
@@ -300,14 +300,14 @@ mod tests {
     fn traversal_functions_example() {
         let start = Position {
             node: NodeId::ROOT,
-            local: math::translate_along(&na::Vector3::new(0.1, -0.3, 0.2)),
+            local: math::translate_along(&na::Vector3::new(0.01, -0.03, 0.02)),
         };
 
         let mut graph = Graph::new(1);
         ensure_nearby(
             &mut graph,
             &start,
-            0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
+            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 1.0,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
         println!("{}", graph.len());
@@ -316,7 +316,7 @@ mod tests {
         ensure_nearby_exact(
             &mut graph,
             &start,
-            0.047727328 * 120.0,
+            0.047727328 * 90.0,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
         println!("{}", graph.len());
