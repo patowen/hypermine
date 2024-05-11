@@ -50,7 +50,7 @@ impl SimConfig {
         tracing::info!("{}", meters_to_absolute);
         SimConfig {
             step_interval: Duration::from_secs(1) / x.rate.unwrap_or(30) as u32,
-            view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,
+            view_distance: dbg!(x.view_distance.unwrap_or(90.0) * meters_to_absolute),
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             chunk_size,
             character: CharacterConfig::from_raw(&x.character, meters_to_absolute),

@@ -309,6 +309,8 @@ mod tests {
     // and traverse the expected number of nodes
     #[test]
     fn traversal_functions_example() {
+        let view_distance = 74.0; //73: 14837
+        
         let start = Position {
             node: NodeId::ROOT,
             local: math::translate_along(&na::Vector3::new(0.00, 0.00, 0.00)),
@@ -318,53 +320,45 @@ mod tests {
         ensure_nearby(
             &mut graph,
             &start,
-            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
+            0.047727328 * view_distance + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
-        println!("{}", graph.len());
+        println!("Node centers {}", graph.len());
 
         let mut graph = Graph::new(1);
         ensure_nearby(
             &mut graph,
             &start,
-            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 1.0,
+            0.047727328 * view_distance + dodeca::BOUNDING_SPHERE_RADIUS * 1.0,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
-        println!("{}", graph.len());
+        println!("Bounding sphere {}", graph.len());
 
         let mut graph = Graph::new(1);
         ensure_nearby_exact(
             &mut graph,
             &start,
-            0.047727328 * 90.0,
+            0.047727328 * view_distance,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
-        println!("{}", graph.len());
+        println!("Dodeca {}", graph.len());
 
         let mut graph = Graph::new(1);
         ensure_nearby(
             &mut graph,
             &start,
-            0.047727328 * 90.0 + dodeca::BOUNDING_SPHERE_RADIUS * 2.0,
+            0.047727328 * view_distance + dodeca::BOUNDING_SPHERE_RADIUS * 2.0,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
-        println!("{}", graph.len());
+        println!("Large bounding sphere {}", graph.len());
 
         let mut graph = Graph::new(1);
         ensure_nearby_exact_with_full_cubes(
             &mut graph,
             &start,
-            0.047727328 * 90.0,
+            0.047727328 * view_distance,
         );
         //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
-        println!("{}", graph.len());
-
-        let nodes = nearby_nodes(
-            &graph,
-            &start,
-            0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0,
-        );
-        //assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
-        println!("{}", nodes.len());
+        println!("Large dodeca {}", graph.len());
     }
 }
