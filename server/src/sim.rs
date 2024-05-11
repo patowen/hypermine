@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, SerializedVoxelData};
+use common::proto::{BlockUpdate, Item, SerializedVoxelData};
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -200,6 +200,7 @@ impl Sim {
                 velocity: na::Vector3::zeros(),
                 on_ground: false,
             },
+            inventory: vec![],
         };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
@@ -250,6 +251,8 @@ impl Sim {
                 .collect(),
             block_updates: Vec::new(),
             voxel_data: Vec::new(),
+            inventory_additions: Vec::new(),
+            inventory_removals: Vec::new(),
         };
         for (entity, &id) in &mut self.world.query::<&EntityId>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
@@ -271,8 +274,6 @@ impl Sim {
     pub fn step(&mut self) -> (Spawns, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
-
-        let mut pending_block_updates: Vec<BlockUpdate> = vec![];
 
         // Extend graph structure
         for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
@@ -325,10 +326,12 @@ impl Sim {
             }
         }
 
+        let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
+
         // Simulate
-        for (entity, (position, character, input)) in self
+        for (entity, (&id, position, character, input)) in self
             .world
-            .query::<(&mut Position, &mut Character, &CharacterInput)>()
+            .query::<(&EntityId, &mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
             let prev_node = position.node;
@@ -341,24 +344,21 @@ impl Sim {
                 input,
                 self.cfg.step_interval.as_secs_f32(),
             );
-            pending_block_updates.extend(input.block_update.iter().cloned());
+            if let Some(block_update) = input.block_update.clone() {
+                if !self.graph.update_block(&block_update) {
+                    tracing::warn!("Block update received from ungenerated chunk");
+                    continue;
+                }
+                self.modified_chunks.insert(block_update.chunk_id);
+                self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
+                accepted_block_updates.push(block_update);
+            }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
                 self.graph_entities.remove(prev_node, entity);
                 self.graph_entities.insert(position.node, entity);
             }
             self.dirty_nodes.insert(position.node);
-        }
-
-        let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
-
-        for block_update in pending_block_updates.into_iter() {
-            if !self.graph.update_block(&block_update) {
-                tracing::warn!("Block update received from ungenerated chunk");
-            }
-            self.modified_chunks.insert(block_update.chunk_id);
-            self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
-            accepted_block_updates.push(block_update);
         }
 
         // Capture state changes for broadcast to clients
@@ -388,6 +388,8 @@ impl Sim {
                 .collect(),
             block_updates: accepted_block_updates,
             voxel_data: fresh_voxel_data,
+            inventory_additions: todo!(),
+            inventory_removals: todo!(),
         };
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
@@ -429,6 +431,9 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
     }
     if let Ok(x) = world.get::<&Character>(entity) {
         components.push(Component::Character((*x).clone()));
+    }
+    if let Ok(x) = world.get::<&Item>(entity) {
+        components.push(Component::Item((*x).clone()));
     }
     components
 }

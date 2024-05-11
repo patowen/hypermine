@@ -367,6 +367,9 @@ impl Sim {
                     node = Some(x.node);
                     builder.add(x);
                 }
+                Item(x) => {
+                    builder.add(x);
+                }
             };
         }
         let entity = self.world.spawn(builder.build());
@@ -519,6 +522,7 @@ impl Sim {
             chunk_id: block_pos.0,
             coords: block_pos.1,
             new_material: material,
+            consumed_item: None,
         })
     }
 }
