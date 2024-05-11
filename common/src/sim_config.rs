@@ -47,6 +47,7 @@ impl SimConfig {
         let chunk_size = x.chunk_size.unwrap_or(12);
         let voxel_size = x.voxel_size.unwrap_or(1.0);
         let meters_to_absolute = meters_to_absolute(chunk_size, voxel_size);
+        tracing::info!("{}", meters_to_absolute);
         SimConfig {
             step_interval: Duration::from_secs(1) / x.rate.unwrap_or(30) as u32,
             view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,

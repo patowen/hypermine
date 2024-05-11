@@ -276,7 +276,11 @@ impl Sim {
 
         // Extend graph structure
         for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
-            ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
+            ensure_nearby(
+                &mut self.graph,
+                position,
+                self.cfg.view_distance + dodeca::BOUNDING_SPHERE_RADIUS * 2.0,
+            );
         }
 
         let fresh_nodes = self.graph.fresh().to_vec();

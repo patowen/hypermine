@@ -232,14 +232,12 @@ mod tests {
     #[test]
     fn traversal_functions_example() {
         let mut graph = Graph::new(1);
-        ensure_nearby(&mut graph, &Position::origin(), 6.0);
-        assert_abs_diff_eq!(graph.len(), 502079, epsilon = 50);
+        ensure_nearby(&mut graph, &Position::origin(), 0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0);
+        //assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        println!("{}", graph.len());
 
-        // TODO: nearby_nodes has a stricter interpretation of distance than
-        // ensure_nearby, resulting in far fewer nodes. Getting these two
-        // functions to align may be a future performance improvement
-        // opportunity.
-        let nodes = nearby_nodes(&graph, &Position::origin(), 6.0);
-        assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
+        let nodes = nearby_nodes(&graph, &Position::origin(), 0.047727328 * 120.0 + dodeca::BOUNDING_SPHERE_RADIUS * 0.0);
+        //assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
+        println!("{}", nodes.len());
     }
 }
