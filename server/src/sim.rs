@@ -4,6 +4,7 @@ use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
 use common::proto::{BlockUpdate, Item, SerializedVoxelData};
+use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::Entity;
@@ -327,6 +328,8 @@ impl Sim {
         }
 
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
+        let mut inventory_additions: Vec<(EntityId, EntityId)> = vec![];
+        let mut inventory_removals: Vec<(EntityId, EntityId)> = vec![];
 
         // Simulate
         for (entity, (&id, position, character, input)) in self
@@ -345,13 +348,24 @@ impl Sim {
                 self.cfg.step_interval.as_secs_f32(),
             );
             if let Some(block_update) = input.block_update.clone() {
-                if !self.graph.update_block(&block_update) {
+                if let Some(old_material) = self
+                    .graph
+                    .get_material(block_update.chunk_id, block_update.coords)
+                {
+                    if block_update.new_material != Material::Void {
+                        self.entity_ids.get(&block_update.consumed_item.unwrap());
+                        self.world.query::<&EntityId>();
+                    }
+                    if self.graph.update_block(&block_update) {
+                        self.modified_chunks.insert(block_update.chunk_id);
+                        self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
+                        accepted_block_updates.push(block_update);
+                    } else {
+                        tracing::warn!("Block update received from ungenerated chunk");
+                    }
+                } else {
                     tracing::warn!("Block update received from ungenerated chunk");
-                    continue;
                 }
-                self.modified_chunks.insert(block_update.chunk_id);
-                self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
-                accepted_block_updates.push(block_update);
             }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
@@ -422,6 +436,51 @@ impl Sim {
             }
         }
     }
+}
+
+fn attempt_block_update(
+    graph: &mut Graph,
+    block_update: &BlockUpdate,
+    inventory: &mut Vec<EntityId>,
+    world: &mut hecs::World,
+    entity_ids: FxHashMap<EntityId, Entity>,
+    sim: &mut Sim,
+) -> bool {
+    let Some(old_material) = graph.get_material(block_update.chunk_id, block_update.coords) else {
+        tracing::warn!("Block update received from ungenerated chunk");
+        return false;
+    };
+    if block_update.new_material != Material::Void {
+        let Some(consumed_item_id) = block_update.consumed_item else {
+            tracing::warn!("Tried to place block without consuming any items");
+            return false;
+        };
+        let Some(inventory_index) = inventory.iter().position(|&id| id == consumed_item_id) else {
+            tracing::warn!("Tried to consume item not in player inventory");
+            return false;
+        };
+        let Some(&consumed_item) = entity_ids.get(&consumed_item_id) else {
+            tracing::warn!("Consumed unknown entity ID");
+            return false;
+        };
+        if world.get::<&Item>(consumed_item).unwrap().material != block_update.new_material {
+            tracing::warn!("Consumed material of wrong type");
+            return false;
+        }
+        inventory.swap_remove(inventory_index);
+        sim.destroy(consumed_item);
+    }
+    if old_material != Material::Void {
+        let new_item_id = sim.new_id();
+        let item = Item {
+            material: old_material,
+        };
+        let new_item = world.spawn((new_item_id, item));
+        sim.entity_ids.insert(new_item_id, new_item);
+        sim.spawns.push(new_item);
+        inventory.push(new_item_id);
+    }
+    graph.update_block(block_update)
 }
 
 fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
