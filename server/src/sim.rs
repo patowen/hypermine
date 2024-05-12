@@ -333,9 +333,9 @@ impl Sim {
         let mut inventory_removals: Vec<(EntityId, EntityId)> = vec![];
 
         // Simulate
-        for (entity, (&id, position, character, input)) in self
+        for (entity, (position, character, input)) in self
             .world
-            .query::<(&EntityId, &mut Position, &mut Character, &CharacterInput)>()
+            .query::<(&mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
             let prev_node = position.node;
@@ -400,8 +400,8 @@ impl Sim {
                 .collect(),
             block_updates: accepted_block_updates,
             voxel_data: fresh_voxel_data,
-            inventory_additions: todo!(),
-            inventory_removals: todo!(),
+            inventory_additions,
+            inventory_removals,
         };
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
@@ -442,10 +442,6 @@ impl Sim {
         inventory_additions: &mut Vec<(EntityId, EntityId)>,
         inventory_removals: &mut Vec<(EntityId, EntityId)>,
     ) -> bool {
-        let mut character = self
-            .world
-            .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
-            .unwrap();
         let Some(old_material) = self
             .graph
             .get_material(block_update.chunk_id, block_update.coords)
@@ -458,25 +454,32 @@ impl Sim {
                 tracing::warn!("Tried to place block without consuming any items");
                 return false;
             };
-            let Some(inventory_index) = character
-                .inventory
-                .iter()
-                .position(|&id| id == consumed_item_id)
-            else {
-                tracing::warn!("Tried to consume item not in player inventory");
-                return false;
-            };
-            let Some(&consumed_item) = self.entity_ids.get(&consumed_item_id) else {
-                tracing::warn!("Consumed unknown entity ID");
-                return false;
-            };
-            if self.world.get::<&Item>(consumed_item).unwrap().material != block_update.new_material
+            let consumed_item2;
             {
-                tracing::warn!("Consumed material of wrong type");
-                return false;
+                let inventory = &mut self
+                    .world
+                    .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
+                    .unwrap()
+                    .inventory;
+                let Some(inventory_index) = inventory.iter().position(|&id| id == consumed_item_id)
+                else {
+                    tracing::warn!("Tried to consume item not in player inventory");
+                    return false;
+                };
+                let Some(&consumed_item) = self.entity_ids.get(&consumed_item_id) else {
+                    tracing::warn!("Consumed unknown entity ID");
+                    return false;
+                };
+                if self.world.get::<&Item>(consumed_item).unwrap().material
+                    != block_update.new_material
+                {
+                    tracing::warn!("Consumed material of wrong type");
+                    return false;
+                }
+                inventory.swap_remove(inventory_index);
+                consumed_item2 = consumed_item;
             }
-            character.inventory.swap_remove(inventory_index);
-            self.destroy(consumed_item);
+            self.destroy(consumed_item2);
             inventory_removals.push((subject, consumed_item_id));
         }
         if old_material != Material::Void {
@@ -487,7 +490,12 @@ impl Sim {
             let new_item = self.world.spawn((new_item_id, item));
             self.entity_ids.insert(new_item_id, new_item);
             self.spawns.push(new_item);
-            character.inventory.push(new_item_id);
+            let inventory = &mut self
+                .world
+                .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
+                .unwrap()
+                .inventory;
+            inventory.push(new_item_id);
             inventory_additions.push((subject, new_item_id));
         }
         self.graph.update_block(block_update)
