@@ -327,6 +327,7 @@ impl Sim {
             }
         }
 
+        let mut pending_block_updates: Vec<(Entity, BlockUpdate)> = vec![];
         let mut accepted_block_updates: Vec<BlockUpdate> = vec![];
         let mut inventory_additions: Vec<(EntityId, EntityId)> = vec![];
         let mut inventory_removals: Vec<(EntityId, EntityId)> = vec![];
@@ -348,24 +349,7 @@ impl Sim {
                 self.cfg.step_interval.as_secs_f32(),
             );
             if let Some(block_update) = input.block_update.clone() {
-                if let Some(old_material) = self
-                    .graph
-                    .get_material(block_update.chunk_id, block_update.coords)
-                {
-                    if block_update.new_material != Material::Void {
-                        self.entity_ids.get(&block_update.consumed_item.unwrap());
-                        self.world.query::<&EntityId>();
-                    }
-                    if self.graph.update_block(&block_update) {
-                        self.modified_chunks.insert(block_update.chunk_id);
-                        self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
-                        accepted_block_updates.push(block_update);
-                    } else {
-                        tracing::warn!("Block update received from ungenerated chunk");
-                    }
-                } else {
-                    tracing::warn!("Block update received from ungenerated chunk");
-                }
+                pending_block_updates.push((entity, block_update));
             }
             if prev_node != position.node {
                 self.dirty_nodes.insert(prev_node);
@@ -373,6 +357,20 @@ impl Sim {
                 self.graph_entities.insert(position.node, entity);
             }
             self.dirty_nodes.insert(position.node);
+        }
+
+        for (entity, block_update) in pending_block_updates {
+            let id = *self.world.get::<&EntityId>(entity).unwrap();
+            if self.attempt_block_update(
+                id,
+                &block_update,
+                &mut inventory_additions,
+                &mut inventory_removals,
+            ) {
+                self.modified_chunks.insert(block_update.chunk_id);
+                self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
+                accepted_block_updates.push(block_update);
+            }
         }
 
         // Capture state changes for broadcast to clients
@@ -436,51 +434,64 @@ impl Sim {
             }
         }
     }
-}
 
-fn attempt_block_update(
-    graph: &mut Graph,
-    block_update: &BlockUpdate,
-    inventory: &mut Vec<EntityId>,
-    world: &mut hecs::World,
-    entity_ids: FxHashMap<EntityId, Entity>,
-    sim: &mut Sim,
-) -> bool {
-    let Some(old_material) = graph.get_material(block_update.chunk_id, block_update.coords) else {
-        tracing::warn!("Block update received from ungenerated chunk");
-        return false;
-    };
-    if block_update.new_material != Material::Void {
-        let Some(consumed_item_id) = block_update.consumed_item else {
-            tracing::warn!("Tried to place block without consuming any items");
+    fn attempt_block_update(
+        &mut self,
+        subject: EntityId,
+        block_update: &BlockUpdate,
+        inventory_additions: &mut Vec<(EntityId, EntityId)>,
+        inventory_removals: &mut Vec<(EntityId, EntityId)>,
+    ) -> bool {
+        let mut character = self
+            .world
+            .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
+            .unwrap();
+        let Some(old_material) = self
+            .graph
+            .get_material(block_update.chunk_id, block_update.coords)
+        else {
+            tracing::warn!("Block update received from ungenerated chunk");
             return false;
         };
-        let Some(inventory_index) = inventory.iter().position(|&id| id == consumed_item_id) else {
-            tracing::warn!("Tried to consume item not in player inventory");
-            return false;
-        };
-        let Some(&consumed_item) = entity_ids.get(&consumed_item_id) else {
-            tracing::warn!("Consumed unknown entity ID");
-            return false;
-        };
-        if world.get::<&Item>(consumed_item).unwrap().material != block_update.new_material {
-            tracing::warn!("Consumed material of wrong type");
-            return false;
+        if block_update.new_material != Material::Void {
+            let Some(consumed_item_id) = block_update.consumed_item else {
+                tracing::warn!("Tried to place block without consuming any items");
+                return false;
+            };
+            let Some(inventory_index) = character
+                .inventory
+                .iter()
+                .position(|&id| id == consumed_item_id)
+            else {
+                tracing::warn!("Tried to consume item not in player inventory");
+                return false;
+            };
+            let Some(&consumed_item) = self.entity_ids.get(&consumed_item_id) else {
+                tracing::warn!("Consumed unknown entity ID");
+                return false;
+            };
+            if self.world.get::<&Item>(consumed_item).unwrap().material != block_update.new_material
+            {
+                tracing::warn!("Consumed material of wrong type");
+                return false;
+            }
+            character.inventory.swap_remove(inventory_index);
+            self.destroy(consumed_item);
+            inventory_removals.push((subject, consumed_item_id));
         }
-        inventory.swap_remove(inventory_index);
-        sim.destroy(consumed_item);
+        if old_material != Material::Void {
+            let new_item_id = self.new_id();
+            let item = Item {
+                material: old_material,
+            };
+            let new_item = self.world.spawn((new_item_id, item));
+            self.entity_ids.insert(new_item_id, new_item);
+            self.spawns.push(new_item);
+            character.inventory.push(new_item_id);
+            inventory_additions.push((subject, new_item_id));
+        }
+        self.graph.update_block(block_update)
     }
-    if old_material != Material::Void {
-        let new_item_id = sim.new_id();
-        let item = Item {
-            material: old_material,
-        };
-        let new_item = world.spawn((new_item_id, item));
-        sim.entity_ids.insert(new_item_id, new_item);
-        sim.spawns.push(new_item);
-        inventory.push(new_item_id);
-    }
-    graph.update_block(block_update)
 }
 
 fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
