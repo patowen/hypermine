@@ -7,7 +7,7 @@ use common::proto::{BlockUpdate, Item, SerializedVoxelData};
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
-use hecs::Entity;
+use hecs::{DynamicBundle, Entity, EntityBuilder};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
@@ -188,8 +188,6 @@ impl Sim {
     }
 
     pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
-        let id = self.new_id();
-        info!(%id, name = %hello.name, "spawning character");
         let position = Position {
             node: NodeId::ROOT,
             local: math::translate_along(&(na::Vector3::y() * 1.4)),
@@ -209,11 +207,28 @@ impl Sim {
             no_clip: true,
             block_update: None,
         };
-        let entity = self.world.spawn((id, position, character, initial_input));
-        self.graph_entities.insert(position.node, entity);
+        self.spawn((position, character, initial_input))
+    }
+
+    fn spawn(&mut self, bundle: impl DynamicBundle) -> (EntityId, Entity) {
+        let id = self.new_id();
+        let mut entity_builder = EntityBuilder::new();
+        entity_builder.add(id);
+        entity_builder.add_bundle(bundle);
+        let entity = self.world.spawn(entity_builder.build());
+
+        if let Ok(position) = self.world.get::<&Position>(entity) {
+            self.graph_entities.insert(position.node, entity);
+            self.dirty_nodes.insert(position.node);
+        }
+
+        if let Ok(character) = self.world.get::<&Character>(entity) {
+            info!(%id, name = %character.name, "spawning character");
+        }
+
         self.entity_ids.insert(id, entity);
         self.spawns.push(entity);
-        self.dirty_nodes.insert(position.node);
+
         (id, entity)
     }
 
@@ -483,13 +498,10 @@ impl Sim {
             inventory_removals.push((subject, consumed_item_id));
         }
         if old_material != Material::Void {
-            let new_item_id = self.new_id();
             let item = Item {
                 material: old_material,
             };
-            let new_item = self.world.spawn((new_item_id, item));
-            self.entity_ids.insert(new_item_id, new_item);
-            self.spawns.push(new_item);
+            let (new_item_id, _) = self.spawn((item,));
             let inventory = &mut self
                 .world
                 .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
