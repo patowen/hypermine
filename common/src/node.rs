@@ -43,70 +43,81 @@ impl Graph {
         ))
     }
 
-    /// Attempts to set the "horospheres" field of `node`, ensuring that all ancestors
+    /// Attempts to set the "horospheres"/"grid" field of `node`, ensuring that all ancestors
     /// are set up first. Returns whether successful.
-    pub fn try_fill_horospheres(&mut self, node: NodeId) -> bool {
-        if (self.get(node).as_ref().unwrap().state).horospheres_initialized() {
-            // No need to fill horospheres if they're already filled.
+    pub fn try_fill_structures(&mut self, node: NodeId) -> bool {
+        if (self.get(node).as_ref().unwrap().state).horospheres_initialized() && (self.get(node).as_ref().unwrap().state).grid_initialized() {
+            // No need to fill structures if they're already filled.
             return true;
         }
 
-        if !self.try_fill_parent_horospheres(node) {
+        if !self.try_fill_parent_structures(node) {
             return false;
         }
 
-        // Try filling the parent horospheres of all siblings.
+        // Try filling the parent structures of all siblings.
         for (_, sibling_node) in self.siblings(node) {
             let Some(sibling_node) = sibling_node else {
                 // If some siblings are uninitialized, there's nothing to do.
                 return false;
             };
-            if !self.try_fill_parent_horospheres(sibling_node) {
+            if !self.try_fill_parent_structures(sibling_node) {
                 return false;
             }
         }
 
-        self.try_fill_horospheres_helper(node)
+        self.try_fill_structures_helper(node)
     }
 
-    /// Attempts to set the parent part of "horospheres" field of `node`, ensuring that all ancestors
+    /// Attempts to set the parent part of "horospheres"/"grid" field of `node`, ensuring that all ancestors
     /// are set up first. Returns whether successful.
-    pub fn try_fill_parent_horospheres(&mut self, node: NodeId) -> bool {
-        if (self.get(node).as_ref().unwrap().state).parent_horospheres_initialized() {
-            // No need to fill horospheres if they're already filled.
+    pub fn try_fill_parent_structures(&mut self, node: NodeId) -> bool {
+        if (self.get(node).as_ref().unwrap().state).parent_horospheres_initialized() && (self.get(node).as_ref().unwrap().state).parent_grid_initialized() {
+            // No need to fill structures if they're already filled.
             return true;
         }
         for (_, parent_node) in self.descenders(node) {
-            // To get "parent horospheres", we need the parents' horospheres.
-            if !self.try_fill_horospheres(parent_node) {
+            // To get "parent structures", we need the parents' structures.
+            if !self.try_fill_structures(parent_node) {
                 return false;
             }
         }
 
-        self.try_fill_parent_horospheres_helper(node)
+        self.try_fill_parent_structures_helper(node)
     }
 
-    /// Attempts to set up "horospheres" field of `node` without setting up ancestors.
-    fn try_fill_horospheres_helper(&mut self, node: NodeId) -> bool {
+    /// Attempts to set up "horospheres"/"grid" field of `node` without setting up ancestors.
+    fn try_fill_structures_helper(&mut self, node: NodeId) -> bool {
         let Some(horospheres) =
             (self.get(node).as_ref().unwrap().state).get_horospheres_from_candidates(self, node)
         else {
             return false;
         };
+        let Some(grids) =
+            (self.get(node).as_ref().unwrap().state).get_grid_from_candidates(self, node)
+        else {
+            return false;
+        };
         (self.get_mut(node).as_mut().unwrap().state).add_horospheres(horospheres);
+        (self.get_mut(node).as_mut().unwrap().state).add_grids(grids);
 
         true
     }
 
     /// Attempts to set up parent part of "horospheres" field of `node` without setting up ancestors.
-    fn try_fill_parent_horospheres_helper(&mut self, node: NodeId) -> bool {
+    fn try_fill_parent_structures_helper(&mut self, node: NodeId) -> bool {
         let Some(horospheres) = NodeState::combine_parent_horospheres(self, node) else {
             return false;
         };
+        let Some(grids) = NodeState::combine_parent_grids(self, node) else {
+            return false;
+        };
         (self.get_mut(node).as_mut().unwrap().state).add_parent_horospheres(horospheres);
+        (self.get_mut(node).as_mut().unwrap().state).add_parent_grids(grids);
         
         true
     }
+
 
     pub fn get_chunk_neighbor(
         &self,
@@ -500,7 +511,7 @@ pub fn populate_fresh_nodes(graph: &mut Graph) {
         populate_node(graph, node);
     }
     for &node in &fresh {
-        fill_sibling_horospheres(graph, node);
+        fill_sibling_structures(graph, node);
     }
 }
 
@@ -517,13 +528,13 @@ fn populate_node(graph: &mut Graph, node: NodeId) {
     });
 }
 
-fn fill_sibling_horospheres(graph: &mut Graph, node: NodeId) {
-    // Try to fill horospheres immediately in case this node was the last in its sibling neighborhood
+fn fill_sibling_structures(graph: &mut Graph, node: NodeId) {
+    // Try to fill structures immediately in case this node was the last in its sibling neighborhood
     // to be generated.
-    graph.try_fill_horospheres(node);
+    graph.try_fill_structures(node);
 
     // Sibling nodes may now have all of their siblings generated, so they should attempt to
-    // fill horospheres.
+    // fill structures.
     for (parent_side, parent_node) in graph.descenders(node) {
         for sibling_side in Side::iter() {
             if !sibling_side.adjacent_to(parent_side) {
@@ -538,10 +549,10 @@ fn fill_sibling_horospheres(graph: &mut Graph, node: NodeId) {
                 continue;
             }
             let Some(sibling_node) = graph.neighbor(parent_node, sibling_side) else {
-                // No need to try to fill horospheres in a nonexistent neighbor-node
+                // No need to try to fill structures in a nonexistent neighbor-node
                 continue;
             };
-            graph.try_fill_horospheres(sibling_node);
+            graph.try_fill_structures(sibling_node);
         }
     }
 }

@@ -42,6 +42,12 @@ pub fn reflect<N: RealField + Copy>(p: &na::Vector4<N>) -> na::Matrix4<N> {
         - minkowski_outer_product(p, p) * na::convert::<_, N>(2.0) / mip(p, p)
 }
 
+/// Point or plane reflection around point or normal `p`
+pub fn reflect_between<N: RealField + Copy>(a: &na::Vector4<N>, b: &na::Vector4<N>) -> na::Matrix4<N> {
+    let a_minus_b = a - b;
+    reflect(&a_minus_b)
+}
+
 /// Transform that translates `a` to `b` given that `a` and `b` are Lorentz normalized pointlike vectors
 pub fn translate<N: RealField + Copy>(a: &na::Vector4<N>, b: &na::Vector4<N>) -> na::Matrix4<N> {
     let a_plus_b = a + b;

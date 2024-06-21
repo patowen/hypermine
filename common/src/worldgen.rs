@@ -4,13 +4,7 @@ use rand::{distributions::Uniform, Rng, SeedableRng};
 use rand_distr::{Normal, Poisson};
 
 use crate::{
-    dodeca::{Side, Vertex},
-    graph::{Graph, NodeId},
-    math,
-    node::{ChunkId, VoxelData},
-    terraingen::VoronoiInfo,
-    world::Material,
-    Plane,
+    dodeca::{Side, Vertex}, graph::{Graph, NodeId}, math::{self, origin}, node::{ChunkId, VoxelData}, terraingen::VoronoiInfo, world::Material, Line, Plane
 };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -82,11 +76,57 @@ impl std::ops::Mul<&Horosphere> for na::Matrix4<f32> {
     }
 }
 
+
+
 pub struct HorosphereContainer {
     node: NodeId,    // Owner node
     id: u16,         // Node-scoped ID of the horosphere
     pos: Horosphere, // Node-relative position; all points whose mip with this is -1 is on the horosphere.
 }
+
+#[derive(Clone)]
+#[derive(Debug)]
+pub struct GridPointContainer {
+    node: NodeId,
+    id: u16,
+    point: GridPoint,
+}
+
+#[derive(Clone)]
+#[derive(Debug)]
+pub struct GridPoint {
+    point: na::Vector4<f32>,
+    surrounding_points: Vec<na::Vector4<f32>>,
+    material: Material,
+}
+
+
+impl std::ops::Mul<&GridPoint> for na::Matrix4<f32> {
+    type Output = GridPoint;
+
+    fn mul(self, rhs: &GridPoint) -> Self::Output {
+        GridPoint {
+            point: self * rhs.point,
+            surrounding_points: rhs.surrounding_points.clone().into_iter().map(|x| self * x).collect(),
+            material: rhs.material
+        }
+    }
+}
+
+impl GridPoint {
+    
+    pub fn root() -> Self {
+        let point = na::Vector4::new(0.0, 0.0, 0.0, 1.0);
+        let surrounding_points = SIDE_NORMALS_ORDER_5.into_iter().collect::<Vec<_>>();
+        GridPoint {
+            point,
+            surrounding_points,
+            material: Material::Lava,
+        }
+    }
+}
+
+
 
 pub struct NodeState {
     kind: NodeStateKind,
@@ -98,6 +138,10 @@ pub struct NodeState {
     candidate_horospheres: Vec<Horosphere>,
     parent_horospheres_initialized: bool,
     horospheres_initialized: bool,
+    grid_point: Vec<GridPointContainer>,
+    parent_grid_initialized: bool,
+    grid_initialized: bool,
+    candidate_grids: Vec<GridPoint>,
 }
 impl NodeState {
     pub fn root(graph: &Graph) -> Self {
@@ -111,6 +155,11 @@ impl NodeState {
             graph,
             NodeId::ROOT,
         );
+        
+        let mut candidate_grids = vec![GridPoint::root()];
+        candidate_grids.append(&mut Self::add_candidate_grids(
+            &candidate_grids,
+        ));
 
         Self {
             kind: NodeStateKind::ROOT,
@@ -127,9 +176,31 @@ impl NodeState {
             candidate_horospheres,
             parent_horospheres_initialized: true,
             horospheres_initialized: false,
+            grid_point: vec![],
+            candidate_grids,
+            parent_grid_initialized: true,
+            grid_initialized: false,
         }
     }
 
+    pub fn add_candidate_grids(
+        grids: &Vec<GridPoint>,
+    ) -> Vec<GridPoint> {
+        let mut result: Vec<GridPoint> = vec![];
+        for grid in grids {
+            
+            for point in &grid.surrounding_points {
+                let grid_point = math::reflect_between(&grid.point, &point) * &grid.clone();
+                let distance = math::distance(&grid_point.point, &math::origin());
+                if distance < 2.25 {
+                    if !grids.into_iter().any(|a| math::distance(&grid_point.point, &a.point) < 0.01) && !result.clone().into_iter().any(|a| math::distance(&grid_point.point, &a.point) < 0.01) {
+                        result.push(grid_point);
+                    }
+                }
+            }
+        }
+        result
+    }
     pub fn parent_horospheres_initialized(&self) -> bool {
         self.parent_horospheres_initialized
     }
@@ -209,7 +280,10 @@ impl NodeState {
 
         let child_kind = self.kind.child(side);
         let child_road = self.road_state.child(side);
-
+        
+        let candidate_grids = vec![];
+        
+        
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(node_spice, 42));
         let mut candidate_horospheres = vec![];
         Self::add_random_candidate_horospheres(&mut candidate_horospheres, &mut rng, graph, node);
@@ -228,6 +302,10 @@ impl NodeState {
             candidate_horospheres,
             parent_horospheres_initialized: false,
             horospheres_initialized: false,
+            grid_point: vec![],
+            candidate_grids,
+            parent_grid_initialized: false,
+            grid_initialized: false,
         }
     }
 
@@ -420,6 +498,139 @@ impl NodeState {
     pub fn up_direction(&self) -> na::Vector4<f32> {
         self.surface.normal().cast()
     }
+
+    pub fn add_parent_grids(&mut self, mut grids: Vec<GridPointContainer>) {
+        self.grid_point.append(&mut grids);
+        self.candidate_grids = Self::add_candidate_grids(&self.grid_point.iter().map(|x| x.point.clone()).collect());
+        self.parent_grid_initialized = true;
+    }
+
+    pub fn add_grids(&mut self, mut grids: Vec<GridPointContainer>) {
+        self.grid_point.append(&mut grids);
+        self.grid_initialized = true;
+    }
+
+    pub fn parent_grid_initialized(&self) -> bool {
+        self.parent_grid_initialized
+    }
+
+    pub fn grid_initialized(&self) -> bool {
+        self.grid_initialized
+    }
+    pub fn combine_parent_grids(
+        graph: &Graph,
+        node: NodeId,
+    ) -> Option<Vec<GridPointContainer>> {
+        let mut parent_grids: FxHashMap<(NodeId, u16), Vec<GridPoint>> =
+            FxHashMap::default();
+
+        for (side, parent_node) in graph.descenders(node) {
+            let parent_node_state = &graph.get(parent_node).as_ref().unwrap().state;
+            if !parent_node_state.grid_initialized {
+                return None;
+            }
+            for grid in &parent_node_state.grid_point {
+                if math::distance(&origin(), &(side.reflection().cast() * grid.point.point)) > 2.25 {
+                    continue; // Grid is out of range and can be forgotten
+                }
+
+                // Consider horosphere
+                let entry = parent_grids
+                    .entry((grid.node, grid.id))
+                    .or_default();
+                entry.push(side.reflection().cast() * &grid.point);
+            }
+        }
+
+        Some(
+            parent_grids
+                .into_iter()
+                .map(|((node, id), positions)| {
+                    let mut point: na::Vector4<f32> =
+                        positions.iter().map(|p| p.point).sum::<na::Vector4<f32>>()
+                            / positions.len() as f32;
+
+                    point = math::lorentz_normalize(&point);
+                    
+                    let mut surrounding_points: Vec<na::Vector4<f32>> =
+                        positions.iter().map(|p| p.surrounding_points.clone())
+                            .reduce(|x,y| {
+                                let mut z = vec![];
+                                for i in 0..x.len() {
+                                    z.push(x[i] + y[i]);
+                                }
+                                z
+                            }).unwrap()
+                            .iter().map(|p| p/positions.len() as f32).collect();
+                    surrounding_points = surrounding_points.iter().map(|p|math::lorentz_normalize(&p)).collect();
+
+                    // TODO: Reapply invariants for x_dir and y_dir
+                    // TODO: Keep x_dir and y_dir near the origin, taking advantage of repetition
+                    // TODO: Arbitrary-sized array is needed to keep track of where we are.
+
+                    GridPointContainer {
+                        node,
+                        id,
+                        point: GridPoint {
+                            point,
+                            surrounding_points,
+                            material: positions[0].material,
+                        },
+                    }
+                })
+                .collect(),
+        )
+    }
+    
+    // Remove duplicates.
+    pub fn get_grid_from_candidates(
+        &self,
+        _graph: &Graph,
+        node: NodeId,
+    ) -> Option<Vec<GridPointContainer>> {
+        if !self.parent_grid_initialized {
+            // Parent-based info is needed for intersection-testing.
+            return None;
+        }
+
+        let mut id = 0;
+        let mut new_grids = vec![];
+        for candidate_grid in &self.candidate_grids {
+            // Candidate passed all checks. Add it to the horosphere list.
+            new_grids.push(GridPointContainer {
+                node,
+                id,
+                point: candidate_grid.clone(),
+            });
+            id += 1;
+        }
+        Some(new_grids)
+    }
+}
+use lazy_static::lazy_static;
+
+lazy_static! {
+    /// Vector corresponding to the outer normal of each side
+    static ref SIDE_NORMALS_ORDER_5: [na::Vector4<f32>; 12] = {
+        let phi = (libm::sqrt(1.25) + 0.5) as f32; // golden ratio
+        let inrad = libm::sqrt((46.0*libm::sqrt(5.0) + 91.0)/76.0) as f32; //inradius
+        let f = math::lorentz_normalize(&na::Vector4::new(phi/2.0, phi*phi/2.0, 0.0, inrad));
+        let mut result: [na::Vector4<f32>; 12] = [na::zero(); 12];
+        let mut i = 0;
+        for (x, y, z, w) in [
+            (f.x, f.y, f.z, f.w),
+            (-f.x, f.y, -f.z, f.w),
+            (f.x, -f.y, -f.z, f.w),
+            (-f.x, -f.y, f.z, f.w),
+        ]
+        {
+            for (x, y, z, w) in [(x, y, z, w), (y, z, x, w), (z, x, y, w)] {
+                result[i] = na::Vector4::new(x, y, z, w);
+                i += 1;
+            }
+        }
+        result
+    };
 }
 
 struct VoxelCoords {
@@ -474,6 +685,7 @@ pub struct ChunkParams {
     /// Random quantity used to seed terrain gen
     node_spice: u64,
     horospheres: Vec<Horosphere>,
+    grid_point: Vec<GridPointContainer>,
 }
 
 impl ChunkParams {
@@ -500,6 +712,7 @@ impl ChunkParams {
             horospheres: (state.horospheres.iter())
                 .map(|h| chunk.vertex.node_to_dual().cast::<f32>() * &h.pos)
                 .collect(),
+            grid_point: state.grid_point.clone(),
         })
     }
 
@@ -523,10 +736,12 @@ impl ChunkParams {
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
+        let is_grid = self.grid_point.iter().any(|g| {g.point.material != Material::Void
+        });
         let is_horosphere = self.horospheres.iter().any(|h| h.ideal.w < 3.0);
         if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
             && !(self.is_road || self.is_road_support)
-            && !is_horosphere
+            && !is_horosphere && !is_grid
         {
             // The whole chunk is above ground and not part of the road
             return VoxelData::Solid(Material::Void);
@@ -534,7 +749,7 @@ impl ChunkParams {
 
         if (center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS)
             && !self.is_road
-            && !is_horosphere
+            && !is_horosphere && !is_grid
         {
             // The whole chunk is underground
             // TODO: More accurate VoxelData
@@ -559,6 +774,7 @@ impl ChunkParams {
         }
 
         self.generate_horosphere(&mut voxels);
+        self.generate_dodecahedra(&mut voxels);
 
         voxels
     }
@@ -654,6 +870,54 @@ impl ChunkParams {
             if dist >= 0.0 {
                 let voxel_mat = VoronoiInfo::terraingen_voronoi(elev, rain, temp, dist);
                 voxels.data_mut(self.dimension)[index(self.dimension, coords)] = voxel_mat;
+            }
+        }
+    }
+    
+    
+    /// Places {5,3,5} dodecahedra
+    fn generate_dodecahedra(&self, voxels: &mut VoxelData) {
+        if self.grid_point.len() > 0 {
+            for (x, y, z) in VoxelCoords::new(self.dimension) {
+                let coords = na::Vector3::new(x, y, z);
+                if (x == 0 && y == 0) || (x == 0 && z == 0) || (y == 0 && z == 0) {
+                    voxels.data_mut(self.dimension)[index(self.dimension, coords)] = Material::WhiteBrick;
+                    continue;
+                }
+                let coords2 = (coords.map(|x| f32::from(x) + 0.5) / f32::from(self.dimension)).push(1.0);
+                let center = math::lorentz_normalize(&(self.chunk.chunk_to_node() * coords2));
+                let points = self.grid_point.clone();
+                let closest = points.clone().into_iter().fold(points[0].clone(),|x,y| {
+                    if math::distance(&x.point.point, &center) > math::distance(&y.point.point, &center) {
+                        y
+                    } else {
+                        x
+                    }
+                });
+                let mut mat: Material = closest.point.material;
+                //for point in &self.grid_point.surrounding_points {
+                //    let distance2 = math::distance(&point.point, &center);
+                //    if distance2 < distance {
+                //       distance = distance2;
+                //       mat = point.material;
+                //    }
+                //}
+                if mat != Material::Void {
+                    let mut valid = false;
+                    for point in &closest.point.surrounding_points {
+                        let line = Line::from_points(&closest.point.point, &point);
+                        if line.distance_to(&center) < 0.2 {
+                            valid = true;
+                            break;
+                        }
+                    }
+                    if !valid {
+                        mat = Material::Void;
+                    }
+                }
+                if mat != Material::Void {
+                    voxels.data_mut(self.dimension)[index(self.dimension, coords)] = mat;
+                }
             }
         }
     }
