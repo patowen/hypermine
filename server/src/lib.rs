@@ -127,6 +127,8 @@ impl Server {
                     || !spawns.nodes.is_empty()
                     || !spawns.block_updates.is_empty()
                     || !spawns.voxel_data.is_empty()
+                    || !spawns.inventory_additions.is_empty()
+                    || !spawns.inventory_removals.is_empty()
                 {
                     handles.ordered.try_send(spawns.clone())
                 } else {

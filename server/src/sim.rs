@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, SerializedVoxelData};
+use common::proto::{BlockUpdate, Inventory, SerializedVoxelData};
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -199,15 +199,15 @@ impl Sim {
                 velocity: na::Vector3::zeros(),
                 on_ground: false,
             },
-            inventory: vec![],
         };
+        let inventory = Inventory { contents: vec![] };
         let initial_input = CharacterInput {
             movement: na::Vector3::zeros(),
             jump: false,
             no_clip: true,
             block_update: None,
         };
-        self.spawn((position, character, initial_input))
+        self.spawn((position, character, inventory, initial_input))
     }
 
     fn spawn(&mut self, bundle: impl DynamicBundle) -> (EntityId, Entity) {
@@ -469,43 +469,39 @@ impl Sim {
                 tracing::warn!("Tried to place block without consuming any entities");
                 return false;
             };
-            let consumed_entity;
+            let mut inventory = self
+                .world
+                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
+                .unwrap();
+            let Some(inventory_index) = inventory
+                .contents
+                .iter()
+                .position(|&id| id == consumed_entity_id)
+            else {
+                tracing::warn!("Tried to consume entity not in player inventory");
+                return false;
+            };
+            let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
+                tracing::warn!("Consumed unknown entity ID");
+                return false;
+            };
+            if *self.world.get::<&Material>(consumed_material).unwrap() != block_update.new_material
             {
-                let inventory = &mut self
-                    .world
-                    .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
-                    .unwrap()
-                    .inventory;
-                let Some(inventory_index) =
-                    inventory.iter().position(|&id| id == consumed_entity_id)
-                else {
-                    tracing::warn!("Tried to consume entity not in player inventory");
-                    return false;
-                };
-                let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
-                    tracing::warn!("Consumed unknown entity ID");
-                    return false;
-                };
-                if *self.world.get::<&Material>(consumed_material).unwrap()
-                    != block_update.new_material
-                {
-                    tracing::warn!("Consumed material of wrong type");
-                    return false;
-                }
-                inventory.swap_remove(inventory_index);
-                consumed_entity = consumed_material;
+                tracing::warn!("Consumed material of wrong type");
+                return false;
             }
-            self.destroy(consumed_entity);
+            inventory.contents.swap_remove(inventory_index);
+            drop(inventory);
+            self.destroy(consumed_material);
             inventory_removals.push((subject, consumed_entity_id));
         }
         if old_material != Material::Void {
             let (produced_entity, _) = self.spawn((old_material,));
             let inventory = &mut self
                 .world
-                .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
-                .unwrap()
-                .inventory;
-            inventory.push(produced_entity);
+                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
+                .unwrap();
+            inventory.contents.push(produced_entity);
             inventory_additions.push((subject, produced_entity));
         }
         self.graph.update_block(block_update)
@@ -519,6 +515,9 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
     }
     if let Ok(x) = world.get::<&Character>(entity) {
         components.push(Component::Character((*x).clone()));
+    }
+    if let Ok(x) = world.get::<&Inventory>(entity) {
+        components.push(Component::Inventory((*x).clone()));
     }
     if let Ok(x) = world.get::<&Material>(entity) {
         components.push(Component::Material(*x));

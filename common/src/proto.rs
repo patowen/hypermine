@@ -94,6 +94,7 @@ pub enum Component {
     Character(Character),
     Position(Position),
     Material(Material),
+    Inventory(Inventory),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -107,5 +108,9 @@ pub struct FreshNode {
 pub struct Character {
     pub name: String,
     pub state: CharacterState,
-    pub inventory: Vec<EntityId>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Inventory {
+    pub contents: Vec<EntityId>,
 }

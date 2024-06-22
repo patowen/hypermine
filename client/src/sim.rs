@@ -15,7 +15,8 @@ use common::{
     graph_ray_casting,
     node::{populate_fresh_nodes, ChunkId, VoxelData},
     proto::{
-        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
+        Inventory, Position,
     },
     sanitize_motion_input,
     world::Material,
@@ -348,18 +349,18 @@ impl Sim {
         }
         for (subject, new_entity) in msg.inventory_additions {
             self.world
-                .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
+                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
-                .inventory
+                .contents
                 .push(new_entity);
             println!("New inventory entity: {}", new_entity);
         }
         for (subject, removed_entity) in msg.inventory_removals {
             let inventory = &mut self
                 .world
-                .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
+                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
-                .inventory;
+                .contents;
 
             let position = inventory
                 .iter()
@@ -387,6 +388,9 @@ impl Sim {
                 }
                 Position(x) => {
                     node = Some(x.node);
+                    builder.add(x);
+                }
+                Inventory(x) => {
                     builder.add(x);
                 }
                 Material(x) => {
@@ -538,9 +542,9 @@ impl Sim {
         let material = if placing {
             let &consumed_entity_id = self
                 .world
-                .get::<&Character>(self.local_character.unwrap())
+                .get::<&Inventory>(self.local_character.unwrap())
                 .unwrap()
-                .inventory
+                .contents
                 .first()?;
             consumed_entity = Some(consumed_entity_id);
             *self
