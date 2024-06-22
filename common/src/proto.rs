@@ -80,7 +80,7 @@ pub struct BlockUpdate {
     pub chunk_id: ChunkId,
     pub coords: Coords,
     pub new_material: Material,
-    pub consumed_item: Option<EntityId>,
+    pub consumed_entity: Option<EntityId>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,7 +93,7 @@ pub struct SerializedVoxelData {
 pub enum Component {
     Character(Character),
     Position(Position),
-    Item(Item),
+    Material(Material),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -108,9 +108,4 @@ pub struct Character {
     pub name: String,
     pub state: CharacterState,
     pub inventory: Vec<EntityId>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Item {
-    pub material: Material,
 }

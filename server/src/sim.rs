@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use common::dodeca::Vertex;
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, Item, SerializedVoxelData};
+use common::proto::{BlockUpdate, SerializedVoxelData};
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -465,50 +465,48 @@ impl Sim {
             return false;
         };
         if block_update.new_material != Material::Void {
-            let Some(consumed_item_id) = block_update.consumed_item else {
-                tracing::warn!("Tried to place block without consuming any items");
+            let Some(consumed_entity_id) = block_update.consumed_entity else {
+                tracing::warn!("Tried to place block without consuming any entities");
                 return false;
             };
-            let consumed_item2;
+            let consumed_entity;
             {
                 let inventory = &mut self
                     .world
                     .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
                     .unwrap()
                     .inventory;
-                let Some(inventory_index) = inventory.iter().position(|&id| id == consumed_item_id)
+                let Some(inventory_index) =
+                    inventory.iter().position(|&id| id == consumed_entity_id)
                 else {
-                    tracing::warn!("Tried to consume item not in player inventory");
+                    tracing::warn!("Tried to consume entity not in player inventory");
                     return false;
                 };
-                let Some(&consumed_item) = self.entity_ids.get(&consumed_item_id) else {
+                let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
                     tracing::warn!("Consumed unknown entity ID");
                     return false;
                 };
-                if self.world.get::<&Item>(consumed_item).unwrap().material
+                if *self.world.get::<&Material>(consumed_material).unwrap()
                     != block_update.new_material
                 {
                     tracing::warn!("Consumed material of wrong type");
                     return false;
                 }
                 inventory.swap_remove(inventory_index);
-                consumed_item2 = consumed_item;
+                consumed_entity = consumed_material;
             }
-            self.destroy(consumed_item2);
-            inventory_removals.push((subject, consumed_item_id));
+            self.destroy(consumed_entity);
+            inventory_removals.push((subject, consumed_entity_id));
         }
         if old_material != Material::Void {
-            let item = Item {
-                material: old_material,
-            };
-            let (new_item_id, _) = self.spawn((item,));
+            let (produced_entity, _) = self.spawn((old_material,));
             let inventory = &mut self
                 .world
                 .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
                 .inventory;
-            inventory.push(new_item_id);
-            inventory_additions.push((subject, new_item_id));
+            inventory.push(produced_entity);
+            inventory_additions.push((subject, produced_entity));
         }
         self.graph.update_block(block_update)
     }
@@ -522,8 +520,8 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
     if let Ok(x) = world.get::<&Character>(entity) {
         components.push(Component::Character((*x).clone()));
     }
-    if let Ok(x) = world.get::<&Item>(entity) {
-        components.push(Component::Item((*x).clone()));
+    if let Ok(x) = world.get::<&Material>(entity) {
+        components.push(Component::Material(*x));
     }
     components
 }

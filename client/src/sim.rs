@@ -15,8 +15,7 @@ use common::{
     graph_ray_casting,
     node::{populate_fresh_nodes, ChunkId, VoxelData},
     proto::{
-        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Item,
-        Position,
+        self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component, Position,
     },
     sanitize_motion_input,
     world::Material,
@@ -347,24 +346,27 @@ impl Sim {
             };
             self.graph.populate_chunk(chunk_id, voxel_data);
         }
-        for (subject, new_item) in msg.inventory_additions {
+        for (subject, new_entity) in msg.inventory_additions {
             self.world
                 .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
                 .inventory
-                .push(new_item);
-            println!("New item: {}", new_item);
+                .push(new_entity);
+            println!("New inventory entity: {}", new_entity);
         }
-        for (subject, removed_item) in msg.inventory_removals {
+        for (subject, removed_entity) in msg.inventory_removals {
             let inventory = &mut self
                 .world
                 .get::<&mut Character>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
                 .inventory;
 
-            let position = inventory.iter().position(|&id| id == removed_item).unwrap();
+            let position = inventory
+                .iter()
+                .position(|&id| id == removed_entity)
+                .unwrap();
             inventory.swap_remove(position);
-            println!("Removed item: {}", removed_item);
+            println!("Removed inventory entity: {}", removed_entity);
         }
     }
 
@@ -387,7 +389,7 @@ impl Sim {
                     node = Some(x.node);
                     builder.add(x);
                 }
-                Item(x) => {
+                Material(x) => {
                     builder.add(x);
                 }
             };
@@ -532,19 +534,19 @@ impl Sim {
             (hit.chunk, hit.voxel_coords)
         };
 
-        let mut consumed_item = None;
+        let mut consumed_entity = None;
         let material = if placing {
-            let &consumed_item_id = self
+            let &consumed_entity_id = self
                 .world
                 .get::<&Character>(self.local_character.unwrap())
                 .unwrap()
                 .inventory
                 .first()?;
-            consumed_item = Some(consumed_item_id);
-            self.world
-                .get::<&Item>(*self.entity_ids.get(&consumed_item_id).unwrap())
+            consumed_entity = Some(consumed_entity_id);
+            *self
+                .world
+                .get::<&Material>(*self.entity_ids.get(&consumed_entity_id).unwrap())
                 .unwrap()
-                .material
         } else {
             Material::Void
         };
@@ -553,7 +555,7 @@ impl Sim {
             chunk_id: block_pos.0,
             coords: block_pos.1,
             new_material: material,
-            consumed_item,
+            consumed_entity,
         })
     }
 }
