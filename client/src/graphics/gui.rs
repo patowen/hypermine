@@ -32,22 +32,18 @@ impl GuiState {
         align(Alignment::TOP_LEFT, || {
             pad(Pad::all(8.0), || {
                 colored_box_container(Color::BLACK.with_alpha(0.7), || {
-                    let selected_material_string = if let Some(material) = sim.selected_material() {
-                        let material_count_string = if sim.cfg.gameplay_enabled {
-                            sim.inventory_contents_matching_material(material)
-                                .len()
-                                .to_string()
-                        } else {
-                            "\u{221E}".to_string() // \u{221E} is the infinity synbol
-                        };
-                        format!(
-                            "Selected material: {:?} (\u{00D7}{})", // \u{00D7} is the multiplication synbol
-                            material, material_count_string
-                        )
+                    let material_count_string = if sim.cfg.gameplay_enabled {
+                        sim.inventory_contents_matching_material(sim.selected_material())
+                            .len()
+                            .to_string()
                     } else {
-                        "Selected material: None".to_string()
+                        "\u{221E}".to_string() // \u{221E} is the infinity synbol
                     };
-                    label(selected_material_string);
+                    label(format!(
+                        "Selected material: {:?} (\u{00D7}{})", // \u{00D7} is the multiplication synbol
+                        sim.selected_material(),
+                        material_count_string
+                    ));
                 });
             });
         });

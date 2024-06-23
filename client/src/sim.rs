@@ -75,7 +75,7 @@ pub struct Sim {
     /// Whether the break-block button has been pressed since the last step
     break_block_pressed: bool,
 
-    selected_material: Option<Material>,
+    selected_material: Material,
 
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
@@ -106,7 +106,7 @@ impl Sim {
             jump_held: false,
             place_block_pressed: false,
             break_block_pressed: false,
-            selected_material: None,
+            selected_material: Material::WoodPlanks,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -159,10 +159,10 @@ impl Sim {
     }
 
     pub fn select_material(&mut self, idx: usize) {
-        self.selected_material = Some(*MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]));
+        self.selected_material = *MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]);
     }
 
-    pub fn selected_material(&self) -> Option<Material> {
+    pub fn selected_material(&self) -> Material {
         self.selected_material
     }
 
@@ -554,7 +554,7 @@ impl Sim {
         };
 
         let material = if placing {
-            self.selected_material()?
+            self.selected_material
         } else {
             Material::Void
         };
