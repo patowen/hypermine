@@ -464,45 +464,48 @@ impl Sim {
             tracing::warn!("Block update received from ungenerated chunk");
             return false;
         };
-        if block_update.new_material != Material::Void {
-            let Some(consumed_entity_id) = block_update.consumed_entity else {
-                tracing::warn!("Tried to place block without consuming any entities");
-                return false;
-            };
-            let mut inventory = self
-                .world
-                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
-                .unwrap();
-            let Some(inventory_index) = inventory
-                .contents
-                .iter()
-                .position(|&id| id == consumed_entity_id)
-            else {
-                tracing::warn!("Tried to consume entity not in player inventory");
-                return false;
-            };
-            let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
-                tracing::warn!("Consumed unknown entity ID");
-                return false;
-            };
-            if *self.world.get::<&Material>(consumed_material).unwrap() != block_update.new_material
-            {
-                tracing::warn!("Consumed material of wrong type");
-                return false;
+        if self.cfg.gameplay_enabled {
+            if block_update.new_material != Material::Void {
+                let Some(consumed_entity_id) = block_update.consumed_entity else {
+                    tracing::warn!("Tried to place block without consuming any entities");
+                    return false;
+                };
+                let mut inventory = self
+                    .world
+                    .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
+                    .unwrap();
+                let Some(inventory_index) = inventory
+                    .contents
+                    .iter()
+                    .position(|&id| id == consumed_entity_id)
+                else {
+                    tracing::warn!("Tried to consume entity not in player inventory");
+                    return false;
+                };
+                let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
+                    tracing::warn!("Consumed unknown entity ID");
+                    return false;
+                };
+                if *self.world.get::<&Material>(consumed_material).unwrap()
+                    != block_update.new_material
+                {
+                    tracing::warn!("Consumed material of wrong type");
+                    return false;
+                }
+                inventory.contents.swap_remove(inventory_index);
+                drop(inventory);
+                self.destroy(consumed_material);
+                inventory_removals.push((subject, consumed_entity_id));
             }
-            inventory.contents.swap_remove(inventory_index);
-            drop(inventory);
-            self.destroy(consumed_material);
-            inventory_removals.push((subject, consumed_entity_id));
-        }
-        if old_material != Material::Void {
-            let (produced_entity, _) = self.spawn((old_material,));
-            let inventory = &mut self
-                .world
-                .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
-                .unwrap();
-            inventory.contents.push(produced_entity);
-            inventory_additions.push((subject, produced_entity));
+            if old_material != Material::Void {
+                let (produced_entity, _) = self.spawn((old_material,));
+                let inventory = &mut self
+                    .world
+                    .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
+                    .unwrap();
+                inventory.contents.push(produced_entity);
+                inventory_additions.push((subject, produced_entity));
+            }
         }
         self.graph.update_block(block_update)
     }

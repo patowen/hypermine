@@ -567,7 +567,7 @@ impl Sim {
             Material::Void
         };
 
-        let consumed_entity = if placing {
+        let consumed_entity = if placing && self.cfg.gameplay_enabled {
             Some(
                 *self
                     .inventory_contents_matching_material(material)
