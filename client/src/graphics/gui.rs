@@ -32,7 +32,16 @@ impl GuiState {
         align(Alignment::TOP_LEFT, || {
             pad(Pad::all(8.0), || {
                 colored_box_container(Color::BLACK.with_alpha(0.7), || {
-                    label(format!("Selected material: {:?}", sim.selected_material()));
+                    let selected_material_string = if let Some(material) = sim.selected_material() {
+                        format!(
+                            "Selected material: {:?} (\u{00D7}{})",
+                            material,
+                            sim.get_inventory_contents_matching_material(material).len()
+                        )
+                    } else {
+                        "Selected material: None".to_string()
+                    };
+                    label(selected_material_string);
                 });
             });
         });

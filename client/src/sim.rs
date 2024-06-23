@@ -75,7 +75,7 @@ pub struct Sim {
     /// Whether the break-block button has been pressed since the last step
     break_block_pressed: bool,
 
-    selected_material: Material,
+    selected_material: Option<Material>,
 
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
@@ -106,7 +106,7 @@ impl Sim {
             jump_held: false,
             place_block_pressed: false,
             break_block_pressed: false,
-            selected_material: Material::WoodPlanks,
+            selected_material: None,
             prediction: PredictedMotion::new(proto::Position {
                 node: NodeId::ROOT,
                 local: na::one(),
@@ -159,11 +159,33 @@ impl Sim {
     }
 
     pub fn select_material(&mut self, idx: usize) {
-        self.selected_material = *MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]);
+        self.selected_material = Some(*MATERIAL_PALETTE.get(idx).unwrap_or(&MATERIAL_PALETTE[0]));
     }
 
-    pub fn selected_material(&self) -> Material {
+    pub fn selected_material(&self) -> Option<Material> {
         self.selected_material
+    }
+
+    pub fn get_inventory_contents_matching_material(&self, material: Material) -> Vec<EntityId> {
+        let Some(local_character) = self.local_character else {
+            return vec![];
+        };
+        let Ok(inventory) = self.world.get::<&Inventory>(local_character) else {
+            return vec![];
+        };
+        inventory
+            .contents
+            .iter()
+            .copied()
+            .filter(|e| {
+                let Some(entity) = self.entity_ids.get(e) else {
+                    return false;
+                };
+                self.world
+                    .get::<&Material>(*entity)
+                    .is_ok_and(|m| *m == material)
+            })
+            .collect()
     }
 
     pub fn set_break_block_pressed_true(&mut self) {
