@@ -483,13 +483,13 @@ impl Sim {
                     return false;
                 };
                 let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
-                    tracing::warn!("Consumed unknown entity ID");
+                    tracing::warn!("Tried to consume unknown entity ID");
                     return false;
                 };
                 if *self.world.get::<&Material>(consumed_material).unwrap()
                     != block_update.new_material
                 {
-                    tracing::warn!("Consumed material of wrong type");
+                    tracing::warn!("Tried to consume wrong material");
                     return false;
                 }
                 inventory.contents.swap_remove(inventory_index);
@@ -526,4 +526,13 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
         components.push(Component::Material(*x));
     }
     components
+}
+
+/// Stores changes that the server has canonically done but hasn't yet broadcast to clients
+struct AccumulatedChanges {
+    spawns: Vec<Entity>,
+    despawns: Vec<EntityId>,
+    block_updates: Vec<BlockUpdate>,
+    inventory_additions: Vec<(EntityId, EntityId)>,
+    inventory_removals: Vec<(EntityId, EntityId)>,
 }
