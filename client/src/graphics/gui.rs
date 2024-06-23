@@ -38,10 +38,10 @@ impl GuiState {
                                 .len()
                                 .to_string()
                         } else {
-                            "\u{221E}".to_string() // Infinity
+                            "\u{221E}".to_string() // \u{221E} is the infinity synbol
                         };
                         format!(
-                            "Selected material: {:?} (\u{00D7}{})",
+                            "Selected material: {:?} (\u{00D7}{})", // \u{00D7} is the multiplication synbol
                             material, material_count_string
                         )
                     } else {
