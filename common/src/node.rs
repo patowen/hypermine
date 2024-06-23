@@ -125,6 +125,7 @@ impl Graph {
         };
     }
 
+    /// Returns the material at the specified coordinates of the specified chunk, if the chunk is generated
     pub fn get_material(&self, chunk_id: ChunkId, coords: Coords) -> Option<Material> {
         let dimension = self.layout().dimension;
 
