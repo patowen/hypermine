@@ -372,11 +372,7 @@ impl Sim {
 
         for (entity, block_update) in pending_block_updates {
             let id = *self.world.get::<&EntityId>(entity).unwrap();
-            if self.attempt_block_update(id, &block_update) {
-                self.modified_chunks.insert(block_update.chunk_id);
-                self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
-                self.accumulated_changes.block_updates.push(block_update);
-            }
+            self.attempt_block_update(id, block_update);
         }
 
         let accumulated_changes = std::mem::take(&mut self.accumulated_changes);
@@ -450,62 +446,80 @@ impl Sim {
         }
     }
 
-    fn attempt_block_update(&mut self, subject: EntityId, block_update: &BlockUpdate) -> bool {
+    /// Add the given entity to the given inventory
+    fn add_to_inventory(&mut self, inventory_id: EntityId, entity_id: EntityId) {
+        let mut inventory = self
+            .world
+            .get::<&mut Inventory>(*self.entity_ids.get(&inventory_id).unwrap())
+            .unwrap();
+        inventory.contents.push(entity_id);
+        self.accumulated_changes
+            .inventory_additions
+            .push((inventory_id, entity_id));
+    }
+
+    /// Remove the given entity from the given inventory. Note that this does not destroy the entity.
+    fn remove_from_inventory(&mut self, inventory_id: EntityId, entity_id: EntityId) {
+        let mut inventory = self
+            .world
+            .get::<&mut Inventory>(*self.entity_ids.get(&inventory_id).unwrap())
+            .unwrap();
+        inventory.contents.retain_mut(|e| *e != entity_id);
+        self.accumulated_changes
+            .inventory_removals
+            .push((inventory_id, entity_id));
+    }
+
+    /// Check if the given entity is in the given inventory
+    fn is_in_inventory(&self, inventory_id: EntityId, entity_id: EntityId) -> bool {
+        let inventory = self
+            .world
+            .get::<&Inventory>(*self.entity_ids.get(&inventory_id).unwrap())
+            .unwrap();
+        inventory.contents.contains(&entity_id)
+    }
+
+    /// Executes the requested block update if the subject is able to do so and
+    /// leaves the state of the world unchanged otherwise
+    fn attempt_block_update(&mut self, subject: EntityId, block_update: BlockUpdate) {
         let Some(old_material) = self
             .graph
             .get_material(block_update.chunk_id, block_update.coords)
         else {
             tracing::warn!("Block update received from ungenerated chunk");
-            return false;
+            return;
         };
         if self.cfg.gameplay_enabled {
             if block_update.new_material != Material::Void {
                 let Some(consumed_entity_id) = block_update.consumed_entity else {
                     tracing::warn!("Tried to place block without consuming any entities");
-                    return false;
+                    return;
                 };
-                let mut inventory = self
-                    .world
-                    .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
-                    .unwrap();
-                let Some(inventory_index) = inventory
-                    .contents
-                    .iter()
-                    .position(|&id| id == consumed_entity_id)
-                else {
+                if !self.is_in_inventory(subject, consumed_entity_id) {
                     tracing::warn!("Tried to consume entity not in player inventory");
-                    return false;
+                    return;
                 };
-                let Some(&consumed_material) = self.entity_ids.get(&consumed_entity_id) else {
-                    tracing::warn!("Tried to consume unknown entity ID");
-                    return false;
-                };
-                if *self.world.get::<&Material>(consumed_material).unwrap()
-                    != block_update.new_material
+                let consumed_entity = *self.entity_ids.get(&consumed_entity_id).unwrap();
+                if !self
+                    .world
+                    .get::<&Material>(consumed_entity)
+                    .is_ok_and(|m| *m == block_update.new_material)
                 {
                     tracing::warn!("Tried to consume wrong material");
-                    return false;
+                    return;
                 }
-                inventory.contents.swap_remove(inventory_index);
-                drop(inventory);
-                self.destroy(consumed_material);
-                self.accumulated_changes
-                    .inventory_removals
-                    .push((subject, consumed_entity_id));
+                self.remove_from_inventory(subject, consumed_entity_id);
+                self.destroy(consumed_entity);
             }
             if old_material != Material::Void {
                 let (produced_entity, _) = self.spawn((old_material,));
-                let inventory = &mut self
-                    .world
-                    .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
-                    .unwrap();
-                inventory.contents.push(produced_entity);
-                self.accumulated_changes
-                    .inventory_additions
-                    .push((subject, produced_entity));
+                self.add_to_inventory(subject, produced_entity);
             }
         }
-        self.graph.update_block(block_update)
+        assert!(self.graph.update_block(&block_update));
+        self.modified_chunks.insert(block_update.chunk_id);
+        self.dirty_voxel_nodes.insert(block_update.chunk_id.node);
+        self.accumulated_changes.block_updates.push(block_update);
     }
 }
 

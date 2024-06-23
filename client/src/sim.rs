@@ -376,21 +376,13 @@ impl Sim {
                 .unwrap()
                 .contents
                 .push(new_entity);
-            println!("New inventory entity: {}", new_entity);
         }
         for (subject, removed_entity) in msg.inventory_removals {
-            let inventory = &mut self
-                .world
+            self.world
                 .get::<&mut Inventory>(*self.entity_ids.get(&subject).unwrap())
                 .unwrap()
-                .contents;
-
-            let position = inventory
-                .iter()
-                .position(|&id| id == removed_entity)
-                .unwrap();
-            inventory.swap_remove(position);
-            println!("Removed inventory entity: {}", removed_entity);
+                .contents
+                .retain(|&id| id != removed_entity);
         }
     }
 
