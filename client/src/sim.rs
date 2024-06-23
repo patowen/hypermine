@@ -166,7 +166,8 @@ impl Sim {
         self.selected_material
     }
 
-    pub fn get_inventory_contents_matching_material(&self, material: Material) -> Vec<EntityId> {
+    /// Return the list of EntityIds corresponding to all inventory items matching the given material
+    pub fn inventory_contents_matching_material(&self, material: Material) -> Vec<EntityId> {
         let Some(local_character) = self.local_character else {
             return vec![];
         };
@@ -560,21 +561,20 @@ impl Sim {
             (hit.chunk, hit.voxel_coords)
         };
 
-        let mut consumed_entity = None;
         let material = if placing {
-            let &consumed_entity_id = self
-                .world
-                .get::<&Inventory>(self.local_character.unwrap())
-                .unwrap()
-                .contents
-                .first()?;
-            consumed_entity = Some(consumed_entity_id);
-            *self
-                .world
-                .get::<&Material>(*self.entity_ids.get(&consumed_entity_id).unwrap())
-                .unwrap()
+            self.selected_material()?
         } else {
             Material::Void
+        };
+
+        let consumed_entity = if placing {
+            Some(
+                *self
+                    .inventory_contents_matching_material(material)
+                    .first()?,
+            )
+        } else {
+            None
         };
 
         Some(BlockUpdate {

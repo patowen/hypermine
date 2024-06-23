@@ -36,7 +36,7 @@ impl GuiState {
                         format!(
                             "Selected material: {:?} (\u{00D7}{})",
                             material,
-                            sim.get_inventory_contents_matching_material(material).len()
+                            sim.inventory_contents_matching_material(material).len()
                         )
                     } else {
                         "Selected material: None".to_string()
