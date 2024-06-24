@@ -425,24 +425,20 @@ impl Sim {
     }
 
     /// Remove the given entity from the given inventory. Note that this does not destroy the entity.
-    fn remove_from_inventory(&mut self, inventory_id: EntityId, entity_id: EntityId) {
+    /// Returns whether the item was in the inventory to begin with.
+    fn remove_from_inventory(&mut self, inventory_id: EntityId, entity_id: EntityId) -> bool {
         let mut inventory = self
             .world
             .get::<&mut Inventory>(*self.entity_ids.get(&inventory_id).unwrap())
             .unwrap();
-        inventory.contents.retain_mut(|e| *e != entity_id);
+        let Some(position) = inventory.contents.iter().position(|&e| e == entity_id) else {
+            return false;
+        };
+        inventory.contents.remove(position);
         self.accumulated_changes
             .inventory_removals
             .push((inventory_id, entity_id));
-    }
-
-    /// Check if the given entity is in the given inventory
-    fn is_in_inventory(&self, inventory_id: EntityId, entity_id: EntityId) -> bool {
-        let inventory = self
-            .world
-            .get::<&Inventory>(*self.entity_ids.get(&inventory_id).unwrap())
-            .unwrap();
-        inventory.contents.contains(&entity_id)
+        true
     }
 
     /// Executes the requested block update if the subject is able to do so and
@@ -461,11 +457,10 @@ impl Sim {
                     tracing::warn!("Tried to place block without consuming any entities");
                     return;
                 };
-                if !self.is_in_inventory(subject, consumed_entity_id) {
-                    tracing::warn!("Tried to consume entity not in player inventory");
+                let Some(&consumed_entity) = self.entity_ids.get(&consumed_entity_id) else {
+                    tracing::warn!("Tried to consume an unknown entity ID");
                     return;
                 };
-                let consumed_entity = *self.entity_ids.get(&consumed_entity_id).unwrap();
                 if !self
                     .world
                     .get::<&Material>(consumed_entity)
@@ -474,7 +469,10 @@ impl Sim {
                     tracing::warn!("Tried to consume wrong material");
                     return;
                 }
-                self.remove_from_inventory(subject, consumed_entity_id);
+                if !self.remove_from_inventory(subject, consumed_entity_id) {
+                    tracing::warn!("Tried to consume entity not in player inventory");
+                    return;
+                }
                 self.destroy(consumed_entity);
             }
             if old_material != Material::Void {
