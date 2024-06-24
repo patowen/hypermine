@@ -166,37 +166,45 @@ impl Sim {
         self.selected_material
     }
 
-    /// Return the list of EntityIds corresponding to all inventory items matching the given material
-    pub fn inventory_contents_matching_material(
+    /// Returns the an EntityId in the inventory with the given material
+    pub fn get_any_inventory_entity_matching_material(
         &self,
         material: Material,
-    ) -> impl Iterator<Item = EntityId> + '_ {
-        let local_character = self.local_character.unwrap();
+    ) -> Option<EntityId> {
         self.world
-            .get::<&Inventory>(local_character)
-            .into_iter()
-            .flat_map(move |inventory| {
-                Inventory::iter(inventory).filter(move |e| {
-                    let Some(entity) = self.entity_ids.get(e) else {
-                        return false;
-                    };
+            .get::<&Inventory>(self.local_character?)
+            .ok()?
+            .contents
+            .iter()
+            .copied()
+            .find(|e| {
+                self.entity_ids.get(e).is_some_and(|&entity| {
                     self.world
-                        .get::<&Material>(*entity)
+                        .get::<&Material>(entity)
                         .is_ok_and(|m| *m == material)
                 })
             })
-        // .unwrap()
-        // .contents
-        // .iter()
-        // .copied()
-        // .filter(|e| {
-        //     let Some(entity) = self.entity_ids.get(e) else {
-        //         return false;
-        //     };
-        //     self.world
-        //         .get::<&Material>(*entity)
-        //         .is_ok_and(|m| *m == material)
-        // })
+    }
+
+    pub fn count_inventory_entities_matching_material(&self, material: Material) -> usize {
+        let Some(local_character) = self.local_character else {
+            return 0;
+        };
+        let Ok(inventory) = self.world.get::<&Inventory>(local_character) else {
+            return 0;
+        };
+        inventory
+            .contents
+            .iter()
+            .copied()
+            .filter(|e| {
+                self.entity_ids.get(e).is_some_and(|&entity| {
+                    self.world
+                        .get::<&Material>(entity)
+                        .is_ok_and(|m| *m == material)
+                })
+            })
+            .count()
     }
 
     pub fn set_break_block_pressed_true(&mut self) {
@@ -570,7 +578,7 @@ impl Sim {
         };
 
         let consumed_entity = if placing && self.cfg.gameplay_enabled {
-            Some(self.inventory_contents_matching_material(material).next()?)
+            Some(self.get_any_inventory_entity_matching_material(material)?)
         } else {
             None
         };

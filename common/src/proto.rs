@@ -114,27 +114,3 @@ pub struct Character {
 pub struct Inventory {
     pub contents: Vec<EntityId>,
 }
-
-impl Inventory {
-    pub fn iter(inventory: hecs::Ref<Self>) -> InventoryIterator<'_> {
-        InventoryIterator {
-            inventory,
-            index: 0,
-        }
-    }
-}
-
-pub struct InventoryIterator<'a> {
-    inventory: hecs::Ref<'a, Inventory>,
-    index: usize,
-}
-
-impl Iterator for InventoryIterator<'_> {
-    type Item = EntityId;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let result = self.inventory.contents.get(self.index).copied();
-        self.index += 1;
-        result
-    }
-}

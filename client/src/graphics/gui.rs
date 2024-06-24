@@ -33,8 +33,7 @@ impl GuiState {
             pad(Pad::all(8.0), || {
                 colored_box_container(Color::BLACK.with_alpha(0.7), || {
                     let material_count_string = if sim.cfg.gameplay_enabled {
-                        sim.inventory_contents_matching_material(sim.selected_material())
-                            .count()
+                        sim.count_inventory_entities_matching_material(sim.selected_material())
                             .to_string()
                     } else {
                         "∞".to_string()
