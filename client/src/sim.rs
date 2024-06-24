@@ -166,7 +166,7 @@ impl Sim {
         self.selected_material
     }
 
-    /// Returns the an EntityId in the inventory with the given material
+    /// Returns an EntityId in the inventory with the given material
     pub fn get_any_inventory_entity_matching_material(
         &self,
         material: Material,
@@ -186,6 +186,7 @@ impl Sim {
             })
     }
 
+    /// Returns the number of entities in the inventory with the given material
     pub fn count_inventory_entities_matching_material(&self, material: Material) -> usize {
         let Some(local_character) = self.local_character else {
             return 0;
