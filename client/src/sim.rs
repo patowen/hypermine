@@ -167,26 +167,36 @@ impl Sim {
     }
 
     /// Return the list of EntityIds corresponding to all inventory items matching the given material
-    pub fn inventory_contents_matching_material(&self, material: Material) -> Vec<EntityId> {
-        let Some(local_character) = self.local_character else {
-            return vec![];
-        };
-        let Ok(inventory) = self.world.get::<&Inventory>(local_character) else {
-            return vec![];
-        };
-        inventory
-            .contents
-            .iter()
-            .copied()
-            .filter(|e| {
-                let Some(entity) = self.entity_ids.get(e) else {
-                    return false;
-                };
-                self.world
-                    .get::<&Material>(*entity)
-                    .is_ok_and(|m| *m == material)
+    pub fn inventory_contents_matching_material(
+        &self,
+        material: Material,
+    ) -> impl Iterator<Item = EntityId> + '_ {
+        let local_character = self.local_character.unwrap();
+        self.world
+            .get::<&Inventory>(local_character)
+            .into_iter()
+            .flat_map(move |inventory| {
+                Inventory::iter(inventory).filter(move |e| {
+                    let Some(entity) = self.entity_ids.get(e) else {
+                        return false;
+                    };
+                    self.world
+                        .get::<&Material>(*entity)
+                        .is_ok_and(|m| *m == material)
+                })
             })
-            .collect()
+        // .unwrap()
+        // .contents
+        // .iter()
+        // .copied()
+        // .filter(|e| {
+        //     let Some(entity) = self.entity_ids.get(e) else {
+        //         return false;
+        //     };
+        //     self.world
+        //         .get::<&Material>(*entity)
+        //         .is_ok_and(|m| *m == material)
+        // })
     }
 
     pub fn set_break_block_pressed_true(&mut self) {
@@ -560,11 +570,7 @@ impl Sim {
         };
 
         let consumed_entity = if placing && self.cfg.gameplay_enabled {
-            Some(
-                *self
-                    .inventory_contents_matching_material(material)
-                    .first()?,
-            )
+            Some(self.inventory_contents_matching_material(material).next()?)
         } else {
             None
         };
