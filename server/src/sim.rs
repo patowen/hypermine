@@ -375,8 +375,11 @@ impl Sim {
             self.attempt_block_update(id, block_update);
         }
 
-        let accumulated_changes = std::mem::take(&mut self.accumulated_changes);
-        let spawns = self.get_spawns(accumulated_changes);
+        let spawns = std::mem::take(&mut self.accumulated_changes).into_spawns(
+            self.step,
+            &self.world,
+            &self.graph,
+        );
 
         // TODO: Omit unchanged (e.g. freshly spawned) entities (dirty flag?)
         let delta = StateDelta {
@@ -398,47 +401,6 @@ impl Sim {
 
         self.step += 1;
         (spawns, delta)
-    }
-
-    /// Capture state changes for broadcast to clients
-    fn get_spawns(&self, accumulated_changes: AccumulatedChanges) -> Option<Spawns> {
-        if accumulated_changes.is_empty() {
-            return None;
-        }
-
-        let mut spawns = Vec::with_capacity(accumulated_changes.spawns.len());
-        for entity in accumulated_changes.spawns {
-            let id = *self.world.get::<&EntityId>(entity).unwrap();
-            spawns.push((id, dump_entity(&self.world, entity)));
-        }
-
-        if !accumulated_changes.fresh_nodes.is_empty() {
-            trace!(
-                count = accumulated_changes.fresh_nodes.len(),
-                "broadcasting fresh nodes"
-            );
-        }
-
-        Some(Spawns {
-            step: self.step,
-            spawns,
-            despawns: accumulated_changes.despawns,
-            nodes: accumulated_changes
-                .fresh_nodes
-                .iter()
-                .filter_map(|&id| {
-                    let side = self.graph.parent(id)?;
-                    Some(FreshNode {
-                        side,
-                        parent: self.graph.neighbor(id, side).unwrap(),
-                    })
-                })
-                .collect(),
-            block_updates: accumulated_changes.block_updates,
-            voxel_data: accumulated_changes.fresh_voxel_data,
-            inventory_additions: accumulated_changes.inventory_additions,
-            inventory_removals: accumulated_changes.inventory_removals,
-        })
     }
 
     fn new_id(&mut self) -> EntityId {
@@ -581,5 +543,43 @@ impl AccumulatedChanges {
             && self.inventory_removals.is_empty()
             && self.fresh_nodes.is_empty()
             && self.fresh_voxel_data.is_empty()
+    }
+
+    /// Convert state changes for broadcast to clients
+    fn into_spawns(self, step: Step, world: &hecs::World, graph: &Graph) -> Option<Spawns> {
+        if self.is_empty() {
+            return None;
+        }
+
+        let mut spawns = Vec::with_capacity(self.spawns.len());
+        for entity in self.spawns {
+            let id = *world.get::<&EntityId>(entity).unwrap();
+            spawns.push((id, dump_entity(world, entity)));
+        }
+
+        if !self.fresh_nodes.is_empty() {
+            trace!(count = self.fresh_nodes.len(), "broadcasting fresh nodes");
+        }
+
+        Some(Spawns {
+            step,
+            spawns,
+            despawns: self.despawns,
+            nodes: self
+                .fresh_nodes
+                .iter()
+                .filter_map(|&id| {
+                    let side = graph.parent(id)?;
+                    Some(FreshNode {
+                        side,
+                        parent: graph.neighbor(id, side).unwrap(),
+                    })
+                })
+                .collect(),
+            block_updates: self.block_updates,
+            voxel_data: self.fresh_voxel_data,
+            inventory_additions: self.inventory_additions,
+            inventory_removals: self.inventory_removals,
+        })
     }
 }
