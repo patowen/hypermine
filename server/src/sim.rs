@@ -285,7 +285,7 @@ impl Sim {
         spawns
     }
 
-    pub fn step(&mut self) -> (Spawns, StateDelta) {
+    pub fn step(&mut self) -> (Option<Spawns>, StateDelta) {
         let span = error_span!("step", step = self.step);
         let _guard = span.enter();
 
@@ -401,7 +401,11 @@ impl Sim {
     }
 
     /// Capture state changes for broadcast to clients
-    fn get_spawns(&self, accumulated_changes: AccumulatedChanges) -> Spawns {
+    fn get_spawns(&self, accumulated_changes: AccumulatedChanges) -> Option<Spawns> {
+        if accumulated_changes.is_empty() {
+            return None;
+        }
+
         let mut spawns = Vec::with_capacity(accumulated_changes.spawns.len());
         for entity in accumulated_changes.spawns {
             let id = *self.world.get::<&EntityId>(entity).unwrap();
@@ -415,7 +419,7 @@ impl Sim {
             );
         }
 
-        Spawns {
+        Some(Spawns {
             step: self.step,
             spawns,
             despawns: accumulated_changes.despawns,
@@ -434,7 +438,7 @@ impl Sim {
             voxel_data: accumulated_changes.fresh_voxel_data,
             inventory_additions: accumulated_changes.inventory_additions,
             inventory_removals: accumulated_changes.inventory_removals,
-        }
+        })
     }
 
     fn new_id(&mut self) -> EntityId {
@@ -566,4 +570,16 @@ struct AccumulatedChanges {
     /// Voxel data from `fresh_nodes` that needs to be broadcast to clients due to not exactly matching what
     /// world generation would return. This is needed to support `preloaded_voxel_data`
     fresh_voxel_data: Vec<(ChunkId, SerializedVoxelData)>,
+}
+
+impl AccumulatedChanges {
+    fn is_empty(&self) -> bool {
+        self.spawns.is_empty()
+            && self.despawns.is_empty()
+            && self.block_updates.is_empty()
+            && self.inventory_additions.is_empty()
+            && self.inventory_removals.is_empty()
+            && self.fresh_nodes.is_empty()
+            && self.fresh_voxel_data.is_empty()
+    }
 }
