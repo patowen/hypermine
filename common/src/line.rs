@@ -2,7 +2,7 @@ use std::ops::Neg;
 
 use crate::{
     dodeca::{Side, Vertex},
-    math::{lorentz_normalize, mip, translate, translate_along, origin},
+    math::{self, lorentz_normalize, mip, origin, translate, translate_along},
     Plane,
 };
 
@@ -43,13 +43,12 @@ impl<N: na::RealField + Copy> Neg for Line<N> {
     }
 }
 
-
 impl<N: na::RealField + Copy> Line<N> {
     /// Hyperbolic vector identifying the line
     pub fn vector(&self) -> &na::Vector4<N> {
         &self.vector
     }
-    
+
     /// Hyperbolic point identifying the line
     pub fn point(&self) -> &na::Vector4<N> {
         &self.point
@@ -57,22 +56,17 @@ impl<N: na::RealField + Copy> Line<N> {
 
     /// Shortest distance between the line and a point
     pub fn distance_to(&self, point: &na::Vector4<N>) -> N {
-        let mat = translate(&self.point,&origin());
-        
-        let point = mat * point;
-        let vector = mat * self.vector;
-        
-        let vector2 = na::Vector3::new(vector[0], vector[1], vector[2]).normalize();
-        let plane = Plane::from(nalgebra::Unit::new_normalize(vector2));
-        let mat2 = translate_along(&(nalgebra::Unit::new_normalize(vector2).into_inner() * -plane.distance_to(&point)));
-        let mip_value = mip(&(mat2*point),&origin()).abs().acosh();
-        // Workaround for bug fixed in rust PR #72486
-        mip_value
+        (math::mip(point, &self.point).powi(2) - math::mip(point, &self.vector).powi(2))
+            .sqrt()
+            .acosh()
     }
     /// Like `distance_to`, but using chunk coordinates for a chunk in the same node space
     pub fn from_points(&point1: &na::Vector4<N>, &point2: &na::Vector4<N>) -> Self {
+        let point1 = math::lorentz_normalize(&point1);
+        let point_diff = point2 - point1;
+        let a = math::lorentz_normalize(&(point_diff + point1 * math::mip(&point1, &point_diff)));
         Self {
-            vector: point2 - point1,
+            vector: a,
             point: point1,
         }
     }
@@ -108,7 +102,7 @@ mod tests {
                     if axis != axis2 {
                         let line = Line::from(axis);
                         assert_abs_diff_eq!(
-                            line.distance_to(&(translate_along(&(*axis2*distance)) * origin())),
+                            line.distance_to(&(translate_along(&(*axis2 * distance)) * origin())),
                             distance.abs()
                         );
                     }
