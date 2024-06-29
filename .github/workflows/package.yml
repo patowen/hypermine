@@ -34,12 +34,6 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Build Server
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package server --release
-
       - name: Build Client
         uses: actions-rs/cargo@v1
         with:
