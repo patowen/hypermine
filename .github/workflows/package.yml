@@ -26,7 +26,7 @@ jobs:
         if: steps.cache-vulkan.outputs.cache-hit != 'true'
         run: |
           Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VERSION }}/windows/VulkanSDK-${{ env.VULKAN_VERSION }}-Installer.exe" -OutFile vulkan.exe
-          7z x -aoa vulkan.exe "-o$env:VULKAN_SDK" Lib
+          7z x -aoa vulkan.exe "-o$env:VULKAN_SDK" Lib share/vulkan/registry/vk.xml
 
       - uses: actions-rs/toolchain@v1
         with:
@@ -40,14 +40,3 @@ jobs:
           command: build
           args: --package client --release --no-default-features
 
-      - name: Package Artifacts
-        run: |
-          mkdir artifacts
-          Move-Item -Path assets/* -Destination artifacts/
-          Move-Item -Path target/release/*.exe -Destination artifacts/
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: windows
-          path: "artifacts/*"
