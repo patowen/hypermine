@@ -3,6 +3,7 @@ name: Package
 on:
   push:
     branches: ['master']
+  pull_request:
 
 jobs:
   package-windows:
@@ -55,52 +56,4 @@ jobs:
         uses: actions/upload-artifact@v2
         with:
           name: windows
-          path: "artifacts/*"
-
-  package-linux:
-    name: Linux
-    runs-on: ubuntu-latest
-    container: quay.io/pypa/manylinux2014_x86_64
-    steps:
-      - name: Install Git LFS
-        run: |
-          yum install -y git-lfs
-      - uses: actions/checkout@v3
-        with:
-          lfs: true
-      - name: Install dependencies
-        run: |
-          yum install -y alsa-lib-devel vulkan-devel python3 fontconfig-devel
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-
-      - name: Build Server
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package server --release
-
-      - name: Build Client
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package client --release
-
-      - name: Strip
-        run: |
-          strip target/release/server target/release/client
-
-      - name: Package Artifacts
-        run: |
-          mkdir artifacts
-          mv assets/* artifacts/
-          mv target/release/server artifacts/
-          mv target/release/client artifacts/
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: linux
           path: "artifacts/*"
