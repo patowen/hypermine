@@ -18,7 +18,7 @@ jobs:
           lfs: true
       - name: Cache Vulkan SDK
         id: cache-vulkan
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ${{ env.VULKAN_SDK }}
           key: vulkan-${{ env.VULKAN_VERSION }}
@@ -27,34 +27,3 @@ jobs:
         run: |
           Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VERSION }}/windows/VulkanSDK-${{ env.VULKAN_VERSION }}-Installer.exe" -OutFile vulkan.exe
           7z x -aoa vulkan.exe "-o$env:VULKAN_SDK" Lib share/vulkan/registry/vk.xml
-
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-
-      - name: Build Server
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package server --release
-
-      - name: Build Client
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --package client --release --no-default-features
-
-      - name: Package Artifacts
-        run: |
-          mkdir artifacts
-          Move-Item -Path assets/* -Destination artifacts/
-          Move-Item -Path target/release/*.exe -Destination artifacts/
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v2
-        with:
-          name: windows
-          path: "artifacts/*"
-
