@@ -34,9 +34,27 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Build Server
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --package server --release
+
       - name: Build Client
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --package client --release --no-default-features
+
+      - name: Package Artifacts
+        run: |
+          mkdir artifacts
+          Move-Item -Path assets/* -Destination artifacts/
+          Move-Item -Path target/release/*.exe -Destination artifacts/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows
+          path: "artifacts/*"
 
