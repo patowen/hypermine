@@ -89,6 +89,9 @@ impl Sim {
         let mut tx = save.write()?;
         let mut writer = tx.get()?;
         for (_, (pos, ch)) in self.world.query::<(&Position, &Character)>().iter() {
+            if !ch.state.active {
+                continue;
+            }
             writer.put_character(
                 &ch.name,
                 &save::Character {
@@ -157,6 +160,7 @@ impl Sim {
                 entity_builder.add(Character {
                     name,
                     state: CharacterState {
+                        active: false,
                         velocity: na::Vector3::zeros(),
                         on_ground: false,
                         orientation: UnitQuaternion::identity(),
@@ -254,9 +258,11 @@ impl Sim {
     }
 
     pub fn get_or_spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
-        for (entity, (entity_id, character)) in self.world.query::<(&EntityId, &Character)>().iter()
+        for (entity, (entity_id, character)) in
+            self.world.query::<(&EntityId, &mut Character)>().iter()
         {
             if character.name == hello.name {
+                character.state.active = true;
                 return (*entity_id, entity);
             }
         }
@@ -267,6 +273,7 @@ impl Sim {
         let character = Character {
             name: hello.name,
             state: CharacterState {
+                active: true,
                 orientation: na::one(),
                 velocity: na::Vector3::zeros(),
                 on_ground: false,
@@ -364,8 +371,12 @@ impl Sim {
         let _guard = span.enter();
 
         // Extend graph structure
-        for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
-            ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
+        for (_, (position, character)) in
+            self.world.query::<(&mut Position, &mut Character)>().iter()
+        {
+            if character.state.active {
+                ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
+            }
         }
 
         self.accumulated_changes.fresh_nodes = self.graph.fresh().to_vec();
@@ -395,7 +406,10 @@ impl Sim {
 
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.
-        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
+        for (_, (position, character)) in self.world.query::<(&Position, &Character)>().iter() {
+            if !character.state.active {
+                continue;
+            }
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
                 for vertex in dodeca::Vertex::iter() {
@@ -423,6 +437,9 @@ impl Sim {
             .query::<(&mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
+            if !character.state.active {
+                continue;
+            }
             let prev_node = position.node;
             character_controller::run_character_step(
                 &self.cfg,
