@@ -269,7 +269,7 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn get_or_spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
+    pub fn activate_or_spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
         for (entity, (entity_id, character)) in
             self.world.query::<(&EntityId, &mut Character)>().iter()
         {
@@ -392,9 +392,10 @@ impl Sim {
         for (_, (position, character)) in
             self.world.query::<(&mut Position, &mut Character)>().iter()
         {
-            if character.state.active {
-                ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
+            if !character.state.active {
+                continue;
             }
+            ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
         }
 
         self.accumulated_changes.fresh_nodes = self.graph.fresh().to_vec();
