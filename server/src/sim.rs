@@ -8,7 +8,6 @@ use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::{DynamicBundle, Entity, EntityBuilder};
-use na::UnitQuaternion;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
@@ -142,11 +141,14 @@ impl Sim {
         entity_builder.add(entity_id);
         for (component_type, component_bytes) in save_entity.components {
             if component_type == ComponentType::Position as u64 {
-                let b: [f32; 16] = postcard::from_bytes(&component_bytes)?;
-                let a = na::Matrix4::<f32>::from_column_slice(&b);
-                entity_builder.add(Position { node, local: a });
+                let column_slice: [f32; 16] = postcard::from_bytes(&component_bytes)?;
+                entity_builder.add(Position {
+                    node,
+                    local: na::Matrix4::from_column_slice(&column_slice),
+                });
             } else if component_type == ComponentType::Name as u64 {
                 let name = String::from_utf8(component_bytes)?;
+                // Ensure that every node occupied by a character is generated.
                 if let Some(character) = read.get_character(&name)? {
                     let mut current_node = NodeId::ROOT;
                     for side in character
@@ -157,13 +159,14 @@ impl Sim {
                         current_node = self.graph.ensure_neighbor(current_node, side);
                     }
                 }
+                // Prepare all relevant components that are needed to support ComponentType::Name
                 entity_builder.add(Character {
                     name,
                     state: CharacterState {
                         active: false,
                         velocity: na::Vector3::zeros(),
                         on_ground: false,
-                        orientation: UnitQuaternion::identity(),
+                        orientation: na::UnitQuaternion::identity(),
                     },
                 });
                 entity_builder.add(CharacterInput {
