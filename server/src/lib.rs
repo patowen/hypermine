@@ -199,7 +199,7 @@ impl Server {
 
     fn cleanup_client(&mut self, client: ClientId) {
         if let Some(ref x) = self.clients[client].handles {
-            self.sim.destroy(x.character);
+            self.sim.deactivate_character(x.character);
         }
         self.clients.remove(client);
     }

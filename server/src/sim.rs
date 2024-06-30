@@ -158,6 +158,15 @@ impl Sim {
                     {
                         current_node = self.graph.ensure_neighbor(current_node, side);
                     }
+                    if current_node != node {
+                        // Skip loading named entities that are in the wrong place. This can happen
+                        // when there are multiple entities with the same name, which has been possible
+                        // in the past.
+                        return Ok(());
+                    }
+                } else {
+                    // Skip loading named entities that lack path information.
+                    return Ok(());
                 }
                 // Prepare all relevant components that are needed to support ComponentType::Name
                 entity_builder.add(Character {
@@ -290,6 +299,12 @@ impl Sim {
             block_update: None,
         };
         self.spawn((position, character, inventory, initial_input))
+    }
+
+    pub fn deactivate_character(&mut self, entity: Entity) {
+        if let Ok(mut character) = self.world.get::<&mut Character>(entity) {
+            character.state.active = false;
+        }
     }
 
     fn spawn(&mut self, bundle: impl DynamicBundle) -> (EntityId, Entity) {
