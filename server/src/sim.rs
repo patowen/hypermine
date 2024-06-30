@@ -122,51 +122,58 @@ impl Sim {
             let node_id = self.graph.from_hash(node_hash);
             for entity_bytes in entity_node.entities {
                 let save_entity: SaveEntity = postcard::from_bytes(&entity_bytes)?;
-                let entity_id = EntityId::from_bits(u64::from_le_bytes(save_entity.entity));
-                let mut entity_builder = EntityBuilder::new();
-                entity_builder.add(entity_id);
-                for (component_type, component_bytes) in save_entity.components {
-                    if component_type == ComponentType::Position as u64 {
-                        let b: [f32; 16] = postcard::from_bytes(&component_bytes)?;
-                        let a = na::Matrix4::<f32>::from_column_slice(&b);
-                        entity_builder.add(Position {
-                            node: node_id,
-                            local: a,
-                        });
-                    } else if component_type == ComponentType::Name as u64 {
-                        let name = String::from_utf8(component_bytes)?;
-                        if let Some(character) = read.get_character(&name)? {
-                            let mut current_node = NodeId::ROOT;
-                            for side in character
-                                .path
-                                .into_iter()
-                                .map(|side| Side::from_index(side as usize))
-                            {
-                                current_node = self.graph.ensure_neighbor(current_node, side);
-                            }
-                        }
-                        entity_builder.add(Character {
-                            name,
-                            state: CharacterState {
-                                velocity: na::Vector3::zeros(),
-                                on_ground: false,
-                                orientation: UnitQuaternion::identity(),
-                            },
-                        });
-                        entity_builder.add(CharacterInput {
-                            movement: na::Vector3::zeros(),
-                            jump: false,
-                            no_clip: false,
-                            block_update: None,
-                        });
-                        entity_builder.add(Inventory { contents: vec![] });
-                    }
-                }
-                let entity = self.world.spawn(entity_builder.build());
-                self.graph_entities.insert(node_id, entity);
-                self.entity_ids.insert(entity_id, entity);
+                self.load_entity(&mut read, node_id, save_entity)?;
             }
         }
+        Ok(())
+    }
+
+    fn load_entity(
+        &mut self,
+        read: &mut save::Reader,
+        node: NodeId,
+        save_entity: SaveEntity,
+    ) -> anyhow::Result<()> {
+        let entity_id = EntityId::from_bits(u64::from_le_bytes(save_entity.entity));
+        let mut entity_builder = EntityBuilder::new();
+        entity_builder.add(entity_id);
+        for (component_type, component_bytes) in save_entity.components {
+            if component_type == ComponentType::Position as u64 {
+                let b: [f32; 16] = postcard::from_bytes(&component_bytes)?;
+                let a = na::Matrix4::<f32>::from_column_slice(&b);
+                entity_builder.add(Position { node, local: a });
+            } else if component_type == ComponentType::Name as u64 {
+                let name = String::from_utf8(component_bytes)?;
+                if let Some(character) = read.get_character(&name)? {
+                    let mut current_node = NodeId::ROOT;
+                    for side in character
+                        .path
+                        .into_iter()
+                        .map(|side| Side::from_index(side as usize))
+                    {
+                        current_node = self.graph.ensure_neighbor(current_node, side);
+                    }
+                }
+                entity_builder.add(Character {
+                    name,
+                    state: CharacterState {
+                        velocity: na::Vector3::zeros(),
+                        on_ground: false,
+                        orientation: UnitQuaternion::identity(),
+                    },
+                });
+                entity_builder.add(CharacterInput {
+                    movement: na::Vector3::zeros(),
+                    jump: false,
+                    no_clip: false,
+                    block_update: None,
+                });
+                entity_builder.add(Inventory { contents: vec![] });
+            }
+        }
+        let entity = self.world.spawn(entity_builder.build());
+        self.graph_entities.insert(node, entity);
+        self.entity_ids.insert(entity_id, entity);
         Ok(())
     }
 
