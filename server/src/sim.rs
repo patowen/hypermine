@@ -8,6 +8,7 @@ use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
 use hecs::{DynamicBundle, Entity, EntityBuilder};
+use na::UnitQuaternion;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
@@ -69,6 +70,9 @@ impl Sim {
             .load_all_voxels(save)
             .expect("save file must be of a valid format");
         result
+            .load_all_entities(save)
+            .expect("save file must be of a valid format");
+        result
     }
 
     pub fn save(&mut self, save: &mut save::Save) -> Result<(), save::DbError> {
@@ -106,6 +110,53 @@ impl Sim {
 
         drop(writer);
         tx.commit()?;
+        Ok(())
+    }
+
+    fn load_all_entities(&mut self, save: &save::Save) -> anyhow::Result<()> {
+        let mut read = save.read()?;
+        for node_hash in read.get_all_entity_node_ids()? {
+            let Some(entity_node) = read.get_entity_node(node_hash)? else {
+                continue;
+            };
+            let node_id = self.graph.from_hash(node_hash);
+            for entity_bytes in entity_node.entities {
+                let save_entity: SaveEntity = postcard::from_bytes(&entity_bytes)?;
+                let entity_id = EntityId::from_bits(u64::from_le_bytes(save_entity.entity));
+                let mut entity_builder = EntityBuilder::new();
+                entity_builder.add(entity_id);
+                for (component_type, component_bytes) in save_entity.components {
+                    if component_type == ComponentType::Position as u64 {
+                        let b: [f32; 16] = postcard::from_bytes(&component_bytes)?;
+                        let a = na::Matrix4::<f32>::from_column_slice(&b);
+                        entity_builder.add(Position {
+                            node: node_id,
+                            local: a,
+                        });
+                    } else if component_type == ComponentType::Name as u64 {
+                        let name = String::from_utf8(component_bytes)?;
+                        entity_builder.add(Character {
+                            name,
+                            state: CharacterState {
+                                velocity: na::Vector3::zeros(),
+                                on_ground: false,
+                                orientation: UnitQuaternion::identity(),
+                            },
+                        });
+                        entity_builder.add(CharacterInput {
+                            movement: na::Vector3::zeros(),
+                            jump: false,
+                            no_clip: false,
+                            block_update: None,
+                        });
+                        entity_builder.add(Inventory { contents: vec![] });
+                    }
+                }
+                let entity = self.world.spawn(entity_builder.build());
+                self.graph_entities.insert(node_id, entity);
+                self.entity_ids.insert(entity_id, entity);
+            }
+        }
         Ok(())
     }
 
