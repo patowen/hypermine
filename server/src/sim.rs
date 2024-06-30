@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use common::dodeca::Vertex;
+use common::dodeca::{Side, Vertex};
 use common::node::VoxelData;
 use common::proto::{BlockUpdate, Inventory, SerializedVoxelData};
 use common::world::Material;
@@ -135,6 +135,16 @@ impl Sim {
                         });
                     } else if component_type == ComponentType::Name as u64 {
                         let name = String::from_utf8(component_bytes)?;
+                        if let Some(character) = read.get_character(&name)? {
+                            let mut current_node = NodeId::ROOT;
+                            for side in character
+                                .path
+                                .into_iter()
+                                .map(|side| Side::from_index(side as usize))
+                            {
+                                current_node = self.graph.ensure_neighbor(current_node, side);
+                            }
+                        }
                         entity_builder.add(Character {
                             name,
                             state: CharacterState {
@@ -236,7 +246,13 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
+    pub fn get_or_spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
+        for (entity, (entity_id, character)) in self.world.query::<(&EntityId, &Character)>().iter()
+        {
+            if character.name == hello.name {
+                return (*entity_id, entity);
+            }
+        }
         let position = Position {
             node: NodeId::ROOT,
             local: math::translate_along(&(na::Vector3::y() * 1.4)),

@@ -161,7 +161,7 @@ impl Server {
             ClientEvent::Hello(hello) => {
                 assert!(client.handles.is_none());
                 let snapshot = Arc::new(self.sim.snapshot());
-                let (id, entity) = self.sim.spawn_character(hello);
+                let (id, entity) = self.sim.get_or_spawn_character(hello);
                 let (ordered_send, ordered_recv) = mpsc::channel(32);
                 ordered_send.try_send(snapshot).unwrap();
                 let (unordered_send, unordered_recv) = mpsc::channel(32);
