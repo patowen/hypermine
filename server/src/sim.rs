@@ -140,13 +140,37 @@ impl Sim {
         let mut entity_builder = EntityBuilder::new();
         entity_builder.add(entity_id);
         for (component_type, component_bytes) in save_entity.components {
-            if component_type == ComponentType::Position as u64 {
+            self.load_component(
+                read,
+                &mut entity_builder,
+                node,
+                ComponentType::try_from(component_type as i32).unwrap(),
+                component_bytes,
+            )?;
+        }
+        let entity = self.world.spawn(entity_builder.build());
+        self.graph_entities.insert(node, entity);
+        self.entity_ids.insert(entity_id, entity);
+        Ok(())
+    }
+
+    fn load_component(
+        &mut self,
+        read: &mut save::Reader,
+        entity_builder: &mut EntityBuilder,
+        node: NodeId,
+        component_type: ComponentType,
+        component_bytes: Vec<u8>,
+    ) -> anyhow::Result<()> {
+        match component_type {
+            ComponentType::Position => {
                 let column_slice: [f32; 16] = postcard::from_bytes(&component_bytes)?;
                 entity_builder.add(Position {
                     node,
                     local: na::Matrix4::from_column_slice(&column_slice),
                 });
-            } else if component_type == ComponentType::Name as u64 {
+            }
+            ComponentType::Name => {
                 let name = String::from_utf8(component_bytes)?;
                 // Ensure that every node occupied by a character is generated.
                 if let Some(character) = read.get_character(&name)? {
@@ -187,9 +211,6 @@ impl Sim {
                 entity_builder.add(Inventory { contents: vec![] });
             }
         }
-        let entity = self.world.spawn(entity_builder.build());
-        self.graph_entities.insert(node, entity);
-        self.entity_ids.insert(entity_id, entity);
         Ok(())
     }
 
