@@ -88,9 +88,6 @@ impl Sim {
         let mut tx = save.write()?;
         let mut writer = tx.get()?;
         for (_, (pos, ch)) in self.world.query::<(&Position, &Character)>().iter() {
-            if !ch.state.active {
-                continue;
-            }
             writer.put_character(
                 &ch.name,
                 &save::Character {
