@@ -314,6 +314,7 @@ impl Sim {
             .find(|(_, (_, inactive_character))| inactive_character.0.name == hello.name)
             .map(|(entity, (entity_id, _))| (*entity_id, entity));
         if let Some((entity_id, entity)) = matching_character {
+            info!(id = %entity_id, name = %hello.name, "activating character");
             let inactive_character = self.world.remove_one::<InactiveCharacter>(entity).unwrap();
             self.world.insert_one(entity, inactive_character.0).unwrap();
             self.accumulated_changes.spawns.push(entity);
