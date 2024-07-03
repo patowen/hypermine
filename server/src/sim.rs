@@ -3,11 +3,11 @@ use std::sync::Arc;
 use anyhow::Context;
 use common::dodeca::{Side, Vertex};
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, Inventory, SerializedVoxelData};
+use common::proto::{BlockUpdate, InactiveCharacter, Inventory, SerializedVoxelData};
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
-use hecs::{DynamicBundle, Entity, EntityBuilder};
+use hecs::{DynamicBundle, Entity, EntityBuilder, Without};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
@@ -190,15 +190,14 @@ impl Sim {
                     return Ok(());
                 }
                 // Prepare all relevant components that are needed to support ComponentType::Name
-                entity_builder.add(Character {
+                entity_builder.add(InactiveCharacter(Character {
                     name,
                     state: CharacterState {
-                        active: false,
                         velocity: na::Vector3::zeros(),
                         on_ground: false,
                         orientation: na::UnitQuaternion::identity(),
                     },
-                });
+                }));
                 entity_builder.add(CharacterInput {
                     movement: na::Vector3::zeros(),
                     jump: false,
@@ -251,7 +250,11 @@ impl Sim {
                     postcard::to_stdvec(pos.local.as_ref()).unwrap(),
                 ));
             }
-            if let Some(ch) = entity.get::<&Character>() {
+            if let Some(ch) = entity.get::<&Character>().or_else(|| {
+                entity
+                    .get::<&InactiveCharacter>()
+                    .map(|c| hecs::Ref::map(c, |d| &d.0))
+            }) {
                 components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
             }
             let mut repr = Vec::new();
@@ -287,23 +290,44 @@ impl Sim {
         save::VoxelNode { chunks }
     }
 
-    pub fn activate_or_spawn_character(&mut self, hello: ClientHello) -> (EntityId, Entity) {
-        for (entity, (entity_id, character)) in
-            self.world.query::<(&EntityId, &mut Character)>().iter()
+    /// Activates or spawns a character with a given name, or returns None if there is already an active
+    /// character with that name
+    pub fn activate_or_spawn_character(
+        &mut self,
+        hello: &ClientHello,
+    ) -> Option<(EntityId, Entity)> {
+        // Check for conflicting characters
+        if self
+            .world
+            .query::<&Character>()
+            .iter()
+            .any(|(_, character)| character.name == hello.name)
         {
-            if character.name == hello.name {
-                character.state.active = true;
-                return (*entity_id, entity);
-            }
+            return None;
         }
+
+        // Check for matching characters
+        let matching_character = self
+            .world
+            .query::<(&EntityId, &InactiveCharacter)>()
+            .iter()
+            .find(|(_, (_, inactive_character))| inactive_character.0.name == hello.name)
+            .map(|(entity, (entity_id, _))| (*entity_id, entity));
+        if let Some((entity_id, entity)) = matching_character {
+            let inactive_character = self.world.remove_one::<InactiveCharacter>(entity).unwrap();
+            self.world.insert_one(entity, inactive_character.0).unwrap();
+            self.accumulated_changes.spawns.push(entity);
+            return Some((entity_id, entity));
+        }
+
+        // Spawn entirely new character
         let position = Position {
             node: NodeId::ROOT,
             local: math::translate_along(&(na::Vector3::y() * 1.4)),
         };
         let character = Character {
-            name: hello.name,
+            name: hello.name.clone(),
             state: CharacterState {
-                active: true,
                 orientation: na::one(),
                 velocity: na::Vector3::zeros(),
                 on_ground: false,
@@ -316,13 +340,16 @@ impl Sim {
             no_clip: true,
             block_update: None,
         };
-        self.spawn((position, character, inventory, initial_input))
+        Some(self.spawn((position, character, inventory, initial_input)))
     }
 
     pub fn deactivate_character(&mut self, entity: Entity) {
-        if let Ok(mut character) = self.world.get::<&mut Character>(entity) {
-            character.state.active = false;
-        }
+        let entity_id = *self.world.get::<&EntityId>(entity).unwrap();
+        let character = self.world.remove_one::<Character>(entity).unwrap();
+        self.world
+            .insert_one(entity, InactiveCharacter(character))
+            .unwrap();
+        self.accumulated_changes.despawns.push(entity_id);
     }
 
     fn spawn(&mut self, bundle: impl DynamicBundle) -> (EntityId, Entity) {
@@ -342,7 +369,10 @@ impl Sim {
         }
 
         self.entity_ids.insert(id, entity);
-        self.accumulated_changes.spawns.push(entity);
+
+        if !self.world.satisfies::<&InactiveCharacter>(entity).unwrap() {
+            self.accumulated_changes.spawns.push(entity);
+        }
 
         (id, entity)
     }
@@ -366,7 +396,10 @@ impl Sim {
             self.graph_entities.remove(position.node, entity);
         }
         self.world.despawn(entity).unwrap();
-        self.accumulated_changes.despawns.push(id);
+
+        if !self.world.satisfies::<&InactiveCharacter>(entity).unwrap() {
+            self.accumulated_changes.despawns.push(id);
+        }
     }
 
     /// Collect information about all entities, for transmission to new clients
@@ -385,7 +418,7 @@ impl Sim {
             inventory_additions: Vec::new(),
             inventory_removals: Vec::new(),
         };
-        for (entity, &id) in &mut self.world.query::<&EntityId>() {
+        for (entity, &id) in &mut self.world.query::<Without<&EntityId, &InactiveCharacter>>() {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
         for &chunk_id in self.modified_chunks.iter() {
@@ -407,12 +440,7 @@ impl Sim {
         let _guard = span.enter();
 
         // Extend graph structure
-        for (_, (position, character)) in
-            self.world.query::<(&mut Position, &mut Character)>().iter()
-        {
-            if !character.state.active {
-                continue;
-            }
+        for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
             ensure_nearby(&mut self.graph, position, self.cfg.view_distance);
         }
 
@@ -443,10 +471,7 @@ impl Sim {
 
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.
-        for (_, (position, character)) in self.world.query::<(&Position, &Character)>().iter() {
-            if !character.state.active {
-                continue;
-            }
+        for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
                 for vertex in dodeca::Vertex::iter() {
@@ -474,9 +499,6 @@ impl Sim {
             .query::<(&mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
-            if !character.state.active {
-                continue;
-            }
             let prev_node = position.node;
             character_controller::run_character_step(
                 &self.cfg,
@@ -615,7 +637,11 @@ impl Sim {
     }
 }
 
+/// Collect all information about a particular entity for transmission to clients.
 fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
+    if world.satisfies::<&InactiveCharacter>(entity).unwrap() {
+        panic!("Inactive characters should not be sent to clients")
+    }
     let mut components = Vec::new();
     if let Ok(x) = world.get::<&Position>(entity) {
         components.push(Component::Position(*x));

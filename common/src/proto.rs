@@ -42,7 +42,6 @@ pub struct StateDelta {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CharacterState {
-    pub active: bool,
     pub velocity: na::Vector3<f32>,
     pub on_ground: bool,
     pub orientation: na::UnitQuaternion<f32>,
@@ -110,6 +109,9 @@ pub struct Character {
     pub name: String,
     pub state: CharacterState,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InactiveCharacter(pub Character);
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Inventory {
