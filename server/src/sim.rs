@@ -7,7 +7,7 @@ use common::proto::{BlockUpdate, InactiveCharacter, Inventory, SerializedVoxelDa
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
-use hecs::{DynamicBundle, Entity, EntityBuilder, Without};
+use hecs::{DynamicBundle, Entity, EntityBuilder};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
@@ -253,7 +253,7 @@ impl Sim {
             if let Some(ch) = entity.get::<&Character>().or_else(|| {
                 entity
                     .get::<&InactiveCharacter>()
-                    .map(|c| hecs::Ref::map(c, |d| &d.0))
+                    .map(|ich| hecs::Ref::map(ich, |ich| &ich.0)) // Extract Ref<Character> from Ref<InactiveCharacter>
             }) {
                 components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
             }
@@ -419,7 +419,10 @@ impl Sim {
             inventory_additions: Vec::new(),
             inventory_removals: Vec::new(),
         };
-        for (entity, &id) in &mut self.world.query::<Without<&EntityId, &InactiveCharacter>>() {
+        for (entity, &id) in &mut self
+            .world
+            .query::<hecs::Without<&EntityId, &InactiveCharacter>>()
+        {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
         for &chunk_id in self.modified_chunks.iter() {
