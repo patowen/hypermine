@@ -201,12 +201,6 @@ impl Sim {
                         orientation: na::UnitQuaternion::identity(),
                     },
                 }));
-                entity_builder.add(CharacterInput {
-                    movement: na::Vector3::zeros(),
-                    jump: false,
-                    no_clip: false,
-                    block_update: None,
-                });
                 entity_builder.add(Inventory { contents: vec![] });
             }
         }
@@ -319,7 +313,9 @@ impl Sim {
         if let Some((entity_id, entity)) = matching_character {
             info!(id = %entity_id, name = %hello.name, "activating character");
             let inactive_character = self.world.remove_one::<InactiveCharacter>(entity).unwrap();
-            self.world.insert_one(entity, inactive_character.0).unwrap();
+            self.world
+                .insert(entity, (inactive_character.0, CharacterInput::default()))
+                .unwrap();
             self.accumulated_changes.spawns.push(entity);
             return Some((entity_id, entity));
         }
@@ -338,18 +334,16 @@ impl Sim {
             },
         };
         let inventory = Inventory { contents: vec![] };
-        let initial_input = CharacterInput {
-            movement: na::Vector3::zeros(),
-            jump: false,
-            no_clip: true,
-            block_update: None,
-        };
+        let initial_input = CharacterInput::default();
         Some(self.spawn((position, character, inventory, initial_input)))
     }
 
     pub fn deactivate_character(&mut self, entity: Entity) {
         let entity_id = *self.world.get::<&EntityId>(entity).unwrap();
-        let character = self.world.remove_one::<Character>(entity).unwrap();
+        let (character, _) = self
+            .world
+            .remove::<(Character, CharacterInput)>(entity)
+            .unwrap();
         self.world
             .insert_one(entity, InactiveCharacter(character))
             .unwrap();

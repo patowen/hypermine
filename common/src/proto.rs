@@ -66,7 +66,7 @@ pub struct Command {
     pub orientation: na::UnitQuaternion<f32>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CharacterInput {
     /// Relative to the character's current position, excluding orientation
     pub movement: na::Vector3<f32>,
