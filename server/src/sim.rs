@@ -172,23 +172,24 @@ impl Sim {
             ComponentType::Name => {
                 let name = String::from_utf8(component_bytes)?;
                 // Ensure that every node occupied by a character is generated.
-                if let Some(character) = read.get_character(&name)? {
-                    let mut current_node = NodeId::ROOT;
-                    for side in character
-                        .path
-                        .into_iter()
-                        .map(|side| Side::from_index(side as usize))
-                    {
-                        current_node = self.graph.ensure_neighbor(current_node, side);
-                    }
-                    if current_node != node {
-                        // Skip loading named entities that are in the wrong place. This can happen
-                        // when there are multiple entities with the same name, which has been possible
-                        // in the past.
-                        return Ok(());
-                    }
-                } else {
+                let Some(character) = read.get_character(&name)? else {
                     // Skip loading named entities that lack path information.
+                    error!("Entity {} will not be loaded because their node path information is missing.", name);
+                    return Ok(());
+                };
+                let mut current_node = NodeId::ROOT;
+                for side in character
+                    .path
+                    .into_iter()
+                    .map(|side| Side::from_index(side as usize))
+                {
+                    current_node = self.graph.ensure_neighbor(current_node, side);
+                }
+                if current_node != node {
+                    // Skip loading named entities that are in the wrong place. This can happen
+                    // when there are multiple entities with the same name, which has been possible
+                    // in previous versions of Hypermine.
+                    error!("Entity {} will not be loaded because their node path information is incorrect.", name);
                     return Ok(());
                 }
                 // Prepare all relevant components that are needed to support ComponentType::Name
