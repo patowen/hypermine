@@ -111,9 +111,6 @@ pub struct Character {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InactiveCharacter(pub Character);
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Inventory {
     pub contents: Vec<EntityId>,
 }

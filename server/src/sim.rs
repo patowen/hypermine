@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use common::dodeca::{Side, Vertex};
+use common::math::MIsometry;
 use common::node::VoxelData;
-use common::proto::{BlockUpdate, InactiveCharacter, Inventory, SerializedVoxelData};
+use common::proto::{BlockUpdate, Inventory, SerializedVoxelData};
 use common::world::Material;
 use common::{node::ChunkId, GraphEntities};
 use fxhash::{FxHashMap, FxHashSet};
@@ -11,6 +12,7 @@ use hecs::{DynamicBundle, Entity, EntityBuilder};
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use save::ComponentType;
+use serde::{Deserialize, Serialize};
 use tracing::{error, error_span, info, trace};
 
 use common::{
@@ -164,7 +166,7 @@ impl Sim {
                 let column_slice: [f32; 16] = postcard::from_bytes(&component_bytes)?;
                 entity_builder.add(Position {
                     node,
-                    local: na::Matrix4::from_column_slice(&column_slice),
+                    local: MIsometry::from_column_slice_unchecked(&column_slice),
                 });
             }
             ComponentType::Name => {
@@ -661,6 +663,9 @@ fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
     }
     components
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct InactiveCharacter(pub Character);
 
 /// Stores changes that the server has canonically done but hasn't yet broadcast to clients
 #[derive(Default)]
