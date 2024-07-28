@@ -640,9 +640,10 @@ impl Sim {
 
 /// Collect all information about a particular entity for transmission to clients.
 fn dump_entity(world: &hecs::World, entity: Entity) -> Vec<Component> {
-    if world.satisfies::<&InactiveCharacter>(entity).unwrap() {
-        panic!("Inactive characters should not be sent to clients")
-    }
+    assert!(
+        !world.satisfies::<&InactiveCharacter>(entity).unwrap(),
+        "Inactive characters should not be sent to clients"
+    );
     let mut components = Vec::new();
     if let Ok(x) = world.get::<&Position>(entity) {
         components.push(Component::Position(*x));
