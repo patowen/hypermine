@@ -119,7 +119,7 @@ pub mod connection_error_codes {
     use quinn::VarInt;
 
     pub const CONNECTION_LOST: VarInt = VarInt::from_u32(0);
-    pub const BAD_CLIENT_COMMAND: VarInt = VarInt::from_u32(2);
     pub const STREAM_ERROR: VarInt = VarInt::from_u32(1);
+    pub const BAD_CLIENT_COMMAND: VarInt = VarInt::from_u32(2);
     pub const NAME_CONFLICT: VarInt = VarInt::from_u32(3);
 }
