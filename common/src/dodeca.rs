@@ -648,55 +648,71 @@ mod tests {
         );
     }
 
-    #[test]
-    fn find_manifold() {
-        let mut sides: [[Side; 5]; 12] = [[Side::A; 5]; 12];
-        for side in Side::iter() {
-            for adjacent_side in Side::iter() {
-                if !side.adjacent_to(adjacent_side) {
-                    continue;
-                }
-                // Use adjacent_side
-                sides[side as usize][0] = adjacent_side;
-                let mut current_side = adjacent_side;
-                for i in 1..5 {
-                    // Find appropriate vertex
-                    for vertex in Vertex::iter() {
-                        let Some(first_index) =
-                            vertex.canonical_sides().iter().position(|s| *s == side)
-                        else {
-                            continue;
-                        };
-                        let Some(second_index) = vertex
-                            .canonical_sides()
-                            .iter()
-                            .position(|s| *s == current_side)
-                        else {
-                            continue;
-                        };
-                        let diff = (second_index + 3 - first_index) % 3;
-                        // Make sure we're going the right way
-                        if (diff == 2) != vertex.parity() {
-                            continue;
-                        }
-                        let Some(third_index) = vertex
-                            .canonical_sides()
-                            .iter()
-                            .position(|s| *s != side && *s != current_side)
-                        else {
-                            panic!();
-                        };
-                        current_side = vertex.canonical_sides()[third_index];
-                        sides[side as usize][i] = current_side;
-                        break;
+    struct ManifoldFinder {
+        oriented_sides: [[Side; 5]; 12],
+        gluings: [Option<(Side, usize)>; 12],
+    }
+
+    impl ManifoldFinder {
+        fn new() -> Self {
+            let mut oriented_sides: [[Side; 5]; 12] = [[Side::A; 5]; 12];
+            for side in Side::iter() {
+                for adjacent_side in Side::iter() {
+                    if !side.adjacent_to(adjacent_side) {
+                        continue;
                     }
+                    // Use adjacent_side
+                    oriented_sides[side as usize][0] = adjacent_side;
+                    let mut current_side = adjacent_side;
+                    for i in 1..5 {
+                        // Find appropriate vertex
+                        for vertex in Vertex::iter() {
+                            let Some(first_index) =
+                                vertex.canonical_sides().iter().position(|s| *s == side)
+                            else {
+                                continue;
+                            };
+                            let Some(second_index) = vertex
+                                .canonical_sides()
+                                .iter()
+                                .position(|s| *s == current_side)
+                            else {
+                                continue;
+                            };
+                            let diff = (second_index + 3 - first_index) % 3;
+                            // Make sure we're going the right way
+                            if (diff == 2) != vertex.parity() {
+                                continue;
+                            }
+                            let Some(third_index) = vertex
+                                .canonical_sides()
+                                .iter()
+                                .position(|s| *s != side && *s != current_side)
+                            else {
+                                panic!();
+                            };
+                            current_side = vertex.canonical_sides()[third_index];
+                            oriented_sides[side as usize][i] = current_side;
+                            break;
+                        }
+                    }
+                    break;
                 }
-                break;
+            }
+            ManifoldFinder {
+                oriented_sides,
+                gluings: Default::default(),
             }
         }
 
-        let mut partner_sides: [[Option<Side>; 5]; 12] = [[None; 5]; 12];
+        fn check_edge(side: Side, side_edge: usize) {
+            // TODO: The dodeca data structure isn't very good for this.
+        }
+    }
 
-        println!("{:?}", sides);
+    #[test]
+    fn find_manifold() {
+        let mut manifold_finder = ManifoldFinder::new();
+        println!("{:?}", manifold_finder.oriented_sides);
     }
 }
