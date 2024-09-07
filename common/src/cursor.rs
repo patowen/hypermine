@@ -1,6 +1,5 @@
 use std::sync::OnceLock;
 
-use crate::dodeca::SIDE_COUNT;
 use crate::dodeca::{Side, Vertex};
 use crate::graph::{Graph, NodeId};
 use crate::node::ChunkId;
@@ -105,10 +104,10 @@ impl std::ops::Neg for Dir {
 }
 
 /// Maps every (A, B, C) sharing a vertex to A', the side that shares edges with B and C but not A
-fn neighbors() -> &'static [[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT] {
-    static LOCK: OnceLock<[[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT]> = OnceLock::new();
+fn neighbors() -> &'static [[[Option<Side>; Side::COUNT]; Side::COUNT]; Side::COUNT] {
+    static LOCK: OnceLock<[[[Option<Side>; Side::COUNT]; Side::COUNT]; Side::COUNT]> = OnceLock::new();
     LOCK.get_or_init(|| {
-        let mut result = [[[None; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT];
+        let mut result = [[[None; Side::COUNT]; Side::COUNT]; Side::COUNT];
         for a in Side::iter() {
             for b in Side::iter() {
                 for c in Side::iter() {
