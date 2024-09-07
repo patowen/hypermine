@@ -650,14 +650,14 @@ mod tests {
 
     #[test]
     fn find_manifold() {
-        let mut adjacent_sides: [[Side; 5]; 12] = [[Side::A; 5]; 12];
+        let mut sides: [[Side; 5]; 12] = [[Side::A; 5]; 12];
         for side in Side::iter() {
             for adjacent_side in Side::iter() {
                 if !side.adjacent_to(adjacent_side) {
                     continue;
                 }
                 // Use adjacent_side
-                adjacent_sides[side as usize][0] = adjacent_side;
+                sides[side as usize][0] = adjacent_side;
                 let mut current_side = adjacent_side;
                 for i in 1..5 {
                     // Find appropriate vertex
@@ -687,7 +687,7 @@ mod tests {
                             panic!();
                         };
                         current_side = vertex.canonical_sides()[third_index];
-                        adjacent_sides[side as usize][i] = current_side;
+                        sides[side as usize][i] = current_side;
                         break;
                     }
                 }
@@ -695,6 +695,8 @@ mod tests {
             }
         }
 
-        println!("{:?}", adjacent_sides);
+        let mut partner_sides: [[Option<Side>; 5]; 12] = [[None; 5]; 12];
+
+        println!("{:?}", sides);
     }
 }
