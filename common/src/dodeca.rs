@@ -6,7 +6,7 @@ use data::*;
 use enum_map::{Enum, EnumMap};
 use serde::{Deserialize, Serialize};
 
-use crate::math::{MIsometry, MVector};
+use crate::math::{self, MIsometry, MVector};
 use crate::voxel_math::ChunkAxisPermutation;
 
 pub const BOUNDING_SPHERE_RADIUS_F64: f64 = 1.2264568712514068;
@@ -321,14 +321,8 @@ impl<T> IndexMut<HalfEdge> for HalfEdgeList<T> {
     }
 }
 
-struct Dodecahedron {
-    sides: EnumMap<Side, SideData>,
-    vertices: EnumMap<Vertex, VertexData>,
-    half_edges: HalfEdgeList<HalfEdgeData>,
-}
-
 struct SideData {
-    is_adjacent: EnumMap<Side, bool>,
+    adjacency_map: EnumMap<Side, bool>,
 
     normal_f64: MVector<f64>,
     reflection_f64: MIsometry<f64>,
@@ -355,6 +349,64 @@ struct HalfEdgeData {
     twin: HalfEdge,
     side: Side,
     vertex: Vertex,
+}
+
+struct Dodecahedron {
+    sides: EnumMap<Side, SideData>,
+    vertices: EnumMap<Vertex, VertexData>,
+    half_edges: HalfEdgeList<HalfEdgeData>,
+}
+
+impl Dodecahedron {
+    fn new() -> Self {
+        let phi = libm::sqrt(1.25) + 0.5; // golden ratio
+        let reference_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).lorentz_normalize();
+
+        let side_data: EnumMap<Side, _> = EnumMap::from_fn(|side| {
+            let side_index = side as usize;
+            let normal_permutation = side_index % 3;
+            let normal_sign_index = side_index / 4;
+            let sign_options = [1.0, -1.0];
+            let normal_sign_x = sign_options[normal_sign_index % 2];
+            let normal_sign_y = sign_options[normal_sign_index / 2];
+            let normal_sign_z = normal_sign_x * normal_sign_y;
+
+            let normal_f64 = math::tuv_to_xyz(
+                normal_permutation,
+                MVector::new(
+                    reference_normal.x * normal_sign_x,
+                    reference_normal.y * normal_sign_y,
+                    reference_normal.z * normal_sign_z,
+                    reference_normal.w,
+                ),
+            );
+
+            let reflection_f64 = normal_f64.reflect();
+
+            let adjacent_sides = [
+                (normal_sign_index ^ 1) * 4 + normal_permutation, // Along shorter edge of golden rectangle
+                normal_sign_index * 4 + normal_permutation, // TODO: Figure out other adjacent sides
+                normal_sign_index * 4 + normal_permutation,
+                normal_sign_index * 4 + normal_permutation,
+                normal_sign_index * 4 + normal_permutation,
+            ]
+            .map(|i| Side::VALUES[i]);
+            let mut adjacency_map = EnumMap::from_fn(|_| false);
+            for adjacent_side in adjacent_sides {
+                adjacency_map[adjacent_side] = true;
+            }
+
+            SideData {
+                adjacency_map,
+
+                normal_f32: normal_f64.to_f32(),
+                normal_f64,
+
+                reflection_f32: reflection_f64.to_f32(),
+                reflection_f64,
+            }
+        });
+    }
 }
 
 mod data {
