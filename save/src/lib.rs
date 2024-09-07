@@ -54,6 +54,7 @@ impl Save {
         Ok(Reader {
             voxel_nodes: tx.open_table(VOXEL_NODE_TABLE)?,
             entity_nodes: tx.open_table(ENTITY_NODE_TABLE)?,
+            inactive_entities: tx.open_table(INACTIVE_ENTITIES_TABLE)?,
             characters: tx.open_table(CHARACTERS_BY_NAME_TABLE)?,
             dctx: dctx(),
             accum: Vec::new(),
@@ -93,6 +94,7 @@ fn dctx() -> zstd::DCtx<'static> {
 pub struct Reader {
     voxel_nodes: redb::ReadOnlyTable<u128, &'static [u8]>,
     entity_nodes: redb::ReadOnlyTable<u128, &'static [u8]>,
+    inactive_entities: redb::ReadOnlyTable<&'static str, &'static [u8]>,
     characters: redb::ReadOnlyTable<&'static str, &'static [u8]>,
     dctx: zstd::DCtx<'static>,
     accum: Vec<u8>,
@@ -187,6 +189,10 @@ impl WriterGuard {
                 .tx
                 .open_table(ENTITY_NODE_TABLE)
                 .map_err(redb::Error::from)?,
+            inactive_entities: self
+                .tx
+                .open_table(INACTIVE_ENTITIES_TABLE)
+                .map_err(redb::Error::from)?,
             characters: self
                 .tx
                 .open_table(CHARACTERS_BY_NAME_TABLE)
@@ -215,6 +221,7 @@ fn cctx() -> zstd::CCtx<'static> {
 pub struct Writer<'guard> {
     voxel_nodes: redb::Table<'guard, u128, &'static [u8]>,
     entity_nodes: redb::Table<'guard, u128, &'static [u8]>,
+    inactive_entities: redb::Table<'guard, &'static str, &'static [u8]>,
     characters: redb::Table<'guard, &'static str, &'static [u8]>,
     cctx: zstd::CCtx<'static>,
     plain: Vec<u8>,
@@ -265,6 +272,8 @@ fn prepare<T: prost::Message>(
 const META_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("meta");
 const VOXEL_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("voxel nodes");
 const ENTITY_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("entity nodes");
+const INACTIVE_ENTITIES_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("inactive entities");
 const CHARACTERS_BY_NAME_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("characters by name");
 

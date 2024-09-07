@@ -12,6 +12,14 @@ message Character {
     bytes path = 1;
 }
 
+message InactiveEntity {
+    // Node the entity would be in if it were active
+    bytes node_id = 1;
+
+    // Entity data, analogous to the format of each entity in EntityNode
+    bytes entity = 2;
+}
+
 message EntityNode {
     // Entities whose origins lie within this node, each encoded as:
     // { entity: u64, component_count: varint, components: [{ type: varint, length: varint, data: [u8] }] }
