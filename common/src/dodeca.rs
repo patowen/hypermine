@@ -1,6 +1,9 @@
 //! Tools for processing the geometry of a right dodecahedron
 
+use std::ops::{Index, IndexMut};
+
 use data::*;
+use enum_map::{Enum, EnumMap};
 use serde::{Deserialize, Serialize};
 
 use crate::math::{MIsometry, MVector};
@@ -10,7 +13,9 @@ pub const BOUNDING_SPHERE_RADIUS_F64: f64 = 1.2264568712514068;
 pub const BOUNDING_SPHERE_RADIUS: f32 = BOUNDING_SPHERE_RADIUS_F64 as f32;
 
 /// Sides of a right dodecahedron
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Copy, Clone, Enum, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize,
+)]
 pub enum Side {
     A,
     B,
@@ -88,7 +93,7 @@ impl Side {
 }
 
 /// Vertices of a right dodecahedron
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Enum, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum Vertex {
     A,
     B,
@@ -285,6 +290,71 @@ impl Vertex {
     pub fn parity(self) -> bool {
         chunk_to_node_parity()[self as usize]
     }
+}
+
+struct HalfEdge(u8);
+
+impl HalfEdge {
+    const COUNT: usize = 60;
+}
+
+impl From<u8> for HalfEdge {
+    fn from(value: u8) -> Self {
+        assert!(value < Self::COUNT as u8);
+        Self(value)
+    }
+}
+
+struct HalfEdgeList<T>([T; HalfEdge::COUNT]);
+
+impl<T> Index<HalfEdge> for HalfEdgeList<T> {
+    type Output = T;
+
+    fn index(&self, index: HalfEdge) -> &Self::Output {
+        &self.0[index.0 as usize]
+    }
+}
+
+impl<T> IndexMut<HalfEdge> for HalfEdgeList<T> {
+    fn index_mut(&mut self, index: HalfEdge) -> &mut Self::Output {
+        &mut self.0[index.0 as usize]
+    }
+}
+
+struct Dodecahedron {
+    sides: EnumMap<Side, SideData>,
+    vertices: EnumMap<Vertex, VertexData>,
+    half_edges: HalfEdgeList<HalfEdgeData>,
+}
+
+struct SideData {
+    is_adjacent: EnumMap<Side, bool>,
+
+    normal_f64: MVector<f64>,
+    reflection_f64: MIsometry<f64>,
+
+    normal_f32: MVector<f32>,
+    reflection_f32: MIsometry<f32>,
+}
+
+struct VertexData {
+    incident_sides: [Side; 3],
+    adjacent_vertices: [Vertex; 3],
+    chunk_axis_permutations: [ChunkAxisPermutation; 3],
+
+    dual_to_node_f64: MIsometry<f64>,
+    node_to_dual_f64: MIsometry<f64>,
+
+    dual_to_node_f32: MIsometry<f32>,
+    node_to_dual_f32: MIsometry<f32>,
+}
+
+struct HalfEdgeData {
+    next: HalfEdge,
+    previous: HalfEdge,
+    twin: HalfEdge,
+    side: Side,
+    vertex: Vertex,
 }
 
 mod data {
