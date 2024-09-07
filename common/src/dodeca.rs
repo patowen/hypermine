@@ -410,6 +410,12 @@ impl Dodecahedron {
             }
         });
 
+        let vertex_data: EnumMap<Vertex, _> =
+            EnumMap::from_fn(|vertex: Vertex| match CubeOrRectangleVertex::from(vertex) {
+                CubeOrRectangleVertex::Cube(_) => todo!(),
+                CubeOrRectangleVertex::Rectangle(_) => todo!(),
+            });
+
         todo!()
     }
 }
@@ -429,6 +435,72 @@ impl Side {
 
     fn long_side_sign(self) -> usize {
         ((self as usize) / 6) % 2
+    }
+}
+
+enum CubeOrRectangleVertex {
+    Cube(CubeVertex),
+    Rectangle(RectangleVertex),
+}
+
+impl From<Vertex> for CubeOrRectangleVertex {
+    fn from(vertex: Vertex) -> Self {
+        if (vertex as usize) < 8 {
+            CubeOrRectangleVertex::Cube(CubeVertex(vertex))
+        } else {
+            CubeOrRectangleVertex::Rectangle(RectangleVertex(vertex))
+        }
+    }
+}
+
+struct CubeVertex(Vertex);
+
+impl From<CubeVertex> for Vertex {
+    fn from(vertex: CubeVertex) -> Self {
+        vertex.0
+    }
+}
+
+impl CubeVertex {
+    fn packed_index(signs: [usize; 3]) -> Self {
+        CubeVertex(Vertex::VALUES[(signs[0] % 2) + (signs[1] % 2) * 2 + (signs[2] % 2) * 4])
+    }
+
+    fn signs(self) -> [usize; 3] {
+        [
+            (self.0 as usize) % 2,
+            ((self.0 as usize) / 2) % 2,
+            ((self.0 as usize) / 4) % 2,
+        ]
+    }
+}
+
+struct RectangleVertex(Vertex);
+
+impl From<RectangleVertex> for Vertex {
+    fn from(vertex: RectangleVertex) -> Self {
+        vertex.0
+    }
+}
+
+impl RectangleVertex {
+    fn packed_index(rectangle: usize, short_side_sign: usize, long_side_sign: usize) -> Self {
+        RectangleVertex(
+            Vertex::VALUES
+                [(rectangle % 3) + (short_side_sign % 2) * 3 + (long_side_sign % 2) * 6 + 8],
+        )
+    }
+
+    fn rectangle(self) -> usize {
+        ((self.0 as usize) - 8) % 3
+    }
+
+    fn short_side_sign(self) -> usize {
+        (((self.0 as usize) - 8) / 3) % 2
+    }
+
+    fn long_side_sign(self) -> usize {
+        (((self.0 as usize) - 8) / 6) % 2
     }
 }
 
