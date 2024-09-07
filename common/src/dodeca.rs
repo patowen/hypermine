@@ -362,35 +362,38 @@ impl Dodecahedron {
         let phi = libm::sqrt(1.25) + 0.5; // golden ratio
         let reference_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).lorentz_normalize();
 
-        let side_data: EnumMap<Side, _> = EnumMap::from_fn(|side| {
-            let side_index = side as usize;
-            let normal_permutation = side_index % 3;
-            let normal_sign_index = side_index / 4;
+        let side_data: EnumMap<Side, _> = EnumMap::from_fn(|side: Side| {
+            let rectangle = side.rectangle();
             let sign_options = [1.0, -1.0];
-            let normal_sign_x = sign_options[normal_sign_index % 2];
-            let normal_sign_y = sign_options[normal_sign_index / 2];
-            let normal_sign_z = normal_sign_x * normal_sign_y;
+            let short_side_sign = side.short_side_sign();
+            let long_side_sign = side.long_side_sign();
+            let side_parity_sign = (short_side_sign + long_side_sign) % 2;
 
             let normal_f64 = math::tuv_to_xyz(
-                normal_permutation,
+                rectangle,
                 MVector::new(
-                    reference_normal.x * normal_sign_x,
-                    reference_normal.y * normal_sign_y,
-                    reference_normal.z * normal_sign_z,
+                    reference_normal.x * sign_options[short_side_sign],
+                    reference_normal.y * sign_options[long_side_sign],
+                    reference_normal.z * sign_options[side_parity_sign],
                     reference_normal.w,
                 ),
             );
 
             let reflection_f64 = normal_f64.reflect();
+            /*
+            Around (0,  1,  p): (0, -1,  p), ( p, 0,  1), ( 1,  p, 0), (-1,  p, 0), (-p, 0,  1)
+            Around (0, -1,  p): (0,  1,  p), (-p, 0,  1), (-1, -p, 0), ( 1, -p, 0), ( p, 0,  1)
+            Around (0,  1, -p): (0, -1, -p), (-p, 0, -1), (-1,  p, 0), ( 1,  p, 0), ( p, 0, -1)
+            Around (0, -1, -p): (0,  1, -p), ( p, 0, -1), ( 1, -p, 0), (-1, -p, 0), (-p, 0, -1)
+            */
 
             let adjacent_sides = [
-                (normal_sign_index ^ 1) * 4 + normal_permutation, // Along shorter edge of golden rectangle
-                normal_sign_index * 4 + normal_permutation, // TODO: Figure out other adjacent sides
-                normal_sign_index * 4 + normal_permutation,
-                normal_sign_index * 4 + normal_permutation,
-                normal_sign_index * 4 + normal_permutation,
-            ]
-            .map(|i| Side::VALUES[i]);
+                Side::packed_index(rectangle, short_side_sign + 1, long_side_sign),
+                Side::packed_index(rectangle + 1, long_side_sign, side_parity_sign),
+                Side::packed_index(rectangle + 2, side_parity_sign, short_side_sign),
+                Side::packed_index(rectangle + 2, side_parity_sign + 1, short_side_sign),
+                Side::packed_index(rectangle + 1, long_side_sign, side_parity_sign + 1),
+            ];
             let mut adjacency_map = EnumMap::from_fn(|_| false);
             for adjacent_side in adjacent_sides {
                 adjacency_map[adjacent_side] = true;
@@ -406,6 +409,26 @@ impl Dodecahedron {
                 reflection_f64,
             }
         });
+
+        todo!()
+    }
+}
+
+impl Side {
+    fn packed_index(rectangle: usize, short_side_sign: usize, long_side_sign: usize) -> Self {
+        Self::VALUES[(rectangle % 3) + (short_side_sign % 2) * 3 + (long_side_sign % 2) * 6]
+    }
+
+    fn rectangle(self) -> usize {
+        (self as usize) % 3
+    }
+
+    fn short_side_sign(self) -> usize {
+        ((self as usize) / 3) % 2
+    }
+
+    fn long_side_sign(self) -> usize {
+        ((self as usize) / 6) % 2
     }
 }
 
