@@ -412,8 +412,53 @@ impl Dodecahedron {
 
         let vertex_data: EnumMap<Vertex, _> =
             EnumMap::from_fn(|vertex: Vertex| match CubeOrRectangleVertex::from(vertex) {
-                CubeOrRectangleVertex::Cube(_) => todo!(),
-                CubeOrRectangleVertex::Rectangle(_) => todo!(),
+                CubeOrRectangleVertex::Cube(vertex) => {
+                    let signs = vertex.signs();
+                    let sign_parity = (signs[0] + signs[1] + signs[2]) % 3;
+                    let mut incident_sides = [
+                        Side::packed_index(0, signs[1], signs[2]),
+                        Side::packed_index(1, signs[2], signs[0]),
+                        Side::packed_index(2, signs[0], signs[1]),
+                    ];
+                    let mut adjacent_vertices = [
+                        RectangleVertex::packed_index(2, signs[0], signs[1]),
+                        RectangleVertex::packed_index(0, signs[1], signs[2]),
+                        RectangleVertex::packed_index(1, signs[2], signs[0]),
+                    ];
+                    if sign_parity == 1 {
+                        incident_sides.swap(1, 2);
+                        adjacent_vertices.swap(1, 2);
+                    }
+                }
+                CubeOrRectangleVertex::Rectangle(vertex) => {
+                    let rectangle = vertex.rectangle();
+                    let short_side_sign = vertex.short_side_sign();
+                    let long_side_sign = vertex.long_side_sign();
+                    let side_parity_sign = (short_side_sign + long_side_sign) % 2;
+                    let mut incident_sides = [
+                        Side::packed_index(rectangle, long_side_sign, short_side_sign),
+                        Side::packed_index(rectangle + 2, side_parity_sign, long_side_sign),
+                        Side::packed_index(rectangle + 2, side_parity_sign + 1, long_side_sign),
+                    ];
+                    let mut adjacent_vertices = [
+                        RectangleVertex::packed_index(
+                            rectangle,
+                            short_side_sign + 1,
+                            long_side_sign,
+                        )
+                        .0,
+                        CubeVertex::packed_index(math::tuv_to_xyz(
+                            rectangle,
+                            [short_side_sign, long_side_sign, side_parity_sign + 1],
+                        ))
+                        .0,
+                        CubeVertex::packed_index(math::tuv_to_xyz(
+                            rectangle,
+                            [short_side_sign, long_side_sign, side_parity_sign],
+                        ))
+                        .0,
+                    ];
+                }
             });
 
         todo!()
@@ -453,6 +498,7 @@ impl From<Vertex> for CubeOrRectangleVertex {
     }
 }
 
+#[derive(Clone, Copy)]
 struct CubeVertex(Vertex);
 
 impl From<CubeVertex> for Vertex {
@@ -475,6 +521,7 @@ impl CubeVertex {
     }
 }
 
+#[derive(Clone, Copy)]
 struct RectangleVertex(Vertex);
 
 impl From<RectangleVertex> for Vertex {
