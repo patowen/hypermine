@@ -111,6 +111,16 @@ impl Reader {
         Ok(Some(VoxelNode::decode(&*self.accum)?))
     }
 
+    pub fn get_inactive_entity(&mut self, name: &str) -> Result<Option<InactiveEntity>, GetError> {
+        let Some(node) = self.inactive_entities.get(&name)? else {
+            return Ok(None);
+        };
+        self.accum.clear();
+        decompress(&mut self.dctx, node.value(), &mut self.accum)
+            .map_err(GetError::DecompressionFailed)?;
+        Ok(Some(InactiveEntity::decode(&*self.accum)?))
+    }
+
     pub fn get_entity_node(&mut self, node_id: u128) -> Result<Option<EntityNode>, GetError> {
         let Some(node) = self.entity_nodes.get(&node_id)? else {
             return Ok(None);
@@ -232,6 +242,12 @@ impl Writer<'_> {
     pub fn put_voxel_node(&mut self, node_id: u128, state: &VoxelNode) -> Result<(), DbError> {
         prepare(&mut self.cctx, &mut self.plain, &mut self.compressed, state);
         self.voxel_nodes.insert(node_id, &*self.compressed)?;
+        Ok(())
+    }
+
+    pub fn put_inactive_entity(&mut self, name: &str, state: &InactiveEntity) -> Result<(), DbError> {
+        prepare(&mut self.cctx, &mut self.plain, &mut self.compressed, state);
+        self.inactive_entities.insert(name, &*self.compressed)?;
         Ok(())
     }
 

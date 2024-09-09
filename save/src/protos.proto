@@ -16,8 +16,8 @@ message InactiveEntity {
     // Node the entity would be in if it were active
     bytes node_id = 1;
 
-    // Entity data, analogous to the format of each entity in EntityNode
-    bytes entity = 2;
+    // Entities who are strongly associated with the inactive entity in question, analogous to the format of each entity in EntityNode
+    repeated bytes entities = 2;
 }
 
 message EntityNode {
