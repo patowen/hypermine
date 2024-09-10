@@ -212,6 +212,10 @@ impl Sim {
                 }));
                 entity_builder.add(Inventory { contents: vec![] });
             }
+            ComponentType::Material => {
+                let material: u16 = postcard::from_bytes(&component_bytes)?;
+                entity_builder.add(Material::try_from(material)?);
+            }
         }
         Ok(())
     }
