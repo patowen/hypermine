@@ -41,6 +41,7 @@ impl Save {
                 Err(e) => return Err(OpenError::Db(DbError(e.into()))),
             }
         };
+        init_tables(&db)?;
         Ok(Self { meta, db })
     }
 
@@ -76,9 +77,15 @@ fn init_meta_table(db: &Database, value: &Meta) -> Result<(), redb::Error> {
     prepare(&mut cctx, &mut plain, &mut compressed, value);
     meta.insert(&[][..], &*compressed)?;
     drop(meta);
+    tx.commit()?;
+    Ok(())
+}
 
+fn init_tables(db: &Database) -> Result<(), redb::Error> {
+    let tx = db.begin_write()?;
     tx.open_table(VOXEL_NODE_TABLE)?;
     tx.open_table(ENTITY_NODE_TABLE)?;
+    tx.open_table(INACTIVE_ENTITIES_TABLE)?;
     tx.open_table(CHARACTERS_BY_NAME_TABLE)?;
     tx.commit()?;
     Ok(())
