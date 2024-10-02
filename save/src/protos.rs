@@ -57,6 +57,8 @@ pub enum ComponentType {
     Name = 1,
     /// u16
     Material = 2,
+    /// List of u64
+    Inventory = 3,
 }
 impl ComponentType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -68,6 +70,7 @@ impl ComponentType {
             ComponentType::Position => "POSITION",
             ComponentType::Name => "NAME",
             ComponentType::Material => "MATERIAL",
+            ComponentType::Inventory => "INVENTORY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -76,6 +79,7 @@ impl ComponentType {
             "POSITION" => Some(Self::Position),
             "NAME" => Some(Self::Name),
             "MATERIAL" => Some(Self::Material),
+            "INVENTORY" => Some(Self::Inventory),
             _ => None,
         }
     }

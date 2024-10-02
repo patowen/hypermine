@@ -210,11 +210,22 @@ impl Sim {
                         orientation: na::UnitQuaternion::identity(),
                     },
                 }));
-                entity_builder.add(Inventory { contents: vec![] });
             }
             ComponentType::Material => {
                 let material: u16 = postcard::from_bytes(&component_bytes)?;
                 entity_builder.add(Material::try_from(material)?);
+            }
+            ComponentType::Inventory => {
+                // TODO: How to make this well-defined (deserializing to a vec likely contains extra unneeded info)
+                // TODO: Possible to convert to the right type without an intermediate section?
+                // TODO: Is this equivalent to from_le_bytes?
+                let contents_slice: Vec<u64> = postcard::from_bytes(&component_bytes)?;
+                entity_builder.add(Inventory {
+                    contents: contents_slice
+                        .into_iter()
+                        .map(EntityId::from_bits)
+                        .collect(),
+                });
             }
         }
         Ok(())
@@ -267,6 +278,7 @@ impl Sim {
             }) {
                 components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
             }
+            // TODO: Add Material and Inventory
             let mut repr = Vec::new();
             postcard_helpers::serialize(
                 &SaveEntity {
