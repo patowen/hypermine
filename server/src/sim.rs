@@ -278,7 +278,19 @@ impl Sim {
             }) {
                 components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
             }
-            // TODO: Add Material and Inventory
+            if let Some(material) = entity.get::<&Material>() {
+                components.push((
+                    ComponentType::Material as u64,
+                    postcard::to_stdvec(&*material).unwrap(),
+                ));
+            }
+            if let Some(inventory) = entity.get::<&Inventory>() {
+                components.push((
+                    ComponentType::Inventory as u64,
+                    postcard::to_stdvec(inventory.contents.as_slice()).unwrap(),
+                ));
+            }
+            // TODO: Add inventory contents
             let mut repr = Vec::new();
             postcard_helpers::serialize(
                 &SaveEntity {
