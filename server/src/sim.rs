@@ -254,21 +254,22 @@ impl Sim {
     fn snapshot_node(&self, node: NodeId) -> save::EntityNode {
         let mut entities = Vec::new();
         for &entity in self.graph_entities.get(node) {
-            let Some(repr) = self.snapshot_entity(entity) else {
-                continue;
-            };
-            entities.push(repr);
+            let reprs = self.snapshot_entity_and_children(entity);
+            entities.extend_from_slice(&reprs);
         }
 
         save::EntityNode { entities }
     }
 
-    fn snapshot_entity(&self, entity: Entity) -> Option<Vec<u8>> {
+    fn snapshot_entity_and_children(&self, entity: Entity) -> Vec<Vec<u8>> {
+        let mut reprs = vec![];
         let Ok(entity) = self.world.entity(entity) else {
             error!("stale graph entity {:?}", entity);
-            return None;
+            return reprs;
         };
-        let id = entity.get::<&EntityId>()?;
+        let Some(id) = entity.get::<&EntityId>() else {
+            return reprs;
+        };
         let mut components = Vec::new();
         if let Some(pos) = entity.get::<&Position>() {
             components.push((
@@ -292,16 +293,15 @@ impl Sim {
         if let Some(inventory) = entity.get::<&Inventory>() {
             let mut serialized_inventory_contents = vec![];
             for entity_id in &inventory.contents {
-                self.snapshot_entity(self.entity_ids[entity_id]);
+                reprs.extend_from_slice(
+                    &self.snapshot_entity_and_children(self.entity_ids[entity_id]),
+                );
                 serialized_inventory_contents.extend_from_slice(&entity_id.to_bits().to_le_bytes());
             }
             components.push((
                 ComponentType::Inventory as u64,
                 serialized_inventory_contents,
             ));
-            for entity_id in &inventory.contents {
-                self.snapshot_entity(self.entity_ids[entity_id]);
-            }
         }
         let mut repr = Vec::new();
         postcard_helpers::serialize(
@@ -313,7 +313,8 @@ impl Sim {
         )
         .unwrap();
 
-        Some(repr)
+        reprs.push(repr);
+        reprs
     }
 
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
