@@ -216,16 +216,13 @@ impl Sim {
                 entity_builder.add(Material::try_from(material)?);
             }
             ComponentType::Inventory => {
-                // TODO: How to make this well-defined (deserializing to a vec likely contains extra unneeded info)
-                // TODO: Possible to convert to the right type without an intermediate section?
-                // TODO: Is this equivalent to from_le_bytes?
-                let contents_slice: Vec<u64> = postcard::from_bytes(&component_bytes)?;
-                entity_builder.add(Inventory {
-                    contents: contents_slice
-                        .into_iter()
-                        .map(EntityId::from_bits)
-                        .collect(),
-                });
+                let mut contents = vec![];
+                for chunk in component_bytes.chunks(8) {
+                    contents.push(EntityId::from_bits(u64::from_le_bytes(
+                        chunk.try_into().unwrap(),
+                    )));
+                }
+                entity_builder.add(Inventory { contents });
             }
         }
         Ok(())
@@ -293,11 +290,16 @@ impl Sim {
             ));
         }
         if let Some(inventory) = entity.get::<&Inventory>() {
+            let mut serialized_inventory_contents = vec![];
+            for entity_id in &inventory.contents {
+                self.snapshot_entity(self.entity_ids[entity_id]);
+                serialized_inventory_contents.extend_from_slice(&entity_id.to_bits().to_le_bytes());
+            }
             components.push((
                 ComponentType::Inventory as u64,
-                postcard::to_stdvec(inventory.contents.as_slice()).unwrap(),
+                serialized_inventory_contents,
             ));
-            for entity_id in inventory.contents.iter() {
+            for entity_id in &inventory.contents {
                 self.snapshot_entity(self.entity_ids[entity_id]);
             }
         }
