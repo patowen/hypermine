@@ -41,7 +41,6 @@ impl Save {
                 Err(e) => return Err(OpenError::Db(DbError(e.into()))),
             }
         };
-        init_tables(&db)?;
         Ok(Self { meta, db })
     }
 
@@ -55,7 +54,6 @@ impl Save {
         Ok(Reader {
             voxel_nodes: tx.open_table(VOXEL_NODE_TABLE)?,
             entity_nodes: tx.open_table(ENTITY_NODE_TABLE)?,
-            inactive_entities: tx.open_table(INACTIVE_ENTITIES_TABLE)?,
             characters: tx.open_table(CHARACTERS_BY_NAME_TABLE)?,
             dctx: dctx(),
             accum: Vec::new(),
@@ -77,15 +75,9 @@ fn init_meta_table(db: &Database, value: &Meta) -> Result<(), redb::Error> {
     prepare(&mut cctx, &mut plain, &mut compressed, value);
     meta.insert(&[][..], &*compressed)?;
     drop(meta);
-    tx.commit()?;
-    Ok(())
-}
 
-fn init_tables(db: &Database) -> Result<(), redb::Error> {
-    let tx = db.begin_write()?;
     tx.open_table(VOXEL_NODE_TABLE)?;
     tx.open_table(ENTITY_NODE_TABLE)?;
-    tx.open_table(INACTIVE_ENTITIES_TABLE)?;
     tx.open_table(CHARACTERS_BY_NAME_TABLE)?;
     tx.commit()?;
     Ok(())
@@ -101,7 +93,6 @@ fn dctx() -> zstd::DCtx<'static> {
 pub struct Reader {
     voxel_nodes: redb::ReadOnlyTable<u128, &'static [u8]>,
     entity_nodes: redb::ReadOnlyTable<u128, &'static [u8]>,
-    inactive_entities: redb::ReadOnlyTable<&'static str, &'static [u8]>,
     characters: redb::ReadOnlyTable<&'static str, &'static [u8]>,
     dctx: zstd::DCtx<'static>,
     accum: Vec<u8>,
@@ -116,16 +107,6 @@ impl Reader {
         decompress(&mut self.dctx, node.value(), &mut self.accum)
             .map_err(GetError::DecompressionFailed)?;
         Ok(Some(VoxelNode::decode(&*self.accum)?))
-    }
-
-    pub fn get_inactive_entity(&mut self, name: &str) -> Result<Option<InactiveEntity>, GetError> {
-        let Some(node) = self.inactive_entities.get(&name)? else {
-            return Ok(None);
-        };
-        self.accum.clear();
-        decompress(&mut self.dctx, node.value(), &mut self.accum)
-            .map_err(GetError::DecompressionFailed)?;
-        Ok(Some(InactiveEntity::decode(&*self.accum)?))
     }
 
     pub fn get_entity_node(&mut self, node_id: u128) -> Result<Option<EntityNode>, GetError> {
@@ -206,10 +187,6 @@ impl WriterGuard {
                 .tx
                 .open_table(ENTITY_NODE_TABLE)
                 .map_err(redb::Error::from)?,
-            inactive_entities: self
-                .tx
-                .open_table(INACTIVE_ENTITIES_TABLE)
-                .map_err(redb::Error::from)?,
             characters: self
                 .tx
                 .open_table(CHARACTERS_BY_NAME_TABLE)
@@ -238,7 +215,6 @@ fn cctx() -> zstd::CCtx<'static> {
 pub struct Writer<'guard> {
     voxel_nodes: redb::Table<'guard, u128, &'static [u8]>,
     entity_nodes: redb::Table<'guard, u128, &'static [u8]>,
-    inactive_entities: redb::Table<'guard, &'static str, &'static [u8]>,
     characters: redb::Table<'guard, &'static str, &'static [u8]>,
     cctx: zstd::CCtx<'static>,
     plain: Vec<u8>,
@@ -249,12 +225,6 @@ impl Writer<'_> {
     pub fn put_voxel_node(&mut self, node_id: u128, state: &VoxelNode) -> Result<(), DbError> {
         prepare(&mut self.cctx, &mut self.plain, &mut self.compressed, state);
         self.voxel_nodes.insert(node_id, &*self.compressed)?;
-        Ok(())
-    }
-
-    pub fn put_inactive_entity(&mut self, name: &str, state: &InactiveEntity) -> Result<(), DbError> {
-        prepare(&mut self.cctx, &mut self.plain, &mut self.compressed, state);
-        self.inactive_entities.insert(name, &*self.compressed)?;
         Ok(())
     }
 
@@ -295,8 +265,6 @@ fn prepare<T: prost::Message>(
 const META_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("meta");
 const VOXEL_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("voxel nodes");
 const ENTITY_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("entity nodes");
-const INACTIVE_ENTITIES_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("inactive entities");
 const CHARACTERS_BY_NAME_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("characters by name");
 

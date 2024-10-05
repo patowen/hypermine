@@ -15,16 +15,6 @@ pub struct Character {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct InactiveEntity {
-    /// Node the entity would be in if it were active
-    #[prost(bytes = "vec", tag = "1")]
-    pub node_id: ::prost::alloc::vec::Vec<u8>,
-    /// Entities who are strongly associated with the inactive entity in question, analogous to the format of each entity in EntityNode
-    #[prost(bytes = "vec", repeated, tag = "2")]
-    pub entities: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct EntityNode {
     /// Entities whose origins lie within this node, each encoded as:
     /// { entity: u64, component_count: varint, components: \[{ type: varint, length: varint, data: [u8\] }] }
