@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -100,7 +98,7 @@ impl Material {
 #[derive(Debug, Clone, Copy)]
 pub struct MaterialOutOfBounds;
 
-impl Display for MaterialOutOfBounds {
+impl std::fmt::Display for MaterialOutOfBounds {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Integer input does not represent a valid material")
     }
