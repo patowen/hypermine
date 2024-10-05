@@ -212,7 +212,7 @@ impl Sim {
                 }));
             }
             ComponentType::Material => {
-                let material: u16 = postcard::from_bytes(&component_bytes)?;
+                let material: u16 = u16::from_le_bytes(component_bytes.try_into().unwrap());
                 entity_builder.add(Material::try_from(material)?);
             }
             ComponentType::Inventory => {
@@ -287,7 +287,7 @@ impl Sim {
         if let Some(material) = entity.get::<&Material>() {
             components.push((
                 ComponentType::Material as u64,
-                postcard::to_stdvec(&*material).unwrap(),
+                (*material as u16).to_le_bytes().into(),
             ));
         }
         if let Some(inventory) = entity.get::<&Inventory>() {
