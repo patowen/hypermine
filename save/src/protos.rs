@@ -52,10 +52,10 @@ impl ComponentType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            ComponentType::Position => "POSITION",
-            ComponentType::Name => "NAME",
-            ComponentType::Material => "MATERIAL",
-            ComponentType::Inventory => "INVENTORY",
+            Self::Position => "POSITION",
+            Self::Name => "NAME",
+            Self::Material => "MATERIAL",
+            Self::Inventory => "INVENTORY",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
