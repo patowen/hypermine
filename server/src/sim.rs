@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use common::dodeca::{Side, Vertex};
 use common::math::MIsometry;
 use common::node::VoxelData;
@@ -212,7 +212,10 @@ impl Sim {
                 }));
             }
             ComponentType::Material => {
-                let material: u16 = u16::from_le_bytes(component_bytes.try_into().unwrap());
+                let material: u16 =
+                    u16::from_le_bytes(component_bytes.try_into().map_err(|_| {
+                        anyhow::anyhow!("Expected Material component in save file to be 2 bytes")
+                    })?);
                 entity_builder.add(Material::try_from(material)?);
             }
             ComponentType::Inventory => {
