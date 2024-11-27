@@ -559,6 +559,33 @@ impl Sim {
             }
         }
 
+        // Synchronize NodeId for all inventory items.
+        // TODO: Note that the order in which inventory items are updated is arbitrary, so
+        // if inventory items can themselves have inventories, their respective NodeIds
+        // may be out of date by a few steps, which could cause bugs. This can be solved with
+        // a more complete entity heirarchy system
+        for (_, (&inventory_node_id, inventory)) in
+            self.world.query::<(&NodeId, &Inventory)>().iter()
+        {
+            for inventory_entity_id in &inventory.contents {
+                let inventory_entity = *self.entity_ids.get(inventory_entity_id).unwrap();
+
+                let mut inventory_entity_node_id =
+                    self.world.get::<&mut NodeId>(inventory_entity).unwrap();
+
+                if *inventory_entity_node_id != inventory_node_id {
+                    self.dirty_nodes.insert(*inventory_entity_node_id);
+                    self.graph_entities
+                        .remove(*inventory_entity_node_id, inventory_entity);
+
+                    *inventory_entity_node_id = inventory_node_id;
+                    self.dirty_nodes.insert(*inventory_entity_node_id);
+                    self.graph_entities
+                        .insert(*inventory_entity_node_id, inventory_entity);
+                }
+            }
+        }
+
         let spawns = std::mem::take(&mut self.accumulated_changes).into_spawns(
             self.step,
             &self.world,
