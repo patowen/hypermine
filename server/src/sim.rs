@@ -559,32 +559,7 @@ impl Sim {
             }
         }
 
-        // Synchronize NodeId for all inventory items.
-        // TODO: Note that the order in which inventory items are updated is arbitrary, so
-        // if inventory items can themselves have inventories, their respective NodeIds
-        // may be out of date by a few steps, which could cause bugs. This can be solved with
-        // a more complete entity heirarchy system
-        for (_, (&inventory_node_id, inventory)) in
-            self.world.query::<(&NodeId, &Inventory)>().iter()
-        {
-            for inventory_entity_id in &inventory.contents {
-                let inventory_entity = *self.entity_ids.get(inventory_entity_id).unwrap();
-
-                let mut inventory_entity_node_id =
-                    self.world.get::<&mut NodeId>(inventory_entity).unwrap();
-
-                if *inventory_entity_node_id != inventory_node_id {
-                    self.dirty_nodes.insert(*inventory_entity_node_id);
-                    self.graph_entities
-                        .remove(*inventory_entity_node_id, inventory_entity);
-
-                    *inventory_entity_node_id = inventory_node_id;
-                    self.dirty_nodes.insert(*inventory_entity_node_id);
-                    self.graph_entities
-                        .insert(*inventory_entity_node_id, inventory_entity);
-                }
-            }
-        }
+        self.update_entity_node_ids();
 
         let spawns = std::mem::take(&mut self.accumulated_changes).into_spawns(
             self.step,
@@ -612,6 +587,51 @@ impl Sim {
 
         self.step += 1;
         (spawns, delta)
+    }
+
+    /// Ensure that the NodeId component of every entity is set to what it should be to ensure consistency. Any entity
+    /// with a position should have a NodeId that matches that position, and all entities with inventories should propagate
+    /// their NodeId to their inventory items.
+    fn update_entity_node_ids(&mut self) {
+        // Helper function for properly changing the NodeId of a given node without leaving any
+        // of the supporting structures out of date.
+        let mut update_node_id = |entity: Entity, node_id: &mut NodeId, new_node_id: NodeId| {
+            if *node_id != new_node_id {
+                self.dirty_nodes.insert(*node_id);
+                self.graph_entities.remove(*node_id, entity);
+
+                *node_id = new_node_id;
+                self.dirty_nodes.insert(*node_id);
+                self.graph_entities.insert(*node_id, entity);
+            }
+        };
+
+        // Synchronize NodeId and Position
+        for (entity, (node_id, position)) in self.world.query::<(&mut NodeId, &Position)>().iter() {
+            update_node_id(entity, node_id, position.node);
+        }
+
+        // Synchronize NodeId for all inventory items.
+        // TODO: Note that the order in which inventory items are updated is arbitrary, so
+        // if inventory items can themselves have inventories, their respective NodeIds
+        // may be out of date by a few steps, which could cause bugs. This can be solved with
+        // a more complete entity hierarchy system
+        for (_, (&inventory_node_id, inventory)) in
+            self.world.query::<(&NodeId, &Inventory)>().iter()
+        {
+            for inventory_entity_id in &inventory.contents {
+                let inventory_entity = *self.entity_ids.get(inventory_entity_id).unwrap();
+
+                let mut inventory_entity_node_id =
+                    self.world.get::<&mut NodeId>(inventory_entity).unwrap();
+
+                update_node_id(
+                    inventory_entity,
+                    &mut inventory_entity_node_id,
+                    inventory_node_id,
+                );
+            }
+        }
     }
 
     /// Should be called after any set of changes is made to the graph to ensure that the server
