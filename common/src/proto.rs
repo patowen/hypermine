@@ -115,6 +115,11 @@ pub struct Inventory {
     pub contents: Vec<EntityId>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NodeRelativePosition {
+    transform: MIsometry<f32>,
+}
+
 pub mod connection_error_codes {
     use quinn::VarInt;
 

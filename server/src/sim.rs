@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 use common::dodeca::{Side, Vertex};
 use common::math::MIsometry;
 use common::node::VoxelData;
@@ -147,6 +147,7 @@ impl Sim {
         let entity_id = EntityId::from_bits(u64::from_le_bytes(save_entity.entity));
         let mut entity_builder = EntityBuilder::new();
         entity_builder.add(entity_id);
+        entity_builder.add(node);
         for (component_type, component_bytes) in save_entity.components {
             self.load_component(
                 read,
@@ -257,67 +258,57 @@ impl Sim {
     fn snapshot_node(&self, node: NodeId) -> save::EntityNode {
         let mut entities = Vec::new();
         for &entity in self.graph_entities.get(node) {
-            let reprs = self.snapshot_entity_and_children(entity);
-            entities.extend_from_slice(&reprs);
+            let Ok(entity) = self.world.entity(entity) else {
+                error!("stale graph entity {:?}", entity);
+                continue;
+            };
+            let Some(id) = entity.get::<&EntityId>() else {
+                continue;
+            };
+            let mut components = Vec::new();
+            if let Some(pos) = entity.get::<&Position>() {
+                components.push((
+                    ComponentType::Position as u64,
+                    postcard::to_stdvec(&pos.local.as_ref()).unwrap(),
+                ));
+            }
+            if let Some(ch) = entity.get::<&Character>().or_else(|| {
+                entity
+                    .get::<&InactiveCharacter>()
+                    .map(|ich| hecs::Ref::map(ich, |ich| &ich.0)) // Extract Ref<Character> from Ref<InactiveCharacter>
+            }) {
+                components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
+            }
+            if let Some(material) = entity.get::<&Material>() {
+                components.push((
+                    ComponentType::Material as u64,
+                    (*material as u16).to_le_bytes().into(),
+                ));
+            }
+            if let Some(inventory) = entity.get::<&Inventory>() {
+                let mut serialized_inventory_contents = vec![];
+                for entity_id in &inventory.contents {
+                    serialized_inventory_contents
+                        .extend_from_slice(&entity_id.to_bits().to_le_bytes());
+                }
+                components.push((
+                    ComponentType::Inventory as u64,
+                    serialized_inventory_contents,
+                ));
+            }
+            let mut repr = Vec::new();
+            postcard_helpers::serialize(
+                &SaveEntity {
+                    entity: id.to_bits().to_le_bytes(),
+                    components,
+                },
+                &mut repr,
+            )
+            .unwrap();
+            entities.push(repr);
         }
 
         save::EntityNode { entities }
-    }
-
-    fn snapshot_entity_and_children(&self, entity: Entity) -> Vec<Vec<u8>> {
-        let mut reprs = vec![];
-        let Ok(entity) = self.world.entity(entity) else {
-            error!("stale graph entity {:?}", entity);
-            return reprs;
-        };
-        let Some(id) = entity.get::<&EntityId>() else {
-            return reprs;
-        };
-        let mut components = Vec::new();
-        if let Some(pos) = entity.get::<&Position>() {
-            components.push((
-                ComponentType::Position as u64,
-                postcard::to_stdvec(&pos.local.as_ref()).unwrap(),
-            ));
-        }
-        if let Some(ch) = entity.get::<&Character>().or_else(|| {
-            entity
-                .get::<&InactiveCharacter>()
-                .map(|ich| hecs::Ref::map(ich, |ich| &ich.0)) // Extract Ref<Character> from Ref<InactiveCharacter>
-        }) {
-            components.push((ComponentType::Name as u64, ch.name.as_bytes().into()));
-        }
-        if let Some(material) = entity.get::<&Material>() {
-            components.push((
-                ComponentType::Material as u64,
-                (*material as u16).to_le_bytes().into(),
-            ));
-        }
-        if let Some(inventory) = entity.get::<&Inventory>() {
-            let mut serialized_inventory_contents = vec![];
-            for entity_id in &inventory.contents {
-                reprs.extend_from_slice(
-                    &self.snapshot_entity_and_children(self.entity_ids[entity_id]),
-                );
-                serialized_inventory_contents.extend_from_slice(&entity_id.to_bits().to_le_bytes());
-            }
-            components.push((
-                ComponentType::Inventory as u64,
-                serialized_inventory_contents,
-            ));
-        }
-        let mut repr = Vec::new();
-        postcard_helpers::serialize(
-            &SaveEntity {
-                entity: id.to_bits().to_le_bytes(),
-                components,
-            },
-            &mut repr,
-        )
-        .unwrap();
-
-        reprs.push(repr);
-        reprs
     }
 
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
@@ -386,7 +377,7 @@ impl Sim {
         };
         let inventory = Inventory { contents: vec![] };
         let initial_input = CharacterInput::default();
-        Some(self.spawn((position, character, inventory, initial_input)))
+        Some(self.spawn((position.node, position, character, inventory, initial_input)))
     }
 
     pub fn deactivate_character(&mut self, entity: Entity) {
@@ -408,9 +399,9 @@ impl Sim {
         entity_builder.add_bundle(bundle);
         let entity = self.world.spawn(entity_builder.build());
 
-        if let Ok(position) = self.world.get::<&Position>(entity) {
-            self.graph_entities.insert(position.node, entity);
-            self.dirty_nodes.insert(position.node);
+        if let Ok(node) = self.world.get::<&NodeId>(entity) {
+            self.graph_entities.insert(*node, entity);
+            self.dirty_nodes.insert(*node);
         }
 
         if let Ok(character) = self.world.get::<&Character>(entity) {
@@ -531,12 +522,11 @@ impl Sim {
         let mut pending_block_updates: Vec<(Entity, BlockUpdate)> = vec![];
 
         // Simulate
-        for (entity, (position, character, input)) in self
+        for (entity, (node, position, character, input)) in self
             .world
-            .query::<(&mut Position, &mut Character, &CharacterInput)>()
+            .query::<(&NodeId, &mut Position, &mut Character, &CharacterInput)>()
             .iter()
         {
-            let prev_node = position.node;
             character_controller::run_character_step(
                 &self.cfg,
                 &self.graph,
@@ -549,17 +539,24 @@ impl Sim {
             if let Some(block_update) = input.block_update.clone() {
                 pending_block_updates.push((entity, block_update));
             }
-            if prev_node != position.node {
-                self.dirty_nodes.insert(prev_node);
-                self.graph_entities.remove(prev_node, entity);
-                self.graph_entities.insert(position.node, entity);
-            }
-            self.dirty_nodes.insert(position.node);
+            self.dirty_nodes.insert(*node);
         }
 
         for (entity, block_update) in pending_block_updates {
             let id = *self.world.get::<&EntityId>(entity).unwrap();
             self.attempt_block_update(id, block_update);
+        }
+
+        // Synchronize NodeId and Position
+        for (entity, (node_id, position)) in self.world.query::<(&mut NodeId, &Position)>().iter() {
+            if *node_id != position.node {
+                self.dirty_nodes.insert(*node_id);
+                self.graph_entities.remove(*node_id, entity);
+
+                *node_id = position.node;
+                self.dirty_nodes.insert(*node_id);
+                self.graph_entities.insert(*node_id, entity);
+            }
         }
 
         let spawns = std::mem::take(&mut self.accumulated_changes).into_spawns(
@@ -654,6 +651,10 @@ impl Sim {
     /// Executes the requested block update if the subject is able to do so and
     /// leaves the state of the world unchanged otherwise
     fn attempt_block_update(&mut self, subject: EntityId, block_update: BlockUpdate) {
+        let subject_node = *self
+            .world
+            .get::<&NodeId>(*self.entity_ids.get(&subject).unwrap())
+            .unwrap();
         let Some(old_material) = self
             .graph
             .get_material(block_update.chunk_id, block_update.coords)
@@ -686,7 +687,7 @@ impl Sim {
                 self.destroy(consumed_entity);
             }
             if old_material != Material::Void {
-                let (produced_entity, _) = self.spawn((old_material,));
+                let (produced_entity, _) = self.spawn((subject_node, old_material));
                 self.add_to_inventory(subject, produced_entity);
             }
         }
