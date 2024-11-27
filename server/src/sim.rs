@@ -432,8 +432,8 @@ impl Sim {
     pub fn destroy(&mut self, entity: Entity) {
         let id = *self.world.get::<&EntityId>(entity).unwrap();
         self.entity_ids.remove(&id);
-        if let Ok(position) = self.world.get::<&Position>(entity) {
-            self.graph_entities.remove(position.node, entity);
+        if let Ok(node) = self.world.get::<&NodeId>(entity) {
+            self.graph_entities.remove(*node, entity);
         }
         if !self.world.satisfies::<&InactiveCharacter>(entity).unwrap() {
             self.accumulated_changes.despawns.push(id);
