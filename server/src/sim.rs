@@ -547,18 +547,6 @@ impl Sim {
             self.attempt_block_update(id, block_update);
         }
 
-        // Synchronize NodeId and Position
-        for (entity, (node_id, position)) in self.world.query::<(&mut NodeId, &Position)>().iter() {
-            if *node_id != position.node {
-                self.dirty_nodes.insert(*node_id);
-                self.graph_entities.remove(*node_id, entity);
-
-                *node_id = position.node;
-                self.dirty_nodes.insert(*node_id);
-                self.graph_entities.insert(*node_id, entity);
-            }
-        }
-
         self.update_entity_node_ids();
 
         let spawns = std::mem::take(&mut self.accumulated_changes).into_spawns(
