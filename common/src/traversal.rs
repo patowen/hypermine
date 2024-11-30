@@ -118,7 +118,7 @@ impl BackgroundGraphTraverser {
         }
     }
 
-    pub fn ensure_next(&mut self, graph: &mut Graph) -> bool {
+    pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<Position> {
         if let Some(current) = self.pending.pop_front() {
             for side in Side::iter() {
                 let neighbor = graph.ensure_neighbor(current.node, side);
@@ -136,38 +136,38 @@ impl BackgroundGraphTraverser {
                     local: neighbor_transform,
                 });
             }
-            true
+            Some(current)
         } else {
-            false
+            None
         }
     }
 
     // Note for future documentation: We want Position to represent the exact same position as "start" every time,
     // but from the perspective of various different nodes
     pub fn next_populated(&mut self, graph: &Graph) -> Option<Position> {
-        // TODO: This has virtually unbounded runtime due to needing to always return _something_
-        while let Some(current) = self.pending.pop_front() {
-            let current_position = current.local * MVector::origin();
-            if -self.start_position.mip(&current_position) > self.cosh_distance {
-                continue;
-            }
+        if let Some(current) = self.pending.pop_front() {
             for side in Side::iter() {
-                let neighbor = match graph.neighbor(current.node, side) {
-                    None => continue,
-                    Some(x) => x,
+                let Some(neighbor) = graph.neighbor(current.node, side) else {
+                    continue;
                 };
                 if self.visited.contains(&neighbor) {
                     continue;
                 }
+                self.visited.insert(neighbor);
+                let neighbor_transform = current.local * *side.reflection();
+                let neighbor_position = neighbor_transform * MVector::origin();
+                if -self.start_position.mip(&neighbor_position) > self.cosh_distance {
+                    continue;
+                }
                 self.pending.push_back(Position {
                     node: neighbor,
-                    local: current.local * *side.reflection(),
+                    local: neighbor_transform,
                 });
-                self.visited.insert(neighbor);
             }
-            return Some(current);
+            Some(current)
+        } else {
+            None
         }
-        None
     }
 }
 
