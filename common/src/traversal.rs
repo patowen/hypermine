@@ -93,6 +93,84 @@ pub fn nearby_nodes(
     result
 }
 
+/// Iterator-like struct for traversing a graph breadth-first. This struct is designed to be able to continue a traversal between frames
+pub struct BackgroundGraphTraverser {
+    pending: VecDeque<Position>,
+    visited: FxHashSet<NodeId>,
+    cosh_distance: f32,
+    start_position: MVector<f32>,
+}
+
+impl BackgroundGraphTraverser {
+    pub fn new(start: Position, distance: f32) -> Self {
+        let mut pending = VecDeque::<Position>::new();
+        let mut visited = FxHashSet::<NodeId>::default();
+
+        pending.push_back(start);
+        visited.insert(start.node);
+        let start_position = start.local * MVector::origin();
+
+        BackgroundGraphTraverser {
+            pending,
+            visited,
+            cosh_distance: distance.cosh(),
+            start_position,
+        }
+    }
+
+    pub fn ensure_next(&mut self, graph: &mut Graph) -> bool {
+        if let Some(current) = self.pending.pop_front() {
+            for side in Side::iter() {
+                let neighbor = graph.ensure_neighbor(current.node, side);
+                if self.visited.contains(&neighbor) {
+                    continue;
+                }
+                self.visited.insert(neighbor);
+                let neighbor_transform = current.local * *side.reflection();
+                let neighbor_position = neighbor_transform * MVector::origin();
+                if -self.start_position.mip(&neighbor_position) > self.cosh_distance {
+                    continue;
+                }
+                self.pending.push_back(Position {
+                    node: neighbor,
+                    local: neighbor_transform,
+                });
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    // Note for future documentation: We want Position to represent the exact same position as "start" every time,
+    // but from the perspective of various different nodes
+    pub fn next_populated(&mut self, graph: &Graph) -> Option<Position> {
+        // TODO: This has virtually unbounded runtime due to needing to always return _something_
+        while let Some(current) = self.pending.pop_front() {
+            let current_position = current.local * MVector::origin();
+            if -self.start_position.mip(&current_position) > self.cosh_distance {
+                continue;
+            }
+            for side in Side::iter() {
+                let neighbor = match graph.neighbor(current.node, side) {
+                    None => continue,
+                    Some(x) => x,
+                };
+                if self.visited.contains(&neighbor) {
+                    continue;
+                }
+                self.pending.push_back(Position {
+                    node: neighbor,
+                    local: current.local * *side.reflection(),
+                });
+                self.visited.insert(neighbor);
+            }
+            return Some(current);
+        }
+        None
+    }
+}
+
 pub struct RayTraverser<'a> {
     graph: &'a Graph,
     ray: &'a Ray,
