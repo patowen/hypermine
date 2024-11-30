@@ -8,19 +8,10 @@ use crate::{
     local_character_controller::LocalCharacterController, metrics, prediction::PredictedMotion,
 };
 use common::{
-    character_controller,
-    collision_math::Ray,
-    graph::{Graph, NodeId},
-    graph_ray_casting, math,
-    math::{MIsometry, MVector},
-    node::{populate_fresh_nodes, ChunkId, VoxelData},
-    proto::{
+    character_controller, collision_math::Ray, graph::{Graph, NodeId}, graph_ray_casting, math::{self, MIsometry, MVector}, node::{populate_fresh_nodes, ChunkId, VoxelData}, proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         Inventory, Position,
-    },
-    sanitize_motion_input,
-    world::Material,
-    EntityId, GraphEntities, SimConfig, Step,
+    }, sanitize_motion_input, traversal::ensure_nearby, world::Material, EntityId, GraphEntities, SimConfig, Step
 };
 
 const MATERIAL_PALETTE: [Material; 10] = [
@@ -371,8 +362,10 @@ impl Sim {
             metrics::declare_ready_for_profiling();
         }
         for node in &msg.nodes {
-            self.graph.insert_neighbor(node.parent, node.side);
+            self.graph.ensure_neighbor(node.parent, node.side);
         }
+        let view = self.view();
+        ensure_nearby(&mut self.graph, &view, self.cfg.view_distance);
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
             if !self.graph.update_block(&block_update) {
