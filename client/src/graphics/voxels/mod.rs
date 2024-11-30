@@ -155,6 +155,7 @@ impl Voxels {
                             &sim.graph,
                             chunk,
                         ) {
+                            // TODO: This is where worldgen is initiated. We should consider using this logic to decide when to run ensure_neighbor.
                             if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                 sim.graph[chunk] = Generating;
                             } else {

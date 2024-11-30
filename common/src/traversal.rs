@@ -121,6 +121,11 @@ impl BackgroundGraphTraverser {
     pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<Position> {
         if let Some(current) = self.pending.pop_front() {
             for side in Side::iter() {
+                // TODO: This extends the graph beyond what is returned. At the risk of redundant calculations,
+                // we should evaluate the performance of only calling ensure_neighbor on neighbors that are
+                // actually needed. Note that due to worldgen interpolation, ensure_next would need to be called
+                // with a greater distance to compensate. However, this is also resolvable by allowing some redundancy
+                // in worldgen calculations.
                 let neighbor = graph.ensure_neighbor(current.node, side);
                 if self.visited.contains(&neighbor) {
                     continue;
