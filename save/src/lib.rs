@@ -4,6 +4,7 @@ use std::path::Path;
 
 use prost::Message;
 use redb::{Database, ReadableTable, TableDefinition};
+use redb1::ReadableTable as _;
 use thiserror::Error;
 
 pub use protos::*;
@@ -13,9 +14,56 @@ pub struct Save {
     db: Database,
 }
 
+fn transfer_table_from_redb1_to_redb2<
+    T: redb1::RedbKey + redb::Key,
+    U: redb1::RedbValue + redb::Value,
+>(
+    db1: &redb1::Database,
+    db2: &Database,
+    table1: redb1::TableDefinition<T, U>,
+    table2: TableDefinition<T, U>,
+) where
+    for<'a> <T as redb1::RedbValue>::SelfType<'a>:
+        std::borrow::Borrow<<T as redb::Value>::SelfType<'a>>,
+    for<'a> <U as redb1::RedbValue>::SelfType<'a>:
+        std::borrow::Borrow<<U as redb::Value>::SelfType<'a>>,
+{
+    let read_txn = db1.begin_read().unwrap();
+    let meta_table_v1 = read_txn.open_table(table1).unwrap();
+    let write_txn = db2.begin_write().unwrap();
+    {
+        let mut meta_table = write_txn.open_table(table2).unwrap();
+        for r in meta_table_v1.iter().unwrap() {
+            let (k, v) = r.unwrap();
+            meta_table.insert(k.value(), v.value()).unwrap();
+        }
+    }
+    write_txn.commit().unwrap();
+}
+
 impl Save {
     pub fn open(path: &Path, default_chunk_size: u8) -> Result<Self, OpenError> {
-        let db = Database::create(path).map_err(redb::Error::from)?;
+        let db = Database::create(path).map_err(redb::Error::from);
+        if let Err(redb::Error::UpgradeRequired(_)) = db.as_ref() {
+            // This is the temporary code to help support the necessary backwards compatibility. Error handling
+            // will be rougher here, using unwrap, since this code likely won't ever make it to the master
+            // branch of Hypermine.
+            let db1 = redb1::Database::create(path).unwrap();
+            let db2 = Database::create(path.with_file_name(
+                "converted_to_redb2_".to_string() + path.file_name().unwrap().to_str().unwrap(),
+            ))
+            .unwrap();
+            transfer_table_from_redb1_to_redb2(&db1, &db2, META_TABLE_V1, META_TABLE);
+            transfer_table_from_redb1_to_redb2(&db1, &db2, VOXEL_NODE_TABLE_V1, VOXEL_NODE_TABLE);
+            transfer_table_from_redb1_to_redb2(&db1, &db2, ENTITY_NODE_TABLE_V1, ENTITY_NODE_TABLE);
+            transfer_table_from_redb1_to_redb2(
+                &db1,
+                &db2,
+                CHARACTERS_BY_NAME_TABLE_V1,
+                CHARACTERS_BY_NAME_TABLE,
+            );
+        }
+        let db = db?;
         let meta = {
             let tx = db.begin_read().map_err(redb::Error::from)?;
             // Intermediate variable to make borrowck happy
@@ -257,6 +305,14 @@ const VOXEL_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("vox
 const ENTITY_NODE_TABLE: TableDefinition<u128, &[u8]> = TableDefinition::new("entity nodes");
 const CHARACTERS_BY_NAME_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("characters by name");
+
+const META_TABLE_V1: redb1::TableDefinition<&[u8], &[u8]> = redb1::TableDefinition::new("meta");
+const VOXEL_NODE_TABLE_V1: redb1::TableDefinition<u128, &[u8]> =
+    redb1::TableDefinition::new("voxel nodes");
+const ENTITY_NODE_TABLE_V1: redb1::TableDefinition<u128, &[u8]> =
+    redb1::TableDefinition::new("entity nodes");
+const CHARACTERS_BY_NAME_TABLE_V1: redb1::TableDefinition<&str, &[u8]> =
+    redb1::TableDefinition::new("characters by name");
 
 #[derive(Debug, Error)]
 pub enum OpenError {
