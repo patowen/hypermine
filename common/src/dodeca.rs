@@ -312,7 +312,7 @@ mod data {
     use std::sync::LazyLock;
 
     use crate::dodeca::{Side, Vertex};
-    use crate::math::{MIsometry, MVector};
+    use crate::math::{self, MIsometry, MVector};
     use crate::voxel_math::ChunkAxisPermutation;
 
     /// Whether two sides share an edge
@@ -332,22 +332,21 @@ mod data {
     /// Vector corresponding to the outer normal of each side
     pub static SIDE_NORMALS_F64: LazyLock<[MVector<f64>; Side::COUNT]> = LazyLock::new(|| {
         let phi = libm::sqrt(1.25) + 0.5; // golden ratio
-        let f = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized();
+        let template_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized();
+        let signed_template_normals = {
+            let n = template_normal;
+            [
+                MVector::new(n.x, n.y, n.z, n.w),
+                MVector::new(-n.x, n.y, -n.z, n.w),
+                MVector::new(n.x, -n.y, -n.z, n.w),
+                MVector::new(-n.x, -n.y, n.z, n.w),
+            ]
+        };
 
-        let mut result: [MVector<f64>; Side::COUNT] = [MVector::zero(); Side::COUNT];
-        let mut i = 0;
-        for (x, y, z, w) in [
-            (f.x, f.y, f.z, f.w),
-            (-f.x, f.y, -f.z, f.w),
-            (f.x, -f.y, -f.z, f.w),
-            (-f.x, -f.y, f.z, f.w),
-        ] {
-            for (x, y, z, w) in [(x, y, z, w), (y, z, x, w), (z, x, y, w)] {
-                result[i] = MVector::new(x, y, z, w);
-                i += 1;
-            }
-        }
-        result
+        Side::VALUES.map(|side| {
+            let signed_template_normal = signed_template_normals[side as usize / 3];
+            math::tuv_to_xyz((3 - side as usize % 3) % 3, signed_template_normal)
+        })
     });
 
     /// Transform that moves from a neighbor to a reference node, for each side

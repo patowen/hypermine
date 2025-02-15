@@ -2,7 +2,7 @@
 //! allowing natural operations to be performed in hyperbolic space. To better
 //! understand the math involved, it is recommended to read "Visualizing
 //! Hyperbolic Space: Unusual Uses of 4x4 Matrices." Phillips, Gunn.
-//! 
+//!
 //! This module also defines a few other free helper functions that do not
 //! directly relate to hyperbolic space.
 
@@ -588,7 +588,17 @@ pub fn rotation_between_axis<N: RealField + Copy>(
 
 /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
 /// `t_axis` determines which of the three x-y-z coordinates corresponds to the t-coordinate. This function works with
-/// any indexable entity with at least three entries. Any entry after the third entry is ignored.
+/// any indexable entity with at least three entries. Any entry after the third entry is ignored. As an extra guarantee,
+/// this function only performs even permutations.
+///
+/// Examples:
+/// ```
+/// # use common::math::tuv_to_xyz;
+/// assert_eq!(tuv_to_xyz(0, [2, 4, 6]), [2, 4, 6]);
+/// assert_eq!(tuv_to_xyz(1, [2, 4, 6]), [6, 2, 4]);
+/// assert_eq!(tuv_to_xyz(2, [2, 4, 6]), [4, 6, 2]);
+/// assert_eq!(tuv_to_xyz(1, [2, 4, 6, 8]), [6, 2, 4, 8]);
+/// ```
 pub fn tuv_to_xyz<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(t_axis: usize, tuv: T) -> T {
     let mut result = tuv;
     (
@@ -790,14 +800,5 @@ mod tests {
         let expected = na::UnitQuaternion::rotation_between_axis(&from, &to).unwrap();
         let actual = rotation_between_axis(&from, &to, 1e-5).unwrap();
         assert_abs_diff_eq!(expected, actual, epsilon = 1.0e-5);
-    }
-
-    #[test]
-    fn tuv_to_xyz_example() {
-        assert_eq!(tuv_to_xyz(0, [2, 4, 6]), [2, 4, 6]);
-        assert_eq!(tuv_to_xyz(1, [2, 4, 6]), [6, 2, 4]);
-        assert_eq!(tuv_to_xyz(2, [2, 4, 6]), [4, 6, 2]);
-
-        assert_eq!(tuv_to_xyz(1, [2, 4, 6, 8]), [6, 2, 4, 8]);
     }
 }
