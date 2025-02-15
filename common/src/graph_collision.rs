@@ -56,7 +56,7 @@ pub fn sphere_cast(
             Some(GraphCastHit {
                 tanh_distance: hit.tanh_distance,
                 chunk,
-                normal: transform.mtranspose() * hit.normal,
+                normal: transform.inverse() * hit.normal,
             })
         });
     }

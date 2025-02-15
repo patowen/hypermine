@@ -428,7 +428,7 @@ mod data {
     /// Transform that converts from dodeca-centric coordinates to cube-centric coordinates
     pub fn node_to_dual_f64() -> &'static [MIsometry<f64>; VERTEX_COUNT] {
         static LOCK: OnceLock<[MIsometry<f64>; VERTEX_COUNT]> = OnceLock::new();
-        LOCK.get_or_init(|| dual_to_node_f64().map(|m| m.mtranspose()))
+        LOCK.get_or_init(|| dual_to_node_f64().map(|m| m.inverse()))
     }
 
     pub fn dual_to_chunk_factor_f64() -> f64 {

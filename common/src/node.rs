@@ -40,7 +40,7 @@ impl Graph {
     pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
         let node = self.get(position.node).as_ref()?;
         Some(na::UnitVector3::new_normalize(
-            (position.local.mtranspose() * node.state.up_direction()).xyz(),
+            (position.local.inverse() * node.state.up_direction()).xyz(),
         ))
     }
 

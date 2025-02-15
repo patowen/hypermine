@@ -13,7 +13,7 @@ use std::ops::*;
 /// vectors are useful for computations in the hyperboloid model of hyperbolic
 /// space. Note that the last coordinate, not the first coordinate, is treated
 /// as the special "time" coordinate.
-/// 
+///
 /// This vector type is versatile, being able to represent multiple things in
 /// Hyperbolic space. What it can represent is generally determined by the
 /// Minkowski inner product between the vector and itself.
@@ -22,17 +22,17 @@ use std::ops::*;
 ///   point can be associated with horospheres
 /// - If it's positive, it represents an _ultraideal_ point in hyperbolic space.
 ///   Such points can be treated as oriented planes.
-/// 
+///
 /// If the absolute value of this Minkowski inner product is 1, it is
 /// normalized, and equations involving such a vector tend to be simpler, much
 /// like with unit vectors.
-/// 
+///
 /// Note that the simplest way to represent directions/velocities/normals at a
 /// point in hyperbolic space is with a vector whose Minkowski inner product
 /// with that point is 0. Such a vector will be tangent to the hyperboloid model
 /// at that associated point, so it can naturally represent movement along the
 /// hyperboloid in that direction.
-/// 
+///
 /// As a general rule, when working with such vectors, it is highly recommended
 /// to avoid dot products and related operations such as vector magnitude, as
 /// these operations are meaningless in Minkowski space and are not preserved by
@@ -46,7 +46,7 @@ pub struct MVector<N: Scalar>(na::Vector4<N>);
 /// computations in the hyperboloid model of hyperbolic space. Note that the
 /// last coordinate, not the first coordinate, is treated as the special "time"
 /// coordinate.
-/// 
+///
 /// To ensure that this matrix indeed represents an isometry in Minkowski space,
 /// a few invariants are preserved:
 /// - The Minkowski inner product between any two distinct columns is 0.
@@ -184,7 +184,7 @@ impl<N: RealField + Copy> MIsometry<N> {
 
     /// Minkowski transpose. Inverse for hyperbolic isometries
     #[rustfmt::skip]
-    pub fn mtranspose(self) -> Self {
+    pub fn inverse(self) -> Self {
         MIsometry(
             na::Matrix4::new(
                 self.0.m11,  self.0.m21,  self.0.m31, -self.0.m41,
@@ -203,7 +203,7 @@ impl<N: RealField + Copy> MIsometry<N> {
             &MVector::origin(),
             &MVector(self.0.index((.., 3)).into()).lorentz_normalize(),
         );
-        let inverse_boost = boost.mtranspose();
+        let inverse_boost = boost.inverse();
         let rotation = renormalize_rotation_reflection(
             &((inverse_boost * self).0)
                 .fixed_view::<3, 3>(0, 0)
@@ -654,7 +654,7 @@ mod tests {
 
         // Check that the matrix is actually normalized
         assert_abs_diff_eq!(
-            normalized_mat.mtranspose() * normalized_mat,
+            normalized_mat.inverse() * normalized_mat,
             MIsometry::identity(),
             epsilon = 1e-5
         );
