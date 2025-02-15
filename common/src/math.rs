@@ -168,13 +168,17 @@ impl<N: RealField + Copy> MIsometry<N> {
         Self(na::Matrix4::identity())
     }
 
-    /// The reflection about the hyperbolic plane represented by this vector.
+    /// The reflection about the hyperbolic plane represented by the given
+    /// normalized vector. An incorrect matrix will be returned if `a` and `b`
+    /// are not normalized.
     pub fn reflection(normal: &MVector<N>) -> Self {
-        // TODO: Explain where this formula comes from
+        // The formula below is the equivalent of the formula for the
+        // Householder matrix, but the minkowski outer product instead of the
+        // standard outer product to ensure that the reflection is done in
+        // Minkowski space.
         Self(
             na::Matrix4::<N>::identity()
-                - normal.minkowski_outer_product(normal) * na::convert::<_, N>(2.0)
-                    / normal.mip(normal),
+                - normal.minkowski_outer_product(normal) * na::convert::<_, N>(2.0),
         )
     }
 
@@ -182,12 +186,40 @@ impl<N: RealField + Copy> MIsometry<N> {
     /// normalized point-like `MVectors`. An incorrect matrix will be returned
     /// if `a` and `b` are not normalized.
     pub fn translation(a: &MVector<N>, b: &MVector<N>) -> MIsometry<N> {
-        // TODO: Explain where this formula comes from
+        // A translation in hyperbolic space can be split into two
+        // point-reflections (reflections about a point, where the midpoint of
+        // the start and end points is that point)
+        // - A reflection about the point `a`
+        // - A reflection about the midpoint between `a` and `b`
+        // One can convince oneself of this by seeing where `a` goes and noting
+        // that no points will leave the line between `a` and `b`.
+
+        // The following notes below will use "*" as the adjoint operator,
+        // working in Minkowski space. All multiplication will be implied
+        // multiplication to avoid ambiguity with this operator. The matrix for
+        // a point-reflection can be derived in a similar manner to a
+        // Householder matrix and ends up being its negation: `-I + 2vv*` The
+        // midpoint of `a` and `b` is
+        // `(a+b) / sqrt(-(a+b)*(a+b))`
+        // which simplifies to
+        // `(a+b) / sqrt(-(a*a + a*b + b*a + b*b))`
+        // `(a+b) / sqrt(-(a*a + 2a*b + b*b))`
+        // `(a+b) / sqrt(-(-1 + 2a*b + -1))`
+        // `(a+b) / sqrt(2-2a*b)`
+        
+        // Therefore, the
+        // derivation of the translation formula is as follows:
+        // `reflect_about((a+b) / -(a*b)) * reflect_about(a)`
+        // `(-I + 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I + 2aa*)`
+        // `(-I + 2(a+b)(a+b)*/(2-2a*b)) (-I + 2aa*)`
+        // `(-I + (a+b)(a+b)*/(1-a*b)) (-I + 2aa*)`
+        // `I - (a+b)(a+b)*/(1-a*b) - 2aa* + 2(a+b)(a+b)*aa*/(1-a*b)`
+        // ... (TODO)
+        // `I - 2ba* + (a+b)(a+b)*/(1-a*b)`
         let a_plus_b = *a + *b;
         Self(
-            (na::Matrix4::<N>::identity())
-                - (b.minkowski_outer_product(a) * na::convert::<_, N>(2.0))
-                + ((a_plus_b.minkowski_outer_product(&a_plus_b)) / (N::one() - a.mip(b))),
+            na::Matrix4::<N>::identity() - b.minkowski_outer_product(a) * na::convert::<_, N>(2.0)
+                + a_plus_b.minkowski_outer_product(&a_plus_b) / (N::one() - a.mip(b)),
         )
     }
 
@@ -258,6 +290,10 @@ impl<N: RealField + Copy> MIsometry<N> {
     /// to rounding that would violate the isometry constraints of the matrix.
     /// If many operations are performed on a single matrix, it is represented
     /// to call this function to correct for this drift.
+    ///
+    /// Note that this function is numerically unstable for transformations that
+    /// have a large translation component, so it is recommended to avoid this
+    /// function for such matrices.
     pub fn renormalized(&self) -> MIsometry<N> {
         // There are multiple ways this matrix can be renormalized. This
         // approach splits the translation and orientation components of the
@@ -299,6 +335,10 @@ impl<N: RealField + Copy> MVector<N> {
     /// vector and itself has absolute value 1. Note that this means that this
     /// function can be called on a vector representing either a regular point
     /// or an ultraideal point (but not an ideal point).
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// points or planes far from the origin, so it is recommended to avoid this
+    /// function for such vectors.
     pub fn normalized(&self) -> Self {
         // TODO: To avoid subtle bugs, we should try to have different functions
         // for points vs ultraideal points that use `self.mip(self)` or
