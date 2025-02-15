@@ -445,8 +445,32 @@ mod data {
         let mip_origin_normal = MVector::origin().mip(Side::A.normal_f64()); // This value is the same for every side
         Vertex::VALUES.map(|vertex| {
             let [a, b, c] = vertex.canonical_sides();
+
+            // The matrix we want to produce is a change-of-basis matrix,
+            // consistint of four columns representing vectors with
+            // dodeca-centric coordinates, where each vector represents one of
+            // the basis vectors in cube-centric coordinates.
+
+            // Since adjacent normals are already orthogonal, we can use them
+            // as-is for the first three columns of this matrix. We just need to
+            // negate them so that they point towards the origin instead of away
+            // because the dodeca's origin has positive cube-centric
+            // coordinates.
+
+            // As for the last column of the change-of-basis matrix, that would
+            // be the cube-centric origin in dodeca-centric coordinates, or in
+            // other words, the vertex's location in dodeca-centric coordinates.
+            // To find this, we start at the origin and project the vector to be
+            // orthogonal to each of the three normals, one at a time. Because
+            // these three normals are orthogonal to each other, the resulting
+            // formula is simple.
+
+            // Note that part of the projection formula requires taking the
+            // `mip` of a normal vector and the origin, but this is a constant
+            // value that doesn't depend on the normal vector, so the formula
+            // used here takes advantage of that.
             let vertex_position = (MVector::origin()
-                + (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * -mip_origin_normal)
+                - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
                 .normalized();
             MIsometry::from_columns_unchecked(&[
                 -*a.normal_f64(),
