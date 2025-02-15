@@ -188,6 +188,19 @@ impl<N: RealField + Copy> MIsometry<N> {
         )
     }
 
+    /// The matrix that translates the origin in the direction of the given
+    /// vector with distance equal to its magnitude
+    pub fn translation_along(v: &na::Vector3<N>) -> MIsometry<N> {
+        let norm = v.norm();
+        if norm == na::zero() {
+            return MIsometry::identity();
+        }
+        // g = Lorentz gamma factor
+        let g = norm.cosh();
+        let bgc = norm.sinhc();
+        MIsometry::translation(&MVector::origin(), &MVector((v * bgc).insert_row(3, g)))
+    }
+
     /// Creates an `MIsometry` with the given columns. It is the caller's
     /// responsibility to ensure that the resulting matrix is a valid isometry.
     #[inline]
@@ -457,18 +470,6 @@ impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
     }
 }
 
-/// Transform that translates the origin in the direction of the given vector with distance equal to its magnitude
-pub fn translate_along<N: RealField + Copy>(v: &na::Vector3<N>) -> MIsometry<N> {
-    let norm = v.norm();
-    if norm == na::zero() {
-        return MIsometry::identity();
-    }
-    // g = Lorentz gamma factor
-    let g = norm.cosh();
-    let bgc = norm.sinhc();
-    MIsometry::translation(&MVector::origin(), &MVector((v * bgc).insert_row(3, g)))
-}
-
 pub fn midpoint<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> MVector<N> {
     *a * (b.mip(b) * a.mip(b)).sqrt() + *b * (a.mip(a) * a.mip(b)).sqrt()
 }
@@ -616,7 +617,7 @@ mod tests {
         let distance = dbg!(distance(&o, &a));
         assert_abs_diff_eq!(
             MIsometry::translation(&o, &a),
-            translate_along(&(direction * distance)),
+            MIsometry::translation_along(&(direction * distance)),
             epsilon = 1e-5
         );
     }
@@ -624,7 +625,7 @@ mod tests {
     #[test]
     fn translate_distance() {
         let dx = 2.3;
-        let xf = translate_along(&(na::Vector3::x() * dx));
+        let xf = MIsometry::translation_along(&(na::Vector3::x() * dx));
         assert_abs_diff_eq!(dx, distance(&MVector::origin(), &(xf * MVector::origin())));
     }
 

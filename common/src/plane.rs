@@ -80,7 +80,6 @@ impl Plane<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::math::translate_along;
     use approx::*;
 
     #[test]
@@ -94,7 +93,8 @@ mod tests {
                 let plane = Plane::from(axis);
                 assert_abs_diff_eq!(
                     plane.distance_to(
-                        &(translate_along(&(axis.into_inner() * distance)) * MVector::origin())
+                        &(MIsometry::translation_along(&(axis.into_inner() * distance))
+                            * MVector::origin())
                     ),
                     distance
                 );

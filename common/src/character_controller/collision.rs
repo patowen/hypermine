@@ -5,7 +5,7 @@ use tracing::error;
 use crate::{
     collision_math::Ray,
     graph::Graph,
-    graph_collision, math,
+    graph_collision,
     math::{MIsometry, MVector},
     proto::Position,
 };
@@ -56,7 +56,7 @@ pub fn check_collision(
         .atanh();
 
     let displacement_vector = displacement_normalized.xyz() * distance;
-    let displacement_transform = math::translate_along(&displacement_vector);
+    let displacement_transform = MIsometry::translation_along(&displacement_vector);
 
     CollisionCheckingResult {
         displacement_vector,
