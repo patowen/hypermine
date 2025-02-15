@@ -317,16 +317,16 @@ mod data {
 
     /// Whether two sides share an edge
     pub static ADJACENT: LazyLock<[[bool; Side::COUNT]; Side::COUNT]> = LazyLock::new(|| {
-        let mut result = [[false; Side::COUNT]; Side::COUNT];
-        for (i, side) in result.iter_mut().enumerate() {
-            for (j, is_adjacent) in side.iter_mut().enumerate() {
-                let cosh_distance = (REFLECTIONS_F64[i] * REFLECTIONS_F64[j])[(3, 3)];
+        array::from_fn(|side0| {
+            let side0 = Side::VALUES[side0];
+            array::from_fn(|side1| {
+                let side1 = Side::VALUES[side1];
+                let cosh_distance = (*side0.reflection_f64() * *side1.reflection_f64())[(3, 3)];
                 // Possile cosh_distances: 1, 4.23606 = 2+sqrt(5), 9.47213 = 5+2*sqrt(5), 12.70820 = 6+3*sqrt(5);
                 // < 2.0 indicates identical faces; < 5.0 indicates adjacent faces; > 5.0 indicates non-adjacent faces
-                *is_adjacent = (2.0..5.0).contains(&cosh_distance);
-            }
-        }
-        result
+                (2.0..5.0).contains(&cosh_distance)
+            })
+        })
     });
 
     /// Vector corresponding to the outer normal of each side
