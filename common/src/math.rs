@@ -1,9 +1,10 @@
-//! From "Visualizing Hyperbolic Space: Unusual Uses of 4x4 Matrices." Phillips, Gunn.
-//!
-//! Vector4 values are assumed to be homogeneous Klein model coordinates unless otherwise
-//! stated. Note that Minkowski model coordinates are valid Klein coordinates, but not vis versa.
-
-// all the inline functions are basically just wrappers around corresponding nalgebra functions
+//! This module defines the a vector and matrix type for use in Minkowski space,
+//! allowing natural operations to be performed in hyperbolic space. To better
+//! understand the math involved, it is recommended to read "Visualizing
+//! Hyperbolic Space: Unusual Uses of 4x4 Matrices." Phillips, Gunn.
+//! 
+//! This module also defines a few other free helper functions that do not
+//! directly relate to hyperbolic space.
 
 use na::{RealField, Scalar};
 use serde::{Deserialize, Serialize};
