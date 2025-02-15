@@ -318,10 +318,15 @@ mod data {
     pub static ADJACENT: LazyLock<[[bool; Side::COUNT]; Side::COUNT]> = LazyLock::new(|| {
         Side::VALUES.map(|side0| {
             Side::VALUES.map(|side1| {
-                let cosh_distance = (*side0.reflection_f64() * *side1.reflection_f64())[(3, 3)];
-                // Possile cosh_distances: 1, 4.23606 = 2+sqrt(5), 9.47213 = 5+2*sqrt(5), 12.70820 = 6+3*sqrt(5);
-                // < 2.0 indicates identical faces; < 5.0 indicates adjacent faces; > 5.0 indicates non-adjacent faces
-                (2.0..5.0).contains(&cosh_distance)
+                // Two sides can have the following values when taking the mip
+                // of their normals:
+                // - When identical: 1
+                // - When adjacent: 0
+                // - When two steps away: -1.618 = -phi
+                // - When antipodal: -2.618 = -phi - 1
+                // Therefore, the range (-0.5..0.5) only contains adjacent sides
+                // and is robust to numerical precision limits.
+                (-0.5..0.5).contains(&side0.normal_f64().mip(side1.normal_f64()))
             })
         })
     });
@@ -385,7 +390,7 @@ mod data {
         result.try_into().expect("exactly 20 vertices expected")
     });
 
-    // Which vertices are adjacent to other vertices and opposite the canonical sides
+    /// Which vertices are adjacent to other vertices and opposite the canonical sides
     pub static ADJACENT_VERTICES: LazyLock<[[Vertex; 3]; Vertex::COUNT]> = LazyLock::new(|| {
         Vertex::VALUES.map(|vertex| {
             let canonical_sides = vertex.canonical_sides();
@@ -408,8 +413,8 @@ mod data {
         })
     });
 
-    // Which transformations have to be done after a reflection to switch reference frames from one vertex
-    // to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
+    /// Which transformations have to be done after a reflection to switch reference frames from one vertex
+    /// to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
     pub static CHUNK_AXIS_PERMUTATIONS: LazyLock<[[ChunkAxisPermutation; 3]; Vertex::COUNT]> =
         LazyLock::new(|| {
             Vertex::VALUES.map(|vertex| {
