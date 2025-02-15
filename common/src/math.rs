@@ -170,6 +170,7 @@ impl<N: RealField + Copy> MIsometry<N> {
 
     /// The reflection about the hyperbolic plane represented by this vector.
     pub fn reflection(normal: &MVector<N>) -> Self {
+        // TODO: Explain where this formula comes from
         Self(
             na::Matrix4::<N>::identity()
                 - normal.minkowski_outer_product(normal) * na::convert::<_, N>(2.0)
@@ -181,6 +182,7 @@ impl<N: RealField + Copy> MIsometry<N> {
     /// normalized point-like `MVectors`. An incorrect matrix will be returned
     /// if `a` and `b` are not normalized.
     pub fn translation(a: &MVector<N>, b: &MVector<N>) -> MIsometry<N> {
+        // TODO: Explain where this formula comes from
         let a_plus_b = *a + *b;
         Self(
             (na::Matrix4::<N>::identity())
@@ -192,14 +194,26 @@ impl<N: RealField + Copy> MIsometry<N> {
     /// The matrix that translates the origin in the direction of the given
     /// vector with distance equal to its magnitude
     pub fn translation_along(v: &na::Vector3<N>) -> MIsometry<N> {
+        // Translating x units along the x-axis takes the origin to `[sinh(x), 0, 0, cosh(x)]`.
+        // This is analogous to a rotation of `[0, 0, 1, 1]` along the xw-plane being `[sin(theta), 0, 0, cos(theta)]`.
+
+        // To find a general translation given this principle, we know that the
+        // origin moves to a location fitting the following constraints:
+        // - The first three coordinates must be in the same direction as `v`
+        // - The magnitude of the vector representing the first three coordinates is `sinh(||v||)`
+        // - The fourth component is `cosh(||v||)`
+
+        // Once we know where the origin goes, we use the `MIsometry::translation` function.
         let norm = v.norm();
         if norm == na::zero() {
             return MIsometry::identity();
         }
-        // g = Lorentz gamma factor
-        let g = norm.cosh();
-        let bgc = norm.sinhc();
-        MIsometry::translation(&MVector::origin(), &MVector((v * bgc).insert_row(3, g)))
+        // `sinhc(x)` simply means `sinh(x)/x` but defined when `x` is 0. Using sinhc combines
+        // the normalization of `v` with its multiplication by `sinh(||v||)`.
+        MIsometry::translation(
+            &MVector::origin(),
+            &MVector((v * norm.sinhc()).insert_row(3, norm.cosh())),
+        )
     }
 
     /// Creates an `MIsometry` with the given columns. It is the caller's
@@ -316,6 +330,8 @@ impl<N: RealField + Copy> MVector<N> {
     /// incorrect result will be returned if the input vectors are not
     /// normalized.
     pub fn midpoint(&self, other: &Self) -> MVector<N> {
+        // The midpoint in the hyperboloid model is simply the midpoint in the
+        // underlying Euclidean 4-space normalized to land on the hyperboloid.
         (*self + *other).normalized()
     }
 
@@ -323,6 +339,10 @@ impl<N: RealField + Copy> MVector<N> {
     /// incorrect result will be returned if the input vectors are not
     /// normalized.
     pub fn distance(&self, other: &MVector<N>) -> N {
+        // The absolute value of the mip between two normalized point-like is
+        // the cosh of their distance in hyperbolic space. This is analogous to
+        // the fact that the dot product between two unit vectors is the cos of
+        // their angle (or distance in spherical geometry).
         (-self.mip(other)).acosh()
     }
 
