@@ -376,27 +376,25 @@ mod data {
 
     // Which vertices are adjacent to other vertices and opposite the canonical sides
     pub static ADJACENT_VERTICES: LazyLock<[[Vertex; 3]; Vertex::COUNT]> = LazyLock::new(|| {
-        let mut result = [[Vertex::A; 3]; Vertex::COUNT];
-
-        for (i, triple) in result.iter_mut().enumerate() {
-            for result_index in 0..3 {
-                let mut test_sides = VERTEX_SIDES[i];
-                // Keep modifying the result_index'th element of test_sides until its three elements are all
-                // adjacent to a single vertex. That vertex is the vertex we're looking for.
-                for side in Side::iter() {
-                    if side == VERTEX_SIDES[i][result_index] {
+        Vertex::VALUES.map(|vertex| {
+            array::from_fn(|result_index| {
+                // Reorder the canonical sides so that the third element is the
+                // one that must change to find the correct adjacent vertex.
+                let adjacent_sides = math::tuv_to_xyz(2 - result_index, vertex.canonical_sides());
+                // Try every possible side to find an adjacent vertex.
+                for test_side in Side::iter() {
+                    if test_side == adjacent_sides[2] {
                         continue;
                     }
-                    test_sides[result_index] = side;
                     if let Some(adjacent_vertex) =
-                        Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
+                        Vertex::from_sides(adjacent_sides[0], adjacent_sides[1], test_side)
                     {
-                        triple[result_index] = adjacent_vertex;
+                        return adjacent_vertex;
                     }
                 }
-            }
-        }
-        result
+                panic!("No suitable vertex found");
+            })
+        })
     });
 
     // Which transformations have to be done after a reflection to switch reference frames from one vertex
