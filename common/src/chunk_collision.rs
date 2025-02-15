@@ -304,7 +304,7 @@ fn voxel_is_solid(voxel_data: &VoxelData, layout: &ChunkLayout, coords: [u8; 3])
 
 #[cfg(test)]
 mod tests {
-    use crate::node::VoxelData;
+    use crate::{math::MIsometry, node::VoxelData};
 
     use super::*;
 
@@ -509,7 +509,7 @@ mod tests {
     /// Ensures that the normal is pointing outward, opposite the ray direction.
     fn sanity_check_normal(ray: &Ray, hit: &ChunkCastHit) {
         // The ray we care about is after its start point has moved to the contact point.
-        let ray = math::translate(
+        let ray = MIsometry::translation(
             &ray.position,
             &ray.ray_point(hit.tanh_distance).normalized(),
         ) * ray;

@@ -177,6 +177,17 @@ impl<N: RealField + Copy> MIsometry<N> {
         )
     }
 
+    /// The matrix that translates `a` to `b` given that `a` and `b` are
+    /// normalized pointlike `MVectors`
+    pub fn translation(a: &MVector<N>, b: &MVector<N>) -> MIsometry<N> {
+        let a_plus_b = *a + *b;
+        Self(
+            (na::Matrix4::<N>::identity())
+                - (b.minkowski_outer_product(a) * na::convert::<_, N>(2.0))
+                + ((a_plus_b.minkowski_outer_product(&a_plus_b)) / (N::one() - a.mip(b))),
+        )
+    }
+
     /// Creates an `MIsometry` with the given columns. It is the caller's
     /// responsibility to ensure that the resulting matrix is a valid isometry.
     #[inline]
@@ -227,7 +238,7 @@ impl<N: RealField + Copy> MIsometry<N> {
         // Since the last column of the matrix is where the origin gets
         // translated, we extract the normalized translation component by
         // recreating a hyperbolic translation matrix using that column.
-        let normalized_translation_component = translate(
+        let normalized_translation_component = MIsometry::translation(
             &MVector::origin(),
             &MVector(self.0.column(3).into()).normalized(),
         );
@@ -446,15 +457,6 @@ impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
     }
 }
 
-/// Transform that translates `a` to `b` given that `a` and `b` are Lorentz normalized pointlike vectors
-pub fn translate<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> MIsometry<N> {
-    let a_plus_b = *a + *b;
-    MIsometry(
-        (na::Matrix4::<N>::identity()) - (b.minkowski_outer_product(a) * na::convert::<_, N>(2.0))
-            + ((a_plus_b.minkowski_outer_product(&a_plus_b)) / (N::one() - a.mip(b))),
-    )
-}
-
 /// Transform that translates the origin in the direction of the given vector with distance equal to its magnitude
 pub fn translate_along<N: RealField + Copy>(v: &na::Vector3<N>) -> MIsometry<N> {
     let norm = v.norm();
@@ -464,12 +466,7 @@ pub fn translate_along<N: RealField + Copy>(v: &na::Vector3<N>) -> MIsometry<N> 
     // g = Lorentz gamma factor
     let g = norm.cosh();
     let bgc = norm.sinhc();
-    translate(&MVector::origin(), &MVector((v * bgc).insert_row(3, g)))
-}
-
-/// 4D reflection around a normal vector; length is not significant (so long as it's nonzero)
-pub fn euclidean_reflect<N: RealField + Copy>(v: &na::Vector4<N>) -> na::Matrix4<N> {
-    na::Matrix4::identity() - v * v.transpose() * (na::convert::<_, N>(2.0) / v.norm_squared())
+    MIsometry::translation(&MVector::origin(), &MVector((v * bgc).insert_row(3, g)))
 }
 
 pub fn midpoint<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> MVector<N> {
@@ -480,6 +477,7 @@ pub fn distance<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> N {
     (sqr(a.mip(b)) / (a.mip(a) * b.mip(b))).sqrt().acosh()
 }
 
+/// Multiplies the argument by itself.
 #[inline]
 pub fn sqr<N: RealField + Copy>(x: N) -> N {
     x * x
@@ -580,7 +578,7 @@ mod tests {
     #[rustfmt::skip]
     fn translate_example() {
         assert_abs_diff_eq!(
-            translate(
+            MIsometry::translation(
                 &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
                 &MVector::new(0.3, -0.7, 0.0, 1.0).normalized()
             ),
@@ -602,8 +600,10 @@ mod tests {
         let b = MVector::new(0.3, -0.7, 0.0, 1.0).normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         assert_abs_diff_eq!(
-            translate(&a, &b),
-            translate(&o, &a) * translate(&o, &(translate(&a, &o) * b)) * translate(&a, &o),
+            MIsometry::translation(&a, &b),
+            MIsometry::translation(&o, &a)
+                * MIsometry::translation(&o, &(MIsometry::translation(&a, &o) * b))
+                * MIsometry::translation(&a, &o),
             epsilon = 1e-5
         );
     }
@@ -615,7 +615,7 @@ mod tests {
         let direction = a.0.xyz().normalize();
         let distance = dbg!(distance(&o, &a));
         assert_abs_diff_eq!(
-            translate(&o, &a),
+            MIsometry::translation(&o, &a),
             translate_along(&(direction * distance)),
             epsilon = 1e-5
         );
@@ -654,7 +654,7 @@ mod tests {
 
     #[test]
     fn renormalize_translation() {
-        let mat = translate(
+        let mat = MIsometry::translation(
             &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
             &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
         );
@@ -683,7 +683,7 @@ mod tests {
             -0.57, -0.80,  0.00, -0.53));
 
         // translation with some error
-        let mat = MIsometry(translate(
+        let mat = MIsometry(MIsometry::translation(
             &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
             &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
         ).0 + error.0 * 0.05);
