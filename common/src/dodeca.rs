@@ -7,6 +7,17 @@ use crate::math::{MIsometry, MVector};
 use crate::voxel_math::ChunkAxisPermutation;
 
 /// Sides of a right dodecahedron
+///
+/// These sides are arranged based on the following adjacency graph, although it
+/// is recommended not to hardcode side names in other code:
+/// ```nocode
+///          A
+/// (D-) I-E-B-C-D (-I)
+///  (K-) L-G-F-H-K (-L)
+///           J
+/// ```
+/// The above adjacency graph can be read as a world map, where side A is at the
+/// north pole, and side J is at the south pole.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
 pub enum Side {
     A,
@@ -106,7 +117,7 @@ impl Vertex {
         use Vertex::*;
         [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T]
             .iter()
-            .cloned()
+            .copied()
     }
 
     /// Vertex shared by three sides, if any

@@ -209,8 +209,7 @@ impl<N: RealField + Copy> MIsometry<N> {
         // `(a+b) / sqrt(-(-1 + 2a*b + -1))`
         // `(a+b) / sqrt(2-2a*b)`
 
-        // Therefore, the
-        // derivation of the translation formula is as follows:
+        // Therefore, the derivation of the translation formula is as follows:
         // `reflect_about((a+b) / -(a*b)) * reflect_about(a)`
         // `(-I - 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I - 2aa*)`
         // `(-I - 2(a+b)(a+b)*/(2-2a*b)) (-I - 2aa*)`
