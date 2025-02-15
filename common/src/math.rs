@@ -5,7 +5,7 @@
 
 // all the inline functions are basically just wrappers around corresponding nalgebra functions
 
-use na::{ArrayStorage, RawStorage, RealField, Scalar};
+use na::{RealField, Scalar};
 use serde::{Deserialize, Serialize};
 use std::ops::*;
 
@@ -220,7 +220,7 @@ impl<N: RealField + Copy> MIsometry<N> {
         // recreating a hyperbolic translation matrix using that column.
         let normalized_translation_component = translate(
             &MVector::origin(),
-            &MVector(self.0.column(3).into()).lorentz_normalized(),
+            &MVector(self.0.column(3).into()).normalized(),
         );
 
         // Once we have the translation component, we use that component's
@@ -251,22 +251,23 @@ impl<N: RealField + Copy> MVector<N> {
     /// vector and itself has absolute value 1. Note that this means that this
     /// function can be called on a vector representing either a regular point
     /// or an ultraideal point (but not an ideal point).
-    pub fn lorentz_normalized(&self) -> Self {
-        let sf2 = self.mip(self);
-        if sf2 == na::zero() {
+    pub fn normalized(&self) -> Self {
+        // TODO: To avoid subtle bugs, we should try to have different functions
+        // for points vs ultraideal points that use `self.mip(self)` or
+        // `-self.mip(self)` instead of `self.mip(self).abs()`. The correct sign
+        // should already be known by the caller. This is something that can be
+        // introduced with additional `MVector` types that distinguish between
+        // these two types of points.
+        let scale_factor_squared = self.mip(self).abs();
+        if scale_factor_squared == na::zero() {
             debug_assert!(
                 false,
                 "Normalizing this vector would require division by zero."
             );
             return MVector::origin();
         }
-        // TODO: To avoid subtle bugs, we should try to have different functions
-        // for points vs ultraideal points that use `sf2` or `-sf2` instead of
-        // `sf2.abs()`. The correct sign should already be known by the caller.
-        // This is something that can be introduced with additional `MVector`
-        // types that distinguish between these two types of points.
-        let sf = sf2.abs().sqrt();
-        *self / sf
+        let scale_factor = scale_factor_squared.sqrt();
+        *self / scale_factor
     }
 
     /// The reflection about the hyperbolic plane represented by this vector.
@@ -561,7 +562,7 @@ mod tests {
     #[rustfmt::skip]
     fn reflect_example() {
         assert_abs_diff_eq!(
-            MVector::new(0.5, 0.0, 0.0, 1.0).lorentz_normalized().reflect(),
+            MVector::new(0.5, 0.0, 0.0, 1.0).normalized().reflect(),
             MIsometry(
                 na::Matrix4::new(
                     1.666, 0.0, 0.0, -1.333,
@@ -579,8 +580,8 @@ mod tests {
     fn translate_example() {
         assert_abs_diff_eq!(
             translate(
-                &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
-                &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized()
+                &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
+                &MVector::new(0.3, -0.7, 0.0, 1.0).normalized()
             ),
             MIsometry(
                 na::Matrix4::new(
@@ -596,8 +597,8 @@ mod tests {
 
     #[test]
     fn translate_identity() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized();
-        let b = MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
+        let b = MVector::new(0.3, -0.7, 0.0, 1.0).normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         assert_abs_diff_eq!(
             translate(&a, &b),
@@ -608,7 +609,7 @@ mod tests {
 
     #[test]
     fn translate_equivalence() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         let direction = a.0.xyz().normalize();
         let distance = dbg!(distance(&o, &a));
@@ -653,8 +654,8 @@ mod tests {
     #[test]
     fn renormalize_translation() {
         let mat = translate(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
         );
         assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
     }
@@ -682,8 +683,8 @@ mod tests {
 
         // translation with some error
         let mat = MIsometry(translate(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
         ).0 + error.0 * 0.05);
 
         let normalized_mat = mat.renormalized();
