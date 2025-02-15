@@ -187,7 +187,7 @@ mod tests {
                     self.chosen_chunk_relative_grid_ray_end[2] / dual_to_grid_factor,
                     1.0,
                 )
-                .lorentz_normalize();
+                .lorentz_normalized();
 
             let ray_position = *Vertex::A.dual_to_node()
                 * MVector::new(
@@ -196,13 +196,13 @@ mod tests {
                     self.start_chunk_relative_grid_ray_start[2] / dual_to_grid_factor,
                     1.0,
                 )
-                .lorentz_normalize();
+                .lorentz_normalized();
             let ray_direction = ray_target - ray_position;
 
             let ray = Ray::new(
                 ray_position,
                 (ray_direction + ray_position * ray_position.mip(&ray_direction))
-                    .lorentz_normalize(),
+                    .lorentz_normalized(),
             );
 
             let tanh_distance =

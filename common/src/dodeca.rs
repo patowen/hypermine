@@ -290,7 +290,7 @@ mod data {
         static LOCK: OnceLock<[MVector<f64>; SIDE_COUNT]> = OnceLock::new();
         LOCK.get_or_init(|| {
             let phi = libm::sqrt(1.25) + 0.5; // golden ratio
-            let f = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).lorentz_normalize();
+            let f = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).lorentz_normalized();
 
             let mut result: [MVector<f64>; SIDE_COUNT] = [MVector::zero(); SIDE_COUNT];
             let mut i = 0;
@@ -413,7 +413,7 @@ mod data {
                 let [a, b, c] = vertex_sides()[i];
                 let vertex_position = (MVector::origin()
                     - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
-                    .lorentz_normalize();
+                    .lorentz_normalized();
                 *map = MIsometry::from_columns_unchecked(&[
                     -*a.normal_f64(),
                     -*b.normal_f64(),

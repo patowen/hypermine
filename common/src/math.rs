@@ -17,7 +17,8 @@ use std::ops::*;
 /// This vector type is versatile, being able to represent multiple things in
 /// Hyperbolic space. What it can represent is generally determined by the
 /// Minkowski inner product between the vector and itself.
-/// - If it's negative, it represents a point in hyperbolic space.
+/// - If it's negative, it represents a point in hyperbolic space. The origin is
+///   represented with the unit w-vector.
 /// - If it's zero, it represents an _ideal_ point in hyperbolic space. Such a
 ///   point can be associated with horospheres
 /// - If it's positive, it represents an _ultraideal_ point in hyperbolic space.
@@ -182,9 +183,14 @@ impl<N: RealField + Copy> MIsometry<N> {
         Self(na::Matrix4::from_column_slice(data))
     }
 
-    /// Minkowski transpose. Inverse for hyperbolic isometries
+    /// Inverts the matrix. Note that this is an efficient operation because the
+    /// matrix is an isometry in Minkowski space. The operation actually
+    /// performed resembles a matrix transpose, but with some terms negated.
+    ///
+    /// Mathematically, this operation performed is the Hermitian adjoint, where
+    /// the inner product used is the Minkowski inner product.
     #[rustfmt::skip]
-    pub fn inverse(self) -> Self {
+    pub fn inverse(&self) -> Self {
         MIsometry(
             na::Matrix4::new(
                 self.0.m11,  self.0.m21,  self.0.m31, -self.0.m41,
@@ -194,27 +200,54 @@ impl<N: RealField + Copy> MIsometry<N> {
             )
         )
     }
+
     /// Whether an isometry reverses winding with respect to the norm
-    pub fn parity(self) -> bool {
+    pub fn parity(&self) -> bool {
         self.0.fixed_view::<3, 3>(0, 0).determinant() < na::zero::<N>()
     }
-    pub fn renormalize_isometry(self) -> MIsometry<N> {
-        let boost = translate(
+
+    /// Corrects for any drift that may have occurred in the matrix entries due
+    /// to rounding that would violate the isometry constraints of the matrix.
+    /// If many operations are performed on a single matrix, it is represented
+    /// to call this function to correct for this drift.
+    pub fn renormalized(&self) -> MIsometry<N> {
+        // There are multiple ways this matrix can be renormalized. This
+        // approach splits the translation and orientation components of the
+        // hyperbolic isometry, renormalized them both, and recombines them.
+
+        // Since the last column of the matrix is where the origin gets
+        // translated, we extract the normalized translation component by
+        // recreating a hyperbolic translation matrix using that column.
+        let normalized_translation_component = translate(
             &MVector::origin(),
-            &MVector(self.0.index((.., 3)).into()).lorentz_normalize(),
+            &MVector(self.0.column(3).into()).lorentz_normalized(),
         );
-        let inverse_boost = boost.inverse();
-        let rotation = renormalize_rotation_reflection(
-            &((inverse_boost * self).0)
-                .fixed_view::<3, 3>(0, 0)
-                .clone_owned(),
+
+        // Once we have the translation component, we use that component's
+        // inverse to remove the translation from the original matrix to extract
+        // the orientation component.
+        let orientation_component = normalized_translation_component.inverse() * *self;
+
+        // Then, we use the QR decomposition to convert the orientation
+        // component into an orthogonal matrix, which renormalizes it.
+        let normalized_orientation_component = MIsometry(
+            na::QR::new(
+                (orientation_component.0)
+                    .fixed_view::<3, 3>(0, 0)
+                    .clone_owned(),
+            )
+            .q()
+            .to_homogeneous(),
         );
-        MIsometry(boost.0 * rotation.to_homogeneous())
+
+        // Finally, we recombine the newly-renormalized translation and
+        // orientation components.
+        normalized_translation_component * normalized_orientation_component
     }
 }
 
 impl<N: RealField + Copy> MVector<N> {
-    pub fn lorentz_normalize(self: &MVector<N>) -> Self {
+    pub fn lorentz_normalized(self: &MVector<N>) -> Self {
         let sf2 = self.mip(self);
         if sf2 == na::zero() {
             return MVector::origin();
@@ -429,20 +462,6 @@ pub fn distance<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> N {
     (sqr(a.mip(b)) / (a.mip(a) * b.mip(b))).sqrt().acosh()
 }
 
-#[rustfmt::skip]
-fn renormalize_rotation_reflection<N: RealField + Copy>(m: &na::Matrix3<N>) -> na::Matrix3<N> {
-    let zv = m.index((.., 2)).normalize();
-    let yv = m.index((.., 1));
-    let dot = zv.dot(&yv);
-    let yv = na::Vector3::new(yv.x - dot * zv.x, yv.y - dot * zv.y, yv.z - dot * zv.z).normalize();
-    let sign = m.determinant().signum();
-    na::Matrix3::new(
-        sign * (yv.y * zv.z - yv.z * zv.y), yv.x, zv.x,
-        sign * (yv.z * zv.x - yv.x * zv.z), yv.y, zv.y,
-        sign * (yv.x * zv.y - yv.y * zv.x), yv.z, zv.z,
-    )
-}
-
 #[inline]
 pub fn sqr<N: RealField + Copy>(x: N) -> N {
     x * x
@@ -526,7 +545,7 @@ mod tests {
     #[rustfmt::skip]
     fn reflect_example() {
         assert_abs_diff_eq!(
-            MVector::new(0.5, 0.0, 0.0, 1.0).lorentz_normalize().reflect(),
+            MVector::new(0.5, 0.0, 0.0, 1.0).lorentz_normalized().reflect(),
             MIsometry(
                 na::Matrix4::new(
                     1.666, 0.0, 0.0, -1.333,
@@ -544,8 +563,8 @@ mod tests {
     fn translate_example() {
         assert_abs_diff_eq!(
             translate(
-                &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalize(),
-                &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalize()
+                &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
+                &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized()
             ),
             MIsometry(
                 na::Matrix4::new(
@@ -561,8 +580,8 @@ mod tests {
 
     #[test]
     fn translate_identity() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalize();
-        let b = MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalize();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized();
+        let b = MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         assert_abs_diff_eq!(
             translate(&a, &b),
@@ -573,7 +592,7 @@ mod tests {
 
     #[test]
     fn translate_equivalence() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalize();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         let direction = a.0.xyz().normalize();
         let distance = dbg!(distance(&o, &a));
@@ -618,20 +637,21 @@ mod tests {
     #[test]
     fn renormalize_translation() {
         let mat = translate(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalize(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalize(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized(),
         );
-        assert_abs_diff_eq!(mat.renormalize_isometry(), mat, epsilon = 1e-5);
+        assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
     }
 
     #[test]
     #[rustfmt::skip]
     fn renormalize_reflection() {
-        let mat = MIsometry(na::Matrix4::new(-1.0, 0.0, 0.0, 0.0,
-                                   0.0, 1.0, 0.0, 0.0,
-                                   0.0, 0.0, 1.0, 0.0,
-                                   0.0, 0.0, 0.0, 1.0));
-        assert_abs_diff_eq!(mat.renormalize_isometry(), mat, epsilon = 1e-5);
+        let mat = MIsometry(na::Matrix4::new(
+            -1.0, 0.0, 0.0, 0.0,
+             0.0, 1.0, 0.0, 0.0,
+             0.0, 0.0, 1.0, 0.0,
+             0.0, 0.0, 0.0, 1.0));
+        assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
     }
 
     #[test]
@@ -646,11 +666,11 @@ mod tests {
 
         // translation with some error
         let mat = MIsometry(translate(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalize(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalize(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).lorentz_normalized(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).lorentz_normalized(),
         ).0 + error.0 * 0.05);
 
-        let normalized_mat = mat.renormalize_isometry();
+        let normalized_mat = mat.renormalized();
 
         // Check that the matrix is actually normalized
         assert_abs_diff_eq!(

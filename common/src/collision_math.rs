@@ -165,7 +165,7 @@ mod tests {
                 ray.solve_sphere_plane_intersection(&normal, 0.2_f32.sinh())
                     .unwrap(),
             )
-            .lorentz_normalize();
+            .lorentz_normalized();
 
         assert_abs_diff_eq!(hit_point.mip(&normal), 0.2_f32.sinh(), epsilon = 1e-4);
     }
@@ -223,7 +223,7 @@ mod tests {
                 ray.solve_sphere_line_intersection(&line_normal0, &line_normal1, 0.2_f32.sinh())
                     .unwrap(),
             )
-            .lorentz_normalize();
+            .lorentz_normalized();
         // Measue the distance from hit_point to the line and ensure it's equal to the radius
         assert_abs_diff_eq!(
             (hit_point.mip(&line_normal0).powi(2) + hit_point.mip(&line_normal1).powi(2)).sqrt(),
@@ -319,7 +319,7 @@ mod tests {
                 )
                 .unwrap(),
             )
-            .lorentz_normalize();
+            .lorentz_normalized();
         assert_abs_diff_eq!(
             -hit_point.mip(&point_position),
             0.2_f32.cosh(),
@@ -394,7 +394,7 @@ mod tests {
         let normal = -MVector::z();
         let hit_point = ray
             .ray_point(ray.solve_point_plane_intersection(&normal).unwrap())
-            .lorentz_normalize();
+            .lorentz_normalized();
         assert_abs_diff_eq!(hit_point.mip(&normal), 0.0, epsilon = 1e-4);
     }
 
