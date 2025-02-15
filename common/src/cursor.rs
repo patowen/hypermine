@@ -53,7 +53,7 @@ impl Cursor {
     pub fn canonicalize(self, graph: &Graph) -> Option<ChunkId> {
         graph.canonicalize(ChunkId::new(
             self.node,
-            Vertex::from_sides(self.a, self.b, self.c).unwrap(),
+            Vertex::from_sides([self.a, self.b, self.c]).unwrap(),
         ))
     }
 }

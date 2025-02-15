@@ -159,8 +159,8 @@ impl Vertex {
 
     /// Vertex shared by three sides, if any
     #[inline]
-    pub fn from_sides(a: Side, b: Side, c: Side) -> Option<Self> {
-        data::SIDES_TO_VERTEX[a as usize][b as usize][c as usize]
+    pub fn from_sides(sides: [Side; 3]) -> Option<Self> {
+        data::SIDES_TO_VERTEX[sides[0] as usize][sides[1] as usize][sides[2] as usize]
     }
 
     /// Sides incident to this vertex, in canonical order.
@@ -402,9 +402,7 @@ mod data {
                     }
                     let mut test_sides = canonical_sides;
                     test_sides[canonical_sides_index] = test_side;
-                    if let Some(adjacent_vertex) =
-                        Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
-                    {
+                    if let Some(adjacent_vertex) = Vertex::from_sides(test_sides) {
                         return adjacent_vertex;
                     }
                 }
@@ -427,9 +425,7 @@ mod data {
                         }
                         let mut test_sides = canonical_sides;
                         test_sides[canonical_sides_index] = test_side;
-                        let Some(adjacent_vertex) =
-                            Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
-                        else {
+                        let Some(adjacent_vertex) = Vertex::from_sides(test_sides) else {
                             continue;
                         };
                         // Compare the natural permutation of sides after a reflection from `vertex` to `adjacent_vertex`
@@ -450,7 +446,7 @@ mod data {
         Vertex::VALUES.map(|vertex| {
             let [a, b, c] = vertex.canonical_sides();
             let vertex_position = (MVector::origin()
-                - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
+                + (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * -mip_origin_normal)
                 .normalized();
             MIsometry::from_columns_unchecked(&[
                 -*a.normal_f64(),
@@ -537,12 +533,12 @@ mod tests {
     fn sides_to_vertex() {
         for v in Vertex::iter() {
             let [a, b, c] = v.canonical_sides();
-            assert_eq!(v, Vertex::from_sides(a, b, c).unwrap());
-            assert_eq!(v, Vertex::from_sides(a, c, b).unwrap());
-            assert_eq!(v, Vertex::from_sides(b, a, c).unwrap());
-            assert_eq!(v, Vertex::from_sides(b, c, a).unwrap());
-            assert_eq!(v, Vertex::from_sides(c, a, b).unwrap());
-            assert_eq!(v, Vertex::from_sides(c, b, a).unwrap());
+            assert_eq!(v, Vertex::from_sides([a, b, c]).unwrap());
+            assert_eq!(v, Vertex::from_sides([a, c, b]).unwrap());
+            assert_eq!(v, Vertex::from_sides([b, a, c]).unwrap());
+            assert_eq!(v, Vertex::from_sides([b, c, a]).unwrap());
+            assert_eq!(v, Vertex::from_sides([c, a, b]).unwrap());
+            assert_eq!(v, Vertex::from_sides([c, b, a]).unwrap());
         }
     }
 
