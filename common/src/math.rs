@@ -247,34 +247,52 @@ impl<N: RealField + Copy> MIsometry<N> {
 }
 
 impl<N: RealField + Copy> MVector<N> {
-    pub fn lorentz_normalized(self: &MVector<N>) -> Self {
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself has absolute value 1. Note that this means that this
+    /// function can be called on a vector representing either a regular point
+    /// or an ultraideal point (but not an ideal point).
+    pub fn lorentz_normalized(&self) -> Self {
         let sf2 = self.mip(self);
         if sf2 == na::zero() {
+            debug_assert!(
+                false,
+                "Normalizing this vector would require division by zero."
+            );
             return MVector::origin();
         }
+        // TODO: To avoid subtle bugs, we should try to have different functions
+        // for points vs ultraideal points that use `sf2` or `-sf2` instead of
+        // `sf2.abs()`. The correct sign should already be known by the caller.
+        // This is something that can be introduced with additional `MVector`
+        // types that distinguish between these two types of points.
         let sf = sf2.abs().sqrt();
         *self / sf
     }
-    /// Point or plane reflection around point or normal `p`
-    pub fn reflect(self) -> MIsometry<N> {
+
+    /// The reflection about the hyperbolic plane represented by this vector.
+    pub fn reflect(&self) -> MIsometry<N> {
         MIsometry(
             na::Matrix4::<N>::identity()
-                - self.minkowski_outer_product(&self) * na::convert::<_, N>(2.0) / self.mip(&self),
+                - self.minkowski_outer_product(self) * na::convert::<_, N>(2.0) / self.mip(self),
         )
     }
-    /// Minkowski inner product, aka <a, b>_h
+
+    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
+    /// product, but the product of the w-components is negated. This is the
+    /// main operation that distinguishes Minkowski space from Euclidean
+    /// 4-space.
     pub fn mip(self, other: &Self) -> N {
         self.x * other.x + self.y * other.y + self.z * other.z - self.w * other.w
     }
-    pub fn minkowski_outer_product(self, other: &Self) -> na::Matrix4<N> {
-        ((self).0) * na::RowVector4::new(other.x, other.y, other.z, -other.w)
+
+    /// The Minkowski-space equivalent of the outer product of two vectors. This
+    /// produces a rank-one matrix that is a useful intermediate result when
+    /// computing other matrices, such as reflection or translation matrices.
+    fn minkowski_outer_product(self, other: &Self) -> na::Matrix4<N> {
+        self.0 * na::RowVector4::new(other.x, other.y, other.z, -other.w)
     }
-    pub fn from_gans(gans: &na::Vector3<N>) -> Self {
-        // x^2 + y^2 + z^2 - w^2 = -1
-        // sqrt(x^2 + y^2 + z^2 + 1) = w
-        let w = (sqr(gans.x) + sqr(gans.y) + sqr(gans.z) + na::one()).sqrt();
-        MVector(na::Vector4::new(gans.x, gans.y, gans.z, w))
-    }
+
+    /// The column vector with components `[0, 0, 0, 0]`.
     #[inline]
     pub fn zero() -> Self {
         Self(na::zero())
@@ -309,20 +327,27 @@ impl<N: RealField + Copy> MVector<N> {
     pub fn w() -> Self {
         Self(na::Vector4::w())
     }
+
+    /// Creates an `MVector` with the given components.
     #[inline]
     pub fn new(x: N, y: N, z: N, w: N) -> Self {
         MVector(na::Vector4::new(x, y, z, w))
     }
+
+    /// The first three coordinates of the vector. When working with an
+    /// `MVector` representing a velocity/direction from the origin, the
+    /// w-coordinate should always be 0, so using this function to extract a 3D
+    /// vector can help make that assumption more explicit.
     #[inline]
     pub fn xyz(self) -> na::Vector3<N> {
         self.0.xyz()
     }
 }
 
-impl<N: RealField> Mul<MIsometry<N>> for MIsometry<N> {
-    type Output = MIsometry<N>;
+impl<N: RealField> Mul for MIsometry<N> {
+    type Output = Self;
     #[inline]
-    fn mul(self, rhs: MIsometry<N>) -> Self::Output {
+    fn mul(self, rhs: Self) -> Self::Output {
         MIsometry(self.0 * rhs.0)
     }
 }
@@ -375,14 +400,6 @@ impl<N: RealField> Mul<MVector<N>> for MIsometry<N> {
     }
 }
 
-impl<N: RealField> Mul<N> for MIsometry<N> {
-    type Output = MIsometry<N>;
-    #[inline]
-    fn mul(self, rhs: N) -> Self::Output {
-        MIsometry(self.0 * rhs)
-    }
-}
-
 impl<N: RealField + Copy> std::ops::AddAssign for MVector<N> {
     #[inline]
     fn add_assign(&mut self, other: Self) {
@@ -397,16 +414,9 @@ impl<N: RealField + Copy> MulAssign<N> for MVector<N> {
     }
 }
 
-impl<N: RealField + Copy> MulAssign<N> for MIsometry<N> {
+impl<N: RealField + Copy> MulAssign for MIsometry<N> {
     #[inline]
-    fn mul_assign(&mut self, rhs: N) {
-        self.0 *= rhs;
-    }
-}
-
-impl<N: RealField + Copy> MulAssign<MIsometry<N>> for MIsometry<N> {
-    #[inline]
-    fn mul_assign(&mut self, rhs: MIsometry<N>) {
+    fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
     }
 }
@@ -626,15 +636,15 @@ mod tests {
 
     #[test]
     fn distance_commutative() {
-        let p = MVector::from_gans(&na::Vector3::new(-1.0, -1.0, 0.0));
-        let q = MVector::from_gans(&na::Vector3::new(1.0, -1.0, 0.0));
+        let p = MVector::new(-1.0, -1.0, 0.0, 3.0f64.sqrt());
+        let q = MVector::new(1.0, -1.0, 0.0, 3.0f64.sqrt());
         assert_abs_diff_eq!(distance(&p, &q), distance(&q, &p));
     }
 
     #[test]
     fn midpoint_distance() {
-        let p = MVector::from_gans(&na::Vector3::new(-1.0, -1.0, 0.0));
-        let q = MVector::from_gans(&na::Vector3::new(1.0, -1.0, 0.0));
+        let p = MVector::new(-1.0, -1.0, 0.0, 3.0f64.sqrt());
+        let q = MVector::new(1.0, -1.0, 0.0, 3.0f64.sqrt());
         let m = midpoint(&p, &q);
         assert_abs_diff_eq!(distance(&p, &m), distance(&m, &q), epsilon = 1e-5);
         assert_abs_diff_eq!(distance(&p, &m) * 2.0, distance(&p, &q), epsilon = 1e-5);
