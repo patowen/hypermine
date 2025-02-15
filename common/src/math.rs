@@ -214,7 +214,13 @@ impl<N: RealField + Copy> MIsometry<N> {
         // `(-I + 2(a+b)(a+b)*/(2-2a*b)) (-I + 2aa*)`
         // `(-I + (a+b)(a+b)*/(1-a*b)) (-I + 2aa*)`
         // `I - (a+b)(a+b)*/(1-a*b) - 2aa* + 2(a+b)(a+b)*aa*/(1-a*b)`
-        // ... (TODO)
+        // `I - (a+b)(a+b)*/(1-a*b) - (2aa*-2a(a*b)a*)/(1-a*b) + 2(a+b)(a*+b*)aa*/(1-a*b)`
+        // `I - (a+b)(a+b)*/(1-a*b) - [2aa* - 2aa*ba* - 2(a+b)(a*+b*)aa*]/(1-a*b)`
+        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* - (aa*+ab*+ba*+bb*)aa*]/(1-a*b)`
+        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* - aa*aa* - ab*aa* - ba*aa* - bb*aa*]/(1-a*b)`
+        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* + aa* - aa*ba* + ba* - ba*ba*]/(1-a*b)`
+        // ... (TODO: Things aren't cancelling. There's probably a math error.)
+        // `I - (a+b)(a+b)*/(1-a*b) - 2[ba* - ba*ba*]/(1-a*b)`
         // `I - 2ba* + (a+b)(a+b)*/(1-a*b)`
         let a_plus_b = *a + *b;
         Self(
