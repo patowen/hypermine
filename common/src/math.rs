@@ -168,11 +168,20 @@ impl<N: RealField + Copy> MIsometry<N> {
         Self(na::Matrix4::identity())
     }
 
+    /// The reflection about the hyperbolic plane represented by this vector.
+    pub fn reflection(normal: &MVector<N>) -> Self {
+        Self(
+            na::Matrix4::<N>::identity()
+                - normal.minkowski_outer_product(normal) * na::convert::<_, N>(2.0)
+                    / normal.mip(normal),
+        )
+    }
+
     /// Creates an `MIsometry` with the given columns. It is the caller's
     /// responsibility to ensure that the resulting matrix is a valid isometry.
     #[inline]
     pub fn from_columns_unchecked(columns: &[MVector<N>; 4]) -> Self {
-        Self(na::Matrix4::from_columns(&(*columns).map(|x| x.0)))
+        Self(na::Matrix4::from_columns(&columns.map(|x| x.0)))
     }
 
     /// Creates an `MIsometry` with its elements filled with the components
@@ -268,14 +277,6 @@ impl<N: RealField + Copy> MVector<N> {
         }
         let scale_factor = scale_factor_squared.sqrt();
         *self / scale_factor
-    }
-
-    /// The reflection about the hyperbolic plane represented by this vector.
-    pub fn reflect(&self) -> MIsometry<N> {
-        MIsometry(
-            na::Matrix4::<N>::identity()
-                - self.minkowski_outer_product(self) * na::convert::<_, N>(2.0) / self.mip(self),
-        )
     }
 
     /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
@@ -562,7 +563,7 @@ mod tests {
     #[rustfmt::skip]
     fn reflect_example() {
         assert_abs_diff_eq!(
-            MVector::new(0.5, 0.0, 0.0, 1.0).normalized().reflect(),
+            MIsometry::reflection(&MVector::new(0.5, 0.0, 0.0, 1.0).normalized()),
             MIsometry(
                 na::Matrix4::new(
                     1.666, 0.0, 0.0, -1.333,

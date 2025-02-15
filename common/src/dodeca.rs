@@ -312,7 +312,7 @@ mod data {
     /// Transform that moves from a neighbor to a reference node, for each side
     pub fn reflections_f64() -> &'static [MIsometry<f64>; SIDE_COUNT] {
         static LOCK: OnceLock<[MIsometry<f64>; SIDE_COUNT]> = OnceLock::new();
-        LOCK.get_or_init(|| side_normals_f64().map(|r| r.reflect()))
+        LOCK.get_or_init(|| side_normals_f64().map(|r| MIsometry::reflection(&r)))
     }
 
     /// Sides incident to a vertex, in canonical order
