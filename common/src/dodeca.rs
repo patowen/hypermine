@@ -377,17 +377,17 @@ mod data {
     // Which vertices are adjacent to other vertices and opposite the canonical sides
     pub static ADJACENT_VERTICES: LazyLock<[[Vertex; 3]; Vertex::COUNT]> = LazyLock::new(|| {
         Vertex::VALUES.map(|vertex| {
-            array::from_fn(|result_index| {
-                // Reorder the canonical sides so that the third element is the
-                // one that must change to find the correct adjacent vertex.
-                let adjacent_sides = math::tuv_to_xyz(2 - result_index, vertex.canonical_sides());
+            let canonical_sides = vertex.canonical_sides();
+            array::from_fn(|canonical_sides_index| {
                 // Try every possible side to find an adjacent vertex.
                 for test_side in Side::iter() {
-                    if test_side == adjacent_sides[2] {
+                    if test_side == canonical_sides[canonical_sides_index] {
                         continue;
                     }
+                    let mut test_sides = canonical_sides;
+                    test_sides[canonical_sides_index] = test_side;
                     if let Some(adjacent_vertex) =
-                        Vertex::from_sides(adjacent_sides[0], adjacent_sides[1], test_side)
+                        Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
                     {
                         return adjacent_vertex;
                     }
@@ -401,16 +401,16 @@ mod data {
     // to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
     pub static CHUNK_AXIS_PERMUTATIONS: LazyLock<[[ChunkAxisPermutation; 3]; Vertex::COUNT]> =
         LazyLock::new(|| {
-            array::from_fn(|vertex| {
-                array::from_fn(|result_index| {
-                    let mut test_sides = VERTEX_SIDES[vertex];
-                    // Keep modifying the result_index'th element of test_sides until its three elements are all
-                    // adjacent to a single vertex (determined using `Vertex::from_sides`).
-                    for side in Side::iter() {
-                        if side == VERTEX_SIDES[vertex][result_index] {
+            Vertex::VALUES.map(|vertex| {
+                let canonical_sides = vertex.canonical_sides();
+                array::from_fn(|canonical_sides_index| {
+                    // Try every possible side to find an adjacent vertex.
+                    for test_side in Side::iter() {
+                        if test_side == canonical_sides[canonical_sides_index] {
                             continue;
                         }
-                        test_sides[result_index] = side;
+                        let mut test_sides = canonical_sides;
+                        test_sides[canonical_sides_index] = test_side;
                         let Some(adjacent_vertex) =
                             Vertex::from_sides(test_sides[0], test_sides[1], test_sides[2])
                         else {
