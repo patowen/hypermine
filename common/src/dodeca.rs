@@ -1,6 +1,5 @@
 //! Tools for processing the geometry of a right dodecahedron
 
-use data::*;
 use serde::{Deserialize, Serialize};
 
 use crate::math::{MIsometry, MVector};
@@ -68,31 +67,31 @@ impl Side {
     /// `false` when `self == other`.
     #[inline]
     pub fn adjacent_to(self, other: Side) -> bool {
-        ADJACENT[self as usize][other as usize]
+        data::ADJACENT[self as usize][other as usize]
     }
 
     /// Outward normal vector of this side
     #[inline]
     pub fn normal(self) -> &'static MVector<f32> {
-        &SIDE_NORMALS_F32[self as usize]
+        &data::SIDE_NORMALS_F32[self as usize]
     }
 
     /// Outward normal vector of this side
     #[inline]
     pub fn normal_f64(self) -> &'static MVector<f64> {
-        &SIDE_NORMALS_F64[self as usize]
+        &data::SIDE_NORMALS_F64[self as usize]
     }
 
     /// Reflection across this side
     #[inline]
     pub fn reflection(self) -> &'static MIsometry<f32> {
-        &REFLECTIONS_F32[self as usize]
+        &data::REFLECTIONS_F32[self as usize]
     }
 
     /// Reflection across this side
     #[inline]
     pub fn reflection_f64(self) -> &'static MIsometry<f64> {
-        &REFLECTIONS_F64[self as usize]
+        &data::REFLECTIONS_F64[self as usize]
     }
 
     /// Whether `p` is opposite the dodecahedron across the plane containing `self`
@@ -161,7 +160,7 @@ impl Vertex {
     /// Vertex shared by three sides, if any
     #[inline]
     pub fn from_sides(a: Side, b: Side, c: Side) -> Option<Self> {
-        SIDES_TO_VERTEX[a as usize][b as usize][c as usize]
+        data::SIDES_TO_VERTEX[a as usize][b as usize][c as usize]
     }
 
     /// Sides incident to this vertex, in canonical order.
@@ -170,7 +169,7 @@ impl Vertex {
     /// corresponding to the vertex.
     #[inline]
     pub fn canonical_sides(self) -> [Side; 3] {
-        VERTEX_CANONICAL_SIDES[self as usize]
+        data::VERTEX_CANONICAL_SIDES[self as usize]
     }
 
     /// Vertices adjacent to this vertex in canonical order.
@@ -188,7 +187,7 @@ impl Vertex {
     /// `adjacent_vertices()[0]`.
     #[inline]
     pub fn adjacent_vertices(self) -> [Vertex; 3] {
-        ADJACENT_VERTICES[self as usize]
+        data::ADJACENT_VERTICES[self as usize]
     }
 
     /// Chunk axes permutations for vertices adjacent to this vertex in
@@ -200,7 +199,7 @@ impl Vertex {
     /// function.
     #[inline]
     pub fn chunk_axis_permutations(self) -> &'static [ChunkAxisPermutation; 3] {
-        &CHUNK_AXIS_PERMUTATIONS[self as usize]
+        &data::CHUNK_AXIS_PERMUTATIONS[self as usize]
     }
 
     /// For each vertex of the cube dual to this dodecahedral vertex, provides an iterator of at
@@ -252,55 +251,55 @@ impl Vertex {
 
     /// Transform from cube-centric coordinates to dodeca-centric coordinates
     pub fn dual_to_node(self) -> &'static MIsometry<f32> {
-        &DUAL_TO_NODE_F32[self as usize]
+        &data::DUAL_TO_NODE_F32[self as usize]
     }
 
     /// Transform from cube-centric coordinates to dodeca-centric coordinates
     pub fn dual_to_node_f64(self) -> &'static MIsometry<f64> {
-        &DUAL_TO_NODE_F64[self as usize]
+        &data::DUAL_TO_NODE_F64[self as usize]
     }
 
     /// Transform from dodeca-centric coordinates to cube-centric coordinates
     pub fn node_to_dual(self) -> &'static MIsometry<f32> {
-        &NODE_TO_DUAL_F32[self as usize]
+        &data::NODE_TO_DUAL_F32[self as usize]
     }
 
     /// Transform from dodeca-centric coordinates to cube-centric coordinates
     pub fn node_to_dual_f64(self) -> &'static MIsometry<f64> {
-        &NODE_TO_DUAL_F64[self as usize]
+        &data::NODE_TO_DUAL_F64[self as usize]
     }
 
     /// Scale factor used in conversion from cube-centric coordinates to euclidean chunk coordinates.
     /// Scaling the x, y, and z components of a vector in cube-centric coordinates by this value
     /// and dividing them by the w coordinate will yield euclidean chunk coordinates.
     pub fn dual_to_chunk_factor() -> f32 {
-        *DUAL_TO_CHUNK_FACTOR_F32
+        *data::DUAL_TO_CHUNK_FACTOR_F32
     }
 
     /// Scale factor used in conversion from cube-centric coordinates to euclidean chunk coordinates.
     /// Scaling the x, y, and z components of a vector in cube-centric coordinates by this value
     /// and dividing them by the w coordinate will yield euclidean chunk coordinates.
     pub fn dual_to_chunk_factor_f64() -> f64 {
-        *DUAL_TO_CHUNK_FACTOR_F64
+        *data::DUAL_TO_CHUNK_FACTOR_F64
     }
 
     /// Scale factor used in conversion from euclidean chunk coordinates to cube-centric coordinates.
     /// Scaling the x, y, and z components of a vector in homogeneous euclidean chunk coordinates by this value
     /// and lorentz-normalizing the result will yield cube-centric coordinates.
     pub fn chunk_to_dual_factor() -> f32 {
-        *CHUNK_TO_DUAL_FACTOR_F32
+        *data::CHUNK_TO_DUAL_FACTOR_F32
     }
 
     /// Scale factor used in conversion from euclidean chunk coordinates to cube-centric coordinates.
     /// Scaling the x, y, and z components of a vector in homogeneous euclidean chunk coordinates by this value
     /// and lorentz-normalizing the result will yield cube-centric coordinates.
     pub fn chunk_to_dual_factor_f64() -> f64 {
-        *CHUNK_TO_DUAL_FACTOR_F64
+        *data::CHUNK_TO_DUAL_FACTOR_F64
     }
 
     /// Convenience method for `self.chunk_to_node().determinant() < 0`.
     pub fn parity(self) -> bool {
-        CHUNK_TO_NODE_PARITY[self as usize]
+        data::CHUNK_TO_NODE_PARITY[self as usize]
     }
 }
 
@@ -501,15 +500,17 @@ mod tests {
     #[test]
     fn vertex_sides_consistent() {
         use std::collections::HashSet;
-        let triples = VERTEX_CANONICAL_SIDES.iter().collect::<HashSet<_>>();
+        let triples = Vertex::iter()
+            .map(|v| v.canonical_sides())
+            .collect::<HashSet<_>>();
         assert_eq!(triples.len(), Vertex::COUNT);
-        for &triple in VERTEX_CANONICAL_SIDES.iter() {
+        for triple in Vertex::iter().map(|v| v.canonical_sides()) {
             let mut sorted = triple;
             sorted.sort_unstable();
             assert_eq!(triple, sorted);
-            assert!(ADJACENT[triple[0] as usize][triple[1] as usize]);
-            assert!(ADJACENT[triple[1] as usize][triple[2] as usize]);
-            assert!(ADJACENT[triple[2] as usize][triple[0] as usize]);
+            assert!(triple[0].adjacent_to(triple[1]));
+            assert!(triple[1].adjacent_to(triple[2]));
+            assert!(triple[2].adjacent_to(triple[0]));
         }
     }
 
