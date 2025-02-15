@@ -279,26 +279,32 @@ impl<N: RealField + Copy> MVector<N> {
     pub fn zero() -> Self {
         Self(na::zero())
     }
+
+    /// The vector representing the origin in hyperbolic space. Alias for `MVector::w()`.
     #[inline]
     pub fn origin() -> Self {
         Self::w()
     }
-    #[inline]
-    pub fn normalize(self) -> Self {
-        Self(self.0.normalize())
-    }
+
+    /// The column vector with components `[1, 0, 0, 0]`.
     #[inline]
     pub fn x() -> Self {
         Self(na::Vector4::x())
     }
+
+    /// The column vector with components `[0, 1, 0, 0]`.
     #[inline]
     pub fn y() -> Self {
         Self(na::Vector4::y())
     }
+
+    /// The column vector with components `[0, 0, 1, 0]`.
     #[inline]
     pub fn z() -> Self {
         Self(na::Vector4::z())
     }
+
+    /// The column vector with components `[0, 0, 0, 1]`.
     #[inline]
     pub fn w() -> Self {
         Self(na::Vector4::w())

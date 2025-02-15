@@ -214,7 +214,7 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 MVector::origin(),
-                MVector::new(1.0, 2.0, 3.0, 0.0).normalize(),
+                MVector::new(1.0, 2.0, 3.0, 0.0).lorentz_normalized(),
             );
         let line_normal0 = MVector::x();
         let line_normal1 = MVector::z();
@@ -303,7 +303,7 @@ mod tests {
         let ray = math::translate_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 MVector::origin(),
-                MVector::new(1.0, 2.0, 6.0, 0.0).normalize(),
+                MVector::new(1.0, 2.0, 6.0, 0.0).lorentz_normalized(),
             );
         let point_position = MVector::origin();
         let point_normal0 = MVector::x();

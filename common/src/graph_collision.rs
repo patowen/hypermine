@@ -444,7 +444,7 @@ mod tests {
         // set to 0 and normalized
         let ray = Ray::new(
             MVector::origin(),
-            (vertex_pos - MVector::w() * vertex_pos.w).normalize(),
+            (vertex_pos - MVector::w() * vertex_pos.w).lorentz_normalized(),
         );
         let sphere_radius = 0.1;
 
