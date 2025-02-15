@@ -5,25 +5,59 @@
 
 // all the inline functions are basically just wrappers around corresponding nalgebra functions
 
-use na::{RealField, Scalar};
+use na::{ArrayStorage, RawStorage, RealField, Scalar};
 use serde::{Deserialize, Serialize};
 use std::ops::*;
 
+/// A stack-allocated 4-dimensional column-vector in Minkowski space. Such
+/// vectors are useful for computations in the hyperboloid model of hyperbolic
+/// space. Note that the last coordinate, not the first coordinate, is treated
+/// as the special "time" coordinate.
+/// 
+/// This vector type is versatile, being able to represent multiple things in
+/// Hyperbolic space. What it can represent is generally determined by the
+/// Minkowski inner product between the vector and itself.
+/// - If it's negative, it represents a point in hyperbolic space.
+/// - If it's zero, it represents an _ideal_ point in hyperbolic space. Such a
+///   point can be associated with horospheres
+/// - If it's positive, it represents an _ultraideal_ point in hyperbolic space.
+///   Such points can be treated as oriented planes.
+/// 
+/// If the absolute value of this Minkowski inner product is 1, it is
+/// normalized, and equations involving such a vector tend to be simpler, much
+/// like with unit vectors.
+/// 
+/// Note that the simplest way to represent directions/velocities/normals at a
+/// point in hyperbolic space is with a vector whose Minkowski inner product
+/// with that point is 0. Such a vector will be tangent to the hyperboloid model
+/// at that associated point, so it can naturally represent movement along the
+/// hyperboloid in that direction.
+/// 
+/// As a general rule, when working with such vectors, it is highly recommended
+/// to avoid dot products and related operations such as vector magnitude, as
+/// these operations are meaningless in Minkowski space and are not preserved by
+/// isometries.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(C)]
 pub struct MVector<N: Scalar>(na::Vector4<N>);
 
+/// A stack-allocated, column-major, 4x4 square matrix in Minkowski space that
+/// preserves the Minkowski inner product. Such matrices are useful for
+/// computations in the hyperboloid model of hyperbolic space. Note that the
+/// last coordinate, not the first coordinate, is treated as the special "time"
+/// coordinate.
+/// 
+/// To ensure that this matrix indeed represents an isometry in Minkowski space,
+/// a few invariants are preserved:
+/// - The Minkowski inner product between any two distinct columns is 0.
+/// - The Minkowski inner product of a column with itself is 1 for the first
+///   three columns, and -1 for the last column.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(C)]
 pub struct MIsometry<N: Scalar>(na::Matrix4<N>);
 
-impl<N: RealField> From<na::Unit<na::Vector3<N>>> for MVector<N> {
-    fn from(value: na::Unit<na::Vector3<N>>) -> Self {
-        Self(value.into_inner().push(na::zero()))
-    }
-}
-
 impl<N: Scalar> From<na::Vector4<N>> for MVector<N> {
+    /// Reinterprets the input as a vector in Minkowski space.
     fn from(value: na::Vector4<N>) -> Self {
         Self(value)
     }
@@ -53,76 +87,101 @@ impl<N: Scalar> Deref for MIsometry<N> {
 }
 
 impl<N: Scalar> From<MIsometry<N>> for na::Matrix4<N> {
+    /// Unwraps the underlying matrix. This effectively reinterprets the matrix
+    /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a transformation within the 3D Beltrami-Klein model.
     fn from(value: MIsometry<N>) -> na::Matrix4<N> {
         value.0
     }
 }
 
 impl<N: Scalar> From<MVector<N>> for na::Vector4<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
     fn from(value: MVector<N>) -> na::Vector4<N> {
         value.0
     }
 }
 
 impl MIsometry<f32> {
+    /// Casts the components to an `f64`
     pub fn to_f64(self) -> MIsometry<f64> {
         MIsometry(self.0.cast::<f64>())
     }
 }
 
 impl MIsometry<f64> {
+    /// Casts the components to an `f32`
     pub fn to_f32(self) -> MIsometry<f32> {
         MIsometry(self.0.cast::<f32>())
     }
 }
 
 impl MVector<f32> {
+    /// Casts the components to an `f64`
     pub fn to_f64(self) -> MVector<f64> {
         MVector(self.0.cast::<f64>())
     }
 }
 
 impl MVector<f64> {
+    /// Casts the components to an `f32`
     pub fn to_f32(self) -> MVector<f32> {
         MVector(self.0.cast::<f32>())
     }
 }
 
+impl<N: RealField + Copy> AsRef<[[N; 4]; 4]> for MIsometry<N> {
+    #[inline]
+    fn as_ref(&self) -> &[[N; 4]; 4] {
+        self.0.as_ref()
+    }
+}
+
+impl<N: RealField + Copy> From<na::UnitQuaternion<N>> for MIsometry<N> {
+    /// Converts a quaternion into the matrix for the rotation it represents.
+    fn from(value: na::UnitQuaternion<N>) -> Self {
+        MIsometry(value.to_homogeneous())
+    }
+}
+
+impl<N: RealField + Copy> From<na::Rotation3<N>> for MIsometry<N> {
+    /// Converts a rotation into the matrix representing that rotation.
+    fn from(value: na::Rotation3<N>) -> Self {
+        MIsometry(value.to_homogeneous())
+    }
+}
+
 impl<N: RealField + Copy> MIsometry<N> {
+    /// Returns a view containing the i-th row of this matrix.
     #[inline]
-    pub fn as_ref(self) -> [[N; 4]; 4] {
-        *self.0.as_ref()
+    pub fn row(&self, i: usize) -> na::MatrixView1x4<'_, N, na::U1, na::U4> {
+        self.0.row(i)
     }
-    #[inline]
-    pub fn unit_quaternion_to_homogeneous(rotation: na::UnitQuaternion<N>) -> Self {
-        MIsometry(rotation.to_homogeneous())
-    }
-    #[inline]
-    pub fn rotation_to_homogeneous(rotation: na::Rotation3<N>) -> Self {
-        MIsometry(rotation.to_homogeneous())
-    }
-    #[inline]
-    pub fn row(self, i: usize) -> na::RowVector4<N> {
-        self.0.row(i).into()
-    }
+
+    /// Creates an identity matrix.
     #[inline]
     pub fn identity() -> Self {
         Self(na::Matrix4::identity())
     }
-    #[inline]
-    pub fn map<N2: Scalar, F: FnMut(N) -> N2>(&self, f: F) -> MIsometry<N2> {
-        MIsometry(self.0.map(f))
-    }
+
+    /// Creates an `MIsometry` with the given columns. It is the caller's
+    /// responsibility to ensure that the resulting matrix is a valid isometry.
     #[inline]
     pub fn from_columns_unchecked(columns: &[MVector<N>; 4]) -> Self {
         Self(na::Matrix4::from_columns(&(*columns).map(|x| x.0)))
     }
-    /// Creates an `MIsometry` with its elements filled with the components provided by a slice in column-major order.
-    /// It is the caller's responsibility to ensure that the resulting matrix is a valid isometry.
+
+    /// Creates an `MIsometry` with its elements filled with the components
+    /// provided by a slice in column-major order. It is the caller's
+    /// responsibility to ensure that the resulting matrix is a valid isometry.
     #[inline]
     pub fn from_column_slice_unchecked(data: &[N]) -> Self {
         Self(na::Matrix4::from_column_slice(data))
     }
+
     /// Minkowski transpose. Inverse for hyperbolic isometries
     #[rustfmt::skip]
     pub fn mtranspose(self) -> Self {

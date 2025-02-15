@@ -24,7 +24,7 @@ impl<N: na::RealField + Copy> From<na::Unit<na::Vector3<N>>> for Plane<N> {
     /// A plane passing through the origin
     fn from(x: na::Unit<na::Vector3<N>>) -> Self {
         Self {
-            normal: MVector::from(x),
+            normal: MVector::from(x.into_inner().push(na::zero())),
         }
     }
 }

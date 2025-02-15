@@ -71,7 +71,7 @@ impl Side {
     /// Whether `p` is opposite the dodecahedron across the plane containing `self`
     #[inline]
     pub fn is_facing(self, p: &MVector<f32>) -> bool {
-        let r = na::convert::<_, na::RowVector4<f32>>(self.reflection().row(3).clone_owned());
+        let r = self.reflection().row(3).clone_owned();
         (r * na::Vector4::from(*p)).x < p.w
     }
 }

@@ -446,10 +446,8 @@ mod tests {
         let layout = ChunkLayout::new(dimension);
 
         // Pick an arbitrary ray by transforming the positive-x-axis ray.
-        let ray = MIsometry::rotation_to_homogeneous(na::Rotation3::from_axis_angle(
-            &na::Vector3::z_axis(),
-            0.4,
-        )) * math::translate_along(&na::Vector3::new(0.2, 0.3, 0.1))
+        let ray = MIsometry::from(na::Rotation3::from_axis_angle(&na::Vector3::z_axis(), 0.4))
+            * math::translate_along(&na::Vector3::new(0.2, 0.3, 0.1))
             * &Ray::new(MVector::w(), MVector::x());
 
         let tanh_distance = 0.2;
