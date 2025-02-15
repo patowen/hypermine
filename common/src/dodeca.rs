@@ -35,16 +35,32 @@ pub enum Side {
 }
 
 impl Side {
+    pub const COUNT: usize = 12;
+
+    pub const VALUES: [Self; Self::COUNT] = [
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+    ];
+
     #[inline]
     pub fn from_index(x: usize) -> Self {
         use Side::*;
-        const VALUES: [Side; SIDE_COUNT] = [A, B, C, D, E, F, G, H, I, J, K, L];
+        const VALUES: [Side; Side::COUNT] = [A, B, C, D, E, F, G, H, I, J, K, L];
         VALUES[x]
     }
 
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
-        use Side::*;
-        [A, B, C, D, E, F, G, H, I, J, K, L].into_iter()
+        Self::VALUES.iter().copied()
     }
 
     /// Whether `self` and `other` share an edge
@@ -113,11 +129,33 @@ pub enum Vertex {
 }
 
 impl Vertex {
+    pub const COUNT: usize = 20;
+
+    pub const VALUES: [Self; Self::COUNT] = [
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::M,
+        Self::N,
+        Self::O,
+        Self::P,
+        Self::Q,
+        Self::R,
+        Self::S,
+        Self::T,
+    ];
+
     pub fn iter() -> impl ExactSizeIterator<Item = Self> {
-        use Vertex::*;
-        [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T]
-            .iter()
-            .copied()
+        Self::VALUES.iter().copied()
     }
 
     /// Vertex shared by three sides, if any
@@ -266,8 +304,6 @@ impl Vertex {
     }
 }
 
-pub const VERTEX_COUNT: usize = 20;
-pub const SIDE_COUNT: usize = 12;
 pub const BOUNDING_SPHERE_RADIUS_F64: f64 = 1.2264568712514068;
 pub const BOUNDING_SPHERE_RADIUS: f32 = BOUNDING_SPHERE_RADIUS_F64 as f32;
 
@@ -275,13 +311,13 @@ mod data {
     use std::array;
     use std::sync::LazyLock;
 
-    use crate::dodeca::{Side, Vertex, SIDE_COUNT, VERTEX_COUNT};
+    use crate::dodeca::{Side, Vertex};
     use crate::math::{MIsometry, MVector};
     use crate::voxel_math::ChunkAxisPermutation;
 
     /// Whether two sides share an edge
-    pub static ADJACENT: LazyLock<[[bool; SIDE_COUNT]; SIDE_COUNT]> = LazyLock::new(|| {
-        let mut result = [[false; SIDE_COUNT]; SIDE_COUNT];
+    pub static ADJACENT: LazyLock<[[bool; Side::COUNT]; Side::COUNT]> = LazyLock::new(|| {
+        let mut result = [[false; Side::COUNT]; Side::COUNT];
         for (i, side) in result.iter_mut().enumerate() {
             for (j, is_adjacent) in side.iter_mut().enumerate() {
                 let cosh_distance = (REFLECTIONS_F64[i] * REFLECTIONS_F64[j])[(3, 3)];
@@ -294,11 +330,11 @@ mod data {
     });
 
     /// Vector corresponding to the outer normal of each side
-    pub static SIDE_NORMALS_F64: LazyLock<[MVector<f64>; SIDE_COUNT]> = LazyLock::new(|| {
+    pub static SIDE_NORMALS_F64: LazyLock<[MVector<f64>; Side::COUNT]> = LazyLock::new(|| {
         let phi = libm::sqrt(1.25) + 0.5; // golden ratio
         let f = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized();
 
-        let mut result: [MVector<f64>; SIDE_COUNT] = [MVector::zero(); SIDE_COUNT];
+        let mut result: [MVector<f64>; Side::COUNT] = [MVector::zero(); Side::COUNT];
         let mut i = 0;
         for (x, y, z, w) in [
             (f.x, f.y, f.z, f.w),
@@ -315,17 +351,17 @@ mod data {
     });
 
     /// Transform that moves from a neighbor to a reference node, for each side
-    pub static REFLECTIONS_F64: LazyLock<[MIsometry<f64>; SIDE_COUNT]> =
+    pub static REFLECTIONS_F64: LazyLock<[MIsometry<f64>; Side::COUNT]> =
         LazyLock::new(|| SIDE_NORMALS_F64.map(|r| MIsometry::reflection(&r)));
 
     /// Sides incident to a vertex, in canonical order
-    pub static VERTEX_SIDES: LazyLock<[[Side; 3]; VERTEX_COUNT]> = LazyLock::new(|| {
-        let mut result = [[Side::A; 3]; VERTEX_COUNT];
+    pub static VERTEX_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
+        let mut result = [[Side::A; 3]; Vertex::COUNT];
         let mut vertex = 0;
         // Kind of a hack, but working this out by hand isn't any fun.
-        for a in 0..SIDE_COUNT {
-            for b in (a + 1)..SIDE_COUNT {
-                for c in (b + 1)..SIDE_COUNT {
+        for a in 0..Side::COUNT {
+            for b in (a + 1)..Side::COUNT {
+                for c in (b + 1)..Side::COUNT {
                     if !ADJACENT[a][b] || !ADJACENT[b][c] || !ADJACENT[c][a] {
                         continue;
                     }
@@ -343,8 +379,8 @@ mod data {
     });
 
     // Which vertices are adjacent to other vertices and opposite the canonical sides
-    pub static ADJACENT_VERTICES: LazyLock<[[Vertex; 3]; VERTEX_COUNT]> = LazyLock::new(|| {
-        let mut result = [[Vertex::A; 3]; VERTEX_COUNT];
+    pub static ADJACENT_VERTICES: LazyLock<[[Vertex; 3]; Vertex::COUNT]> = LazyLock::new(|| {
+        let mut result = [[Vertex::A; 3]; Vertex::COUNT];
 
         for (i, triple) in result.iter_mut().enumerate() {
             for result_index in 0..3 {
@@ -369,7 +405,7 @@ mod data {
 
     // Which transformations have to be done after a reflection to switch reference frames from one vertex
     // to one of its adjacent vertices (ordered similarly to ADJACENT_VERTICES)
-    pub static CHUNK_AXIS_PERMUTATIONS: LazyLock<[[ChunkAxisPermutation; 3]; VERTEX_COUNT]> =
+    pub static CHUNK_AXIS_PERMUTATIONS: LazyLock<[[ChunkAxisPermutation; 3]; Vertex::COUNT]> =
         LazyLock::new(|| {
             array::from_fn(|vertex| {
                 array::from_fn(|result_index| {
@@ -399,9 +435,9 @@ mod data {
         });
 
     /// Transform that converts from cube-centric coordinates to dodeca-centric coordinates
-    pub static DUAL_TO_NODE_F64: LazyLock<[MIsometry<f64>; VERTEX_COUNT]> = LazyLock::new(|| {
+    pub static DUAL_TO_NODE_F64: LazyLock<[MIsometry<f64>; Vertex::COUNT]> = LazyLock::new(|| {
         let mip_origin_normal = MVector::origin().mip(&SIDE_NORMALS_F64[0]); // This value is the same for every side
-        let mut result = [MIsometry::identity(); VERTEX_COUNT];
+        let mut result = [MIsometry::identity(); Vertex::COUNT];
         for (i, map) in result.iter_mut().enumerate() {
             let [a, b, c] = VERTEX_SIDES[i];
             let vertex_position = (MVector::origin()
@@ -418,7 +454,7 @@ mod data {
     });
 
     /// Transform that converts from dodeca-centric coordinates to cube-centric coordinates
-    pub static NODE_TO_DUAL_F64: LazyLock<[MIsometry<f64>; VERTEX_COUNT]> =
+    pub static NODE_TO_DUAL_F64: LazyLock<[MIsometry<f64>; Vertex::COUNT]> =
         LazyLock::new(|| DUAL_TO_NODE_F64.map(|m| m.inverse()));
 
     pub static DUAL_TO_CHUNK_FACTOR_F64: LazyLock<f64> =
@@ -428,37 +464,38 @@ mod data {
         LazyLock::new(|| 1.0 / *DUAL_TO_CHUNK_FACTOR_F64);
 
     /// Vertex shared by 3 sides
-    pub static SIDES_TO_VERTEX: LazyLock<[[[Option<Vertex>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT]> =
-        LazyLock::new(|| {
-            let mut result = [[[None; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT];
-            let mut vertex = Vertex::iter();
-            // Kind of a hack, but working this out by hand isn't any fun.
-            for a in 0..SIDE_COUNT {
-                for b in (a + 1)..SIDE_COUNT {
-                    for c in (b + 1)..SIDE_COUNT {
-                        if !Side::from_index(a).adjacent_to(Side::from_index(b))
-                            || !Side::from_index(b).adjacent_to(Side::from_index(c))
-                            || !Side::from_index(c).adjacent_to(Side::from_index(a))
-                        {
-                            continue;
-                        }
-                        let v = Some(vertex.next().unwrap());
-                        result[a][b][c] = v;
-                        result[a][c][b] = v;
-                        result[b][a][c] = v;
-                        result[b][c][a] = v;
-                        result[c][a][b] = v;
-                        result[c][b][a] = v;
+    pub static SIDES_TO_VERTEX: LazyLock<
+        [[[Option<Vertex>; Side::COUNT]; Side::COUNT]; Side::COUNT],
+    > = LazyLock::new(|| {
+        let mut result = [[[None; Side::COUNT]; Side::COUNT]; Side::COUNT];
+        let mut vertex = Vertex::iter();
+        // Kind of a hack, but working this out by hand isn't any fun.
+        for a in 0..Side::COUNT {
+            for b in (a + 1)..Side::COUNT {
+                for c in (b + 1)..Side::COUNT {
+                    if !Side::from_index(a).adjacent_to(Side::from_index(b))
+                        || !Side::from_index(b).adjacent_to(Side::from_index(c))
+                        || !Side::from_index(c).adjacent_to(Side::from_index(a))
+                    {
+                        continue;
                     }
+                    let v = Some(vertex.next().unwrap());
+                    result[a][b][c] = v;
+                    result[a][c][b] = v;
+                    result[b][a][c] = v;
+                    result[b][c][a] = v;
+                    result[c][a][b] = v;
+                    result[c][b][a] = v;
                 }
             }
-            assert_eq!(vertex.next(), None);
-            result
-        });
+        }
+        assert_eq!(vertex.next(), None);
+        result
+    });
 
     /// Whether the determinant of the cube-to-node transform is negative
-    pub static CHUNK_TO_NODE_PARITY: LazyLock<[bool; VERTEX_COUNT]> = LazyLock::new(|| {
-        let mut result = [false; VERTEX_COUNT];
+    pub static CHUNK_TO_NODE_PARITY: LazyLock<[bool; Vertex::COUNT]> = LazyLock::new(|| {
+        let mut result = [false; Vertex::COUNT];
 
         for v in Vertex::iter() {
             result[v as usize] = v.dual_to_node().parity();
@@ -466,16 +503,16 @@ mod data {
         result
     });
 
-    pub static SIDE_NORMALS_F32: LazyLock<[MVector<f32>; SIDE_COUNT]> =
+    pub static SIDE_NORMALS_F32: LazyLock<[MVector<f32>; Side::COUNT]> =
         LazyLock::new(|| SIDE_NORMALS_F64.map(|n| n.to_f32()));
 
-    pub static REFLECTIONS_F32: LazyLock<[MIsometry<f32>; SIDE_COUNT]> =
+    pub static REFLECTIONS_F32: LazyLock<[MIsometry<f32>; Side::COUNT]> =
         LazyLock::new(|| REFLECTIONS_F64.map(|n| n.to_f32()));
 
-    pub static DUAL_TO_NODE_F32: LazyLock<[MIsometry<f32>; VERTEX_COUNT]> =
+    pub static DUAL_TO_NODE_F32: LazyLock<[MIsometry<f32>; Vertex::COUNT]> =
         LazyLock::new(|| DUAL_TO_NODE_F64.map(|n| n.to_f32()));
 
-    pub static NODE_TO_DUAL_F32: LazyLock<[MIsometry<f32>; VERTEX_COUNT]> =
+    pub static NODE_TO_DUAL_F32: LazyLock<[MIsometry<f32>; Vertex::COUNT]> =
         LazyLock::new(|| NODE_TO_DUAL_F64.map(|n| n.to_f32()));
 
     pub static DUAL_TO_CHUNK_FACTOR_F32: LazyLock<f32> =
@@ -494,7 +531,7 @@ mod tests {
     fn vertex_sides_consistent() {
         use std::collections::HashSet;
         let triples = VERTEX_SIDES.iter().collect::<HashSet<_>>();
-        assert_eq!(triples.len(), VERTEX_COUNT);
+        assert_eq!(triples.len(), Vertex::COUNT);
         for &triple in VERTEX_SIDES.iter() {
             let mut sorted = triple;
             sorted.sort_unstable();
