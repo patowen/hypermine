@@ -175,7 +175,8 @@ impl<N: RealField + Copy> MIsometry<N> {
         // The formula below is the equivalent of the formula for the
         // Householder matrix, but the minkowski outer product instead of the
         // standard outer product to ensure that the reflection is done in
-        // Minkowski space.
+        // Minkowski space. The resulting formula is
+        // `I - 2vv*`
         Self(
             na::Matrix4::<N>::identity()
                 - normal.minkowski_outer_product(normal) * na::convert::<_, N>(2.0),
@@ -198,35 +199,39 @@ impl<N: RealField + Copy> MIsometry<N> {
         // working in Minkowski space. All multiplication will be implied
         // multiplication to avoid ambiguity with this operator. The matrix for
         // a point-reflection can be derived in a similar manner to a
-        // Householder matrix and ends up being its negation: `-I + 2vv*` The
-        // midpoint of `a` and `b` is
+        // Householder matrix and ends up being the same with a negated term:
+        // `-I - 2vv*`
+        // The midpoint of `a` and `b` is
         // `(a+b) / sqrt(-(a+b)*(a+b))`
         // which simplifies to
         // `(a+b) / sqrt(-(a*a + a*b + b*a + b*b))`
         // `(a+b) / sqrt(-(a*a + 2a*b + b*b))`
         // `(a+b) / sqrt(-(-1 + 2a*b + -1))`
         // `(a+b) / sqrt(2-2a*b)`
-        
+
         // Therefore, the
         // derivation of the translation formula is as follows:
         // `reflect_about((a+b) / -(a*b)) * reflect_about(a)`
-        // `(-I + 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I + 2aa*)`
-        // `(-I + 2(a+b)(a+b)*/(2-2a*b)) (-I + 2aa*)`
-        // `(-I + (a+b)(a+b)*/(1-a*b)) (-I + 2aa*)`
-        // `I - (a+b)(a+b)*/(1-a*b) - 2aa* + 2(a+b)(a+b)*aa*/(1-a*b)`
-        // `I - (a+b)(a+b)*/(1-a*b) - (2aa*-2a(a*b)a*)/(1-a*b) + 2(a+b)(a*+b*)aa*/(1-a*b)`
-        // `I - (a+b)(a+b)*/(1-a*b) - [2aa* - 2aa*ba* - 2(a+b)(a*+b*)aa*]/(1-a*b)`
-        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* - (aa*+ab*+ba*+bb*)aa*]/(1-a*b)`
-        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* - aa*aa* - ab*aa* - ba*aa* - bb*aa*]/(1-a*b)`
-        // `I - (a+b)(a+b)*/(1-a*b) - 2[aa* - aa*ba* + aa* - aa*ba* + ba* - ba*ba*]/(1-a*b)`
-        // ... (TODO: Things aren't cancelling. There's probably a math error.)
-        // `I - (a+b)(a+b)*/(1-a*b) - 2[ba* - ba*ba*]/(1-a*b)`
+        // `(-I - 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I - 2aa*)`
+        // `(-I - 2(a+b)(a+b)*/(2-2a*b)) (-I - 2aa*)`
+        // `(-I - (a+b)(a+b)*/(1-a*b)) (-I - 2aa*)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2aa* + 2(a+b)(a+b)*aa*/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + (2aa*-2a(a*b)a*)/(1-a*b) + 2(a+b)(a*+b*)aa*/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + [2aa* - 2aa*ba* + 2(a+b)(a*+b*)aa*]/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2[aa* - aa*ba* + (aa*+ab*+ba*+bb*)aa*]/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2[aa* - aa*ba* + aa*aa* + ab*aa* + ba*aa* + bb*aa*]/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2[aa* - aa*ba* - aa* + aa*ba* - ba* + ba*ba*]/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2[-ba* + ba*ba*]/(1-a*b)`
+        // `I + (a+b)(a+b)*/(1-a*b) - 2ba*`
         // `I - 2ba* + (a+b)(a+b)*/(1-a*b)`
         let a_plus_b = *a + *b;
         Self(
             na::Matrix4::<N>::identity() - b.minkowski_outer_product(a) * na::convert::<_, N>(2.0)
                 + a_plus_b.minkowski_outer_product(&a_plus_b) / (N::one() - a.mip(b)),
         )
+        /*let two = N::one() + N::one();
+        let identity = na::Matrix4::<N>::identity();
+        Self::reflection(&a_plus_b.normalized()) * Self::reflection(b)*/
     }
 
     /// The matrix that translates the origin in the direction of the given
@@ -635,13 +640,13 @@ mod tests {
     #[rustfmt::skip]
     fn reflect_example() {
         assert_abs_diff_eq!(
-            MIsometry::reflection(&MVector::new(0.5, 0.0, 0.0, 1.0).normalized()),
+            MIsometry::reflection(&MVector::new(1.0, 0.0, 0.0, 0.5).normalized()),
             MIsometry(
                 na::Matrix4::new(
-                    1.666, 0.0, 0.0, -1.333,
-                    0.0  , 1.0, 0.0,  0.0,
-                    0.0  , 0.0, 1.0,  0.0,
-                    1.333, 0.0, 0.0, -1.666
+                    -1.666, 0.0, 0.0, 1.333,
+                     0.0  , 1.0, 0.0, 0.0,
+                     0.0  , 0.0, 1.0, 0.0,
+                    -1.333, 0.0, 0.0, 1.666
                 )
             ),
             epsilon = 1e-3
