@@ -170,7 +170,7 @@ impl Vertex {
     /// corresponding to the vertex.
     #[inline]
     pub fn canonical_sides(self) -> [Side; 3] {
-        VERTEX_SIDES[self as usize]
+        VERTEX_CANONICAL_SIDES[self as usize]
     }
 
     /// Vertices adjacent to this vertex in canonical order.
@@ -352,7 +352,7 @@ mod data {
         LazyLock::new(|| SIDE_NORMALS_F64.map(|r| MIsometry::reflection(&r)));
 
     /// Sides incident to a vertex, in canonical order
-    pub static VERTEX_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
+    pub static VERTEX_CANONICAL_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
         let mut result: Vec<[Side; 3]> = Vec::new();
 
         // Kind of a hack, but working this out by hand isn't any fun.
@@ -501,9 +501,9 @@ mod tests {
     #[test]
     fn vertex_sides_consistent() {
         use std::collections::HashSet;
-        let triples = VERTEX_SIDES.iter().collect::<HashSet<_>>();
+        let triples = VERTEX_CANONICAL_SIDES.iter().collect::<HashSet<_>>();
         assert_eq!(triples.len(), Vertex::COUNT);
-        for &triple in VERTEX_SIDES.iter() {
+        for &triple in VERTEX_CANONICAL_SIDES.iter() {
             let mut sorted = triple;
             sorted.sort_unstable();
             assert_eq!(triple, sorted);
