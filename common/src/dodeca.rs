@@ -520,7 +520,6 @@ mod data {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::math;
     use approx::*;
 
     #[test]
@@ -615,7 +614,7 @@ mod tests {
         let corner = *Vertex::A.dual_to_node_f64() * MVector::origin();
         assert_abs_diff_eq!(
             BOUNDING_SPHERE_RADIUS_F64,
-            math::distance(&corner, &MVector::origin()),
+            corner.distance(&MVector::origin()),
             epsilon = 1e-10
         );
         let phi = (1.0 + 5.0f64.sqrt()) / 2.0; // Golden ratio

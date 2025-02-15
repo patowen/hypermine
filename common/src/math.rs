@@ -312,6 +312,20 @@ impl<N: RealField + Copy> MVector<N> {
         self.x * other.x + self.y * other.y + self.z * other.z - self.w * other.w
     }
 
+    /// Returns the midpoint between this vector and the given vector. An
+    /// incorrect result will be returned if the input vectors are not
+    /// normalized.
+    pub fn midpoint(&self, other: &Self) -> MVector<N> {
+        (*self + *other).normalized()
+    }
+
+    /// Returns the distance between the this vector and the given vector. An
+    /// incorrect result will be returned if the input vectors are not
+    /// normalized.
+    pub fn distance(&self, other: &MVector<N>) -> N {
+        (-self.mip(other)).acosh()
+    }
+
     /// The Minkowski-space equivalent of the outer product of two vectors. This
     /// produces a rank-one matrix that is a useful intermediate result when
     /// computing other matrices, such as reflection or translation matrices.
@@ -471,18 +485,6 @@ impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
     }
 }
 
-/// Returns the midpoint between the two normalized point-like vectors. An
-/// incorrect result will be returned if the input vectors are not normalized.
-pub fn midpoint<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> MVector<N> {
-    (*a + *b).normalized()
-}
-
-/// Returns the distance between the two normalized point-like vectors. An
-/// incorrect result will be returned if the input vectors are not normalized.
-pub fn distance<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> N {
-    (-a.mip(b)).acosh()
-}
-
 /// Multiplies the argument by itself.
 #[inline]
 pub fn sqr<N: RealField + Copy>(x: N) -> N {
@@ -619,7 +621,7 @@ mod tests {
         let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         let direction = a.0.xyz().normalize();
-        let distance = dbg!(distance(&o, &a));
+        let distance = dbg!(o.distance(&a));
         assert_abs_diff_eq!(
             MIsometry::translation(&o, &a),
             MIsometry::translation_along(&(direction * distance)),
@@ -631,7 +633,7 @@ mod tests {
     fn translate_distance() {
         let dx = 2.3;
         let xf = MIsometry::translation_along(&(na::Vector3::x() * dx));
-        assert_abs_diff_eq!(dx, distance(&MVector::origin(), &(xf * MVector::origin())));
+        assert_abs_diff_eq!(dx, MVector::origin().distance(&(xf * MVector::origin())));
     }
 
     #[test]
@@ -639,23 +641,23 @@ mod tests {
         let a = MVector::new(0.2, 0.0, 0.0, 1.0).normalized();
         let b = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
         // Paper doubles distances for reasons unknown
-        assert_abs_diff_eq!(distance(&a, &b), 2.074 / 2.0, epsilon = 1e-3);
+        assert_abs_diff_eq!(a.distance(&b), 2.074 / 2.0, epsilon = 1e-3);
     }
 
     #[test]
     fn distance_commutative() {
         let p = MVector::new(-1.0, -1.0, 0.0, 3.0f64.sqrt());
         let q = MVector::new(1.0, -1.0, 0.0, 3.0f64.sqrt());
-        assert_abs_diff_eq!(distance(&p, &q), distance(&q, &p));
+        assert_abs_diff_eq!(p.distance(&q), q.distance(&p));
     }
 
     #[test]
     fn midpoint_distance() {
         let p = MVector::new(-1.0, -1.0, 0.0, 3.0f64.sqrt());
         let q = MVector::new(1.0, -1.0, 0.0, 3.0f64.sqrt());
-        let m = midpoint(&p, &q);
-        assert_abs_diff_eq!(distance(&p, &m), distance(&m, &q), epsilon = 1e-5);
-        assert_abs_diff_eq!(distance(&p, &m) * 2.0, distance(&p, &q), epsilon = 1e-5);
+        let m = p.midpoint(&q);
+        assert_abs_diff_eq!(p.distance(&m), m.distance(&q), epsilon = 1e-5);
+        assert_abs_diff_eq!(p.distance(&m) * 2.0, p.distance(&q), epsilon = 1e-5);
     }
 
     #[test]

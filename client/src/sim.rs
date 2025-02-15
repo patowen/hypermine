@@ -11,7 +11,7 @@ use common::{
     character_controller,
     collision_math::Ray,
     graph::{Graph, NodeId},
-    graph_ray_casting, math,
+    graph_ray_casting,
     math::{MIsometry, MVector},
     node::{populate_fresh_nodes, ChunkId, VoxelData},
     proto::{
