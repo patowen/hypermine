@@ -317,10 +317,8 @@ mod data {
 
     /// Whether two sides share an edge
     pub static ADJACENT: LazyLock<[[bool; Side::COUNT]; Side::COUNT]> = LazyLock::new(|| {
-        array::from_fn(|side0| {
-            let side0 = Side::VALUES[side0];
-            array::from_fn(|side1| {
-                let side1 = Side::VALUES[side1];
+        Side::VALUES.map(|side0| {
+            Side::VALUES.map(|side1| {
                 let cosh_distance = (*side0.reflection_f64() * *side1.reflection_f64())[(3, 3)];
                 // Possile cosh_distances: 1, 4.23606 = 2+sqrt(5), 9.47213 = 5+2*sqrt(5), 12.70820 = 6+3*sqrt(5);
                 // < 2.0 indicates identical faces; < 5.0 indicates adjacent faces; > 5.0 indicates non-adjacent faces
@@ -355,8 +353,7 @@ mod data {
 
     /// Sides incident to a vertex, in canonical order
     pub static VERTEX_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
-        let mut result = [[Side::A; 3]; Vertex::COUNT];
-        let mut vertex = 0;
+        let mut result: Vec<[Side; 3]> = Vec::new();
         // Kind of a hack, but working this out by hand isn't any fun.
         for a in 0..Side::COUNT {
             for b in (a + 1)..Side::COUNT {
@@ -364,17 +361,17 @@ mod data {
                     if !ADJACENT[a][b] || !ADJACENT[b][c] || !ADJACENT[c][a] {
                         continue;
                     }
-                    result[vertex] = [
+                    result.push([
                         Side::from_index(a),
                         Side::from_index(b),
                         Side::from_index(c),
-                    ];
-                    vertex += 1;
+                    ]);
                 }
             }
         }
-        assert_eq!(vertex, 20);
         result
+            .try_into()
+            .expect("All vertices should be initialized.")
     });
 
     // Which vertices are adjacent to other vertices and opposite the canonical sides
