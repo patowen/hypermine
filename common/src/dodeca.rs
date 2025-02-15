@@ -328,6 +328,19 @@ mod data {
 
     /// Vector corresponding to the outer normal of each side
     pub static SIDE_NORMALS_F64: LazyLock<[MVector<f64>; Side::COUNT]> = LazyLock::new(|| {
+        // In Euclidean geometry, the coordinates of a dodecahedron's sides'
+        // normals are the same as the coordinates of the vertices of an
+        // icosahedron centered at the origin. There is a formula for these
+        // vertices' coordinates based on the golden ratio, which we take
+        // advantage of here.
+
+        // To set the w-coordinate of these normals, we add an additional
+        // constraint: The `mip` of two adjacent normals must be 0 (since this
+        // is a right-angled dodechadron). Solving for `w` gives us our
+        // `template_normal`. We also make sure to normalize it.
+
+        // All other normals are based on this template normal, with permuations
+        // and sign changes.
         let phi = libm::sqrt(1.25) + 0.5; // golden ratio
         let template_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized();
         let signed_template_normals = {
@@ -354,7 +367,10 @@ mod data {
     pub static VERTEX_CANONICAL_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
         let mut result: Vec<[Side; 3]> = Vec::new();
 
-        // Kind of a hack, but working this out by hand isn't any fun.
+        // Rather than trying to work this out mathematically or by hand, we
+        // take the brute force approach of checking every unique triplet of
+        // vertices, adding a new vertex to the list whenever a new triplet of
+        // mutually-adjacent sides is discovered.
         for a in Side::VALUES.iter().copied() {
             for b in Side::VALUES[a as usize + 1..].iter().copied() {
                 for c in Side::VALUES[b as usize + 1..].iter().copied() {
@@ -366,9 +382,7 @@ mod data {
             }
         }
 
-        result
-            .try_into()
-            .expect("All vertices should be initialized.")
+        result.try_into().expect("exactly 20 vertices expected")
     });
 
     // Which vertices are adjacent to other vertices and opposite the canonical sides
