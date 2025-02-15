@@ -354,21 +354,19 @@ mod data {
     /// Sides incident to a vertex, in canonical order
     pub static VERTEX_SIDES: LazyLock<[[Side; 3]; Vertex::COUNT]> = LazyLock::new(|| {
         let mut result: Vec<[Side; 3]> = Vec::new();
+
         // Kind of a hack, but working this out by hand isn't any fun.
-        for a in 0..Side::COUNT {
-            for b in (a + 1)..Side::COUNT {
-                for c in (b + 1)..Side::COUNT {
-                    if !ADJACENT[a][b] || !ADJACENT[b][c] || !ADJACENT[c][a] {
+        for a in Side::VALUES.iter().copied() {
+            for b in Side::VALUES[a as usize + 1..].iter().copied() {
+                for c in Side::VALUES[b as usize + 1..].iter().copied() {
+                    if !a.adjacent_to(b) || !b.adjacent_to(c) || !c.adjacent_to(a) {
                         continue;
                     }
-                    result.push([
-                        Side::from_index(a),
-                        Side::from_index(b),
-                        Side::from_index(c),
-                    ]);
+                    result.push([a, b, c]);
                 }
             }
         }
+
         result
             .try_into()
             .expect("All vertices should be initialized.")
@@ -430,21 +428,19 @@ mod data {
 
     /// Transform that converts from cube-centric coordinates to dodeca-centric coordinates
     pub static DUAL_TO_NODE_F64: LazyLock<[MIsometry<f64>; Vertex::COUNT]> = LazyLock::new(|| {
-        let mip_origin_normal = MVector::origin().mip(&SIDE_NORMALS_F64[0]); // This value is the same for every side
-        let mut result = [MIsometry::identity(); Vertex::COUNT];
-        for (i, map) in result.iter_mut().enumerate() {
-            let [a, b, c] = VERTEX_SIDES[i];
+        let mip_origin_normal = MVector::origin().mip(Side::A.normal_f64()); // This value is the same for every side
+        Vertex::VALUES.map(|vertex| {
+            let [a, b, c] = vertex.canonical_sides();
             let vertex_position = (MVector::origin()
                 - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
                 .normalized();
-            *map = MIsometry::from_columns_unchecked(&[
+            MIsometry::from_columns_unchecked(&[
                 -*a.normal_f64(),
                 -*b.normal_f64(),
                 -*c.normal_f64(),
                 vertex_position,
-            ]);
-        }
-        result
+            ])
+        })
     });
 
     /// Transform that converts from dodeca-centric coordinates to cube-centric coordinates
@@ -462,40 +458,21 @@ mod data {
         [[[Option<Vertex>; Side::COUNT]; Side::COUNT]; Side::COUNT],
     > = LazyLock::new(|| {
         let mut result = [[[None; Side::COUNT]; Side::COUNT]; Side::COUNT];
-        let mut vertex = Vertex::iter();
-        // Kind of a hack, but working this out by hand isn't any fun.
-        for a in 0..Side::COUNT {
-            for b in (a + 1)..Side::COUNT {
-                for c in (b + 1)..Side::COUNT {
-                    if !Side::from_index(a).adjacent_to(Side::from_index(b))
-                        || !Side::from_index(b).adjacent_to(Side::from_index(c))
-                        || !Side::from_index(c).adjacent_to(Side::from_index(a))
-                    {
-                        continue;
-                    }
-                    let v = Some(vertex.next().unwrap());
-                    result[a][b][c] = v;
-                    result[a][c][b] = v;
-                    result[b][a][c] = v;
-                    result[b][c][a] = v;
-                    result[c][a][b] = v;
-                    result[c][b][a] = v;
-                }
-            }
-        }
-        assert_eq!(vertex.next(), None);
-        result
-    });
-
-    /// Whether the determinant of the cube-to-node transform is negative
-    pub static CHUNK_TO_NODE_PARITY: LazyLock<[bool; Vertex::COUNT]> = LazyLock::new(|| {
-        let mut result = [false; Vertex::COUNT];
-
-        for v in Vertex::iter() {
-            result[v as usize] = v.dual_to_node().parity();
+        for vertex in Vertex::iter() {
+            let [a, b, c] = vertex.canonical_sides().map(|side| side as usize);
+            result[a][b][c] = Some(vertex);
+            result[a][c][b] = Some(vertex);
+            result[b][a][c] = Some(vertex);
+            result[b][c][a] = Some(vertex);
+            result[c][a][b] = Some(vertex);
+            result[c][b][a] = Some(vertex);
         }
         result
     });
+
+    /// Whether the determinant of the dual-to-node transform is negative
+    pub static CHUNK_TO_NODE_PARITY: LazyLock<[bool; Vertex::COUNT]> =
+        LazyLock::new(|| Vertex::VALUES.map(|vertex| vertex.dual_to_node().parity()));
 
     pub static SIDE_NORMALS_F32: LazyLock<[MVector<f32>; Side::COUNT]> =
         LazyLock::new(|| SIDE_NORMALS_F64.map(|n| n.to_f32()));
