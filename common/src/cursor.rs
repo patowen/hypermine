@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 
 use crate::dodeca::SIDE_COUNT;
 use crate::dodeca::{Side, Vertex};
@@ -29,9 +29,9 @@ impl Cursor {
         // in both the dodecahedron sharing the face unique to the new vertex and that sharing the
         // face that the new vertex isn't incident to.
         let (a, b, c) = (self.a, self.b, self.c);
-        let a_prime = neighbors()[a as usize][b as usize][c as usize].unwrap();
-        let b_prime = neighbors()[b as usize][a as usize][c as usize].unwrap();
-        let c_prime = neighbors()[c as usize][b as usize][a as usize].unwrap();
+        let a_prime = NEIGHBORS[a as usize][b as usize][c as usize].unwrap();
+        let b_prime = NEIGHBORS[b as usize][a as usize][c as usize].unwrap();
+        let c_prime = NEIGHBORS[c as usize][b as usize][a as usize].unwrap();
         use Dir::*;
         let (sides, neighbor) = match dir {
             Left => ((a, b, c_prime), c),
@@ -105,9 +105,8 @@ impl std::ops::Neg for Dir {
 }
 
 /// Maps every (A, B, C) sharing a vertex to A', the side that shares edges with B and C but not A
-fn neighbors() -> &'static [[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT] {
-    static LOCK: OnceLock<[[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT]> = OnceLock::new();
-    LOCK.get_or_init(|| {
+static NEIGHBORS: LazyLock<[[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT]> =
+    LazyLock::new(|| {
         let mut result = [[[None; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT];
         for a in Side::iter() {
             for b in Side::iter() {
@@ -129,8 +128,7 @@ fn neighbors() -> &'static [[[Option<Side>; SIDE_COUNT]; SIDE_COUNT]; SIDE_COUNT
             }
         }
         result
-    })
-}
+    });
 
 #[cfg(test)]
 mod tests {
@@ -142,8 +140,8 @@ mod tests {
         for v in Vertex::iter() {
             let [a, b, c] = v.canonical_sides();
             assert_eq!(
-                neighbors()[a as usize][b as usize][c as usize],
-                neighbors()[a as usize][c as usize][b as usize]
+                NEIGHBORS[a as usize][b as usize][c as usize],
+                NEIGHBORS[a as usize][c as usize][b as usize]
             );
         }
     }
