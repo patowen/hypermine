@@ -178,7 +178,8 @@ impl<N: RealField + Copy> MIsometry<N> {
     }
 
     /// The matrix that translates `a` to `b` given that `a` and `b` are
-    /// normalized pointlike `MVectors`
+    /// normalized point-like `MVectors`. An incorrect matrix will be returned
+    /// if `a` and `b` are not normalized.
     pub fn translation(a: &MVector<N>, b: &MVector<N>) -> MIsometry<N> {
         let a_plus_b = *a + *b;
         Self(
@@ -470,12 +471,16 @@ impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
     }
 }
 
+/// Returns the midpoint between the two normalized point-like vectors. An
+/// incorrect result will be returned if the input vectors are not normalized.
 pub fn midpoint<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> MVector<N> {
-    *a * (b.mip(b) * a.mip(b)).sqrt() + *b * (a.mip(a) * a.mip(b)).sqrt()
+    (*a + *b).normalized()
 }
 
+/// Returns the distance between the two normalized point-like vectors. An
+/// incorrect result will be returned if the input vectors are not normalized.
 pub fn distance<N: RealField + Copy>(a: &MVector<N>, b: &MVector<N>) -> N {
-    (sqr(a.mip(b)) / (a.mip(a) * b.mip(b))).sqrt().acosh()
+    (-a.mip(b)).acosh()
 }
 
 /// Multiplies the argument by itself.
@@ -631,8 +636,8 @@ mod tests {
 
     #[test]
     fn distance_example() {
-        let a = MVector::new(0.2, 0.0, 0.0, 1.0);
-        let b = MVector::new(-0.5, -0.5, 0.0, 1.0);
+        let a = MVector::new(0.2, 0.0, 0.0, 1.0).normalized();
+        let b = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
         // Paper doubles distances for reasons unknown
         assert_abs_diff_eq!(distance(&a, &b), 2.074 / 2.0, epsilon = 1e-3);
     }
