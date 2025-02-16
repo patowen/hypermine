@@ -52,7 +52,7 @@ pub struct Sim {
 impl Sim {
     pub fn new(cfg: Arc<SimConfig>, save: &save::Save) -> Self {
         let mut result = Self {
-            rng: SmallRng::from_entropy(),
+            rng: SmallRng::from_os_rng(),
             step: 0,
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -646,7 +646,7 @@ impl Sim {
 
     fn new_id(&mut self) -> EntityId {
         loop {
-            let id = self.rng.gen();
+            let id = self.rng.random();
             if !self.entity_ids.contains_key(&id) {
                 return id;
             }
