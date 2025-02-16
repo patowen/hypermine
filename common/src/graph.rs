@@ -277,7 +277,7 @@ struct NodeContainer {
     parent_side: Option<Side>,
     /// Distance to origin via parents
     length: u32,
-    neighbors: [Option<NodeId>; Side::COUNT],
+    neighbors: [Option<NodeId>; Side::VALUES.len()],
 }
 
 impl NodeContainer {
@@ -286,7 +286,7 @@ impl NodeContainer {
             value: None,
             parent_side,
             length,
-            neighbors: [None; Side::COUNT],
+            neighbors: [None; Side::VALUES.len()],
         }
     }
 }
