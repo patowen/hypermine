@@ -16,8 +16,8 @@ impl Ray {
         }
     }
 
-    /// Returns a point along this ray `atanh(tanh_distance)` units away from the origin. This point
-    /// is _not_ lorentz normalized.
+    /// Returns an unnormalized vector representing a point along this ray
+    /// `atanh(tanh_distance)` units away from the origin.
     pub fn ray_point(&self, tanh_distance: f32) -> MVector<f32> {
         *self.position + *self.direction * tanh_distance
     }
@@ -84,7 +84,10 @@ impl Ray {
 
     /// Finds the tanh of the distance a point will have to travel along a ray before it
     /// intersects the given plane.
-    pub fn solve_point_plane_intersection(&self, plane_normal: &MVector<f32>) -> Option<f32> {
+    pub fn solve_point_plane_intersection(
+        &self,
+        plane_normal: &MUnitDirectionVector<f32>,
+    ) -> Option<f32> {
         let mip_pos_a = self.position.mip(plane_normal);
         let mip_dir_a = self.direction.mip(plane_normal);
 
@@ -396,7 +399,7 @@ mod tests {
                 MUnitPointVector::origin(),
                 MUnitDirectionVector::new_unchecked(0.8, 0.0, 0.6, 0.0),
             );
-        let normal = -MVector::z();
+        let normal = -MUnitDirectionVector::z();
         let hit_point = ray
             .ray_point(ray.solve_point_plane_intersection(&normal).unwrap())
             .normalized_point();

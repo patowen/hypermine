@@ -2,7 +2,7 @@ use std::ops::{Mul, Neg};
 
 use crate::{
     dodeca::{Side, Vertex},
-    math::{MIsometry, MUnitDirectionVector, MVector},
+    math::{MIsometry, MUnitDirectionVector, MUnitPointVector, MVector},
 };
 
 /// A hyperbolic plane
@@ -57,12 +57,12 @@ impl<N: na::RealField + Copy> Mul<Plane<N>> for &MIsometry<N> {
 
 impl<N: na::RealField + Copy> Plane<N> {
     /// Hyperbolic normal vector identifying the plane
-    pub fn normal(&self) -> &MVector<N> {
+    pub fn normal(&self) -> &MUnitDirectionVector<N> {
         &self.normal
     }
 
     /// Shortest distance between the plane and a point
-    pub fn distance_to(&self, point: &MVector<N>) -> N {
+    pub fn distance_to(&self, point: &MUnitPointVector<N>) -> N {
         let mip_value = self.normal.mip(point);
         // Workaround for bug fixed in rust PR #72486
         mip_value.abs().asinh() * mip_value.signum()
@@ -94,7 +94,7 @@ mod tests {
                 assert_abs_diff_eq!(
                     plane.distance_to(
                         &(MIsometry::translation_along(&(axis.into_inner() * distance))
-                            * MVector::origin())
+                            * MUnitPointVector::origin())
                     ),
                     distance
                 );

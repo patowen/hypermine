@@ -4,8 +4,8 @@ use rand_distr::Normal;
 use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
-    margins, math,
-    math::MVector,
+    margins,
+    math::{self, MUnitDirectionVector},
     node::{ChunkId, VoxelData},
     terraingen::VoronoiInfo,
     world::Material,
@@ -120,7 +120,7 @@ impl NodeState {
         }
     }
 
-    pub fn up_direction(&self) -> MVector<f32> {
+    pub fn up_direction(&self) -> MUnitDirectionVector<f32> {
         self.surface.normal().to_f32()
     }
 }
