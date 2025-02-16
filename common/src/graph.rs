@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     dodeca::Side,
-    math::{MIsometry, MVector},
+    math::{MIsometry, MUnitPointVector},
     node::{ChunkId, ChunkLayout, Node},
 };
 
@@ -128,7 +128,7 @@ impl Graph {
         original: &MIsometry<f32>,
     ) -> (NodeId, MIsometry<f32>) {
         let mut transform = MIsometry::identity();
-        let mut location = *original * MVector::origin();
+        let mut location = *original * MUnitPointVector::origin();
         'outer: loop {
             for side in Side::iter() {
                 if !side.is_facing(&location) {

@@ -1,4 +1,4 @@
-use common::math::MVector;
+use common::math::MUnitPointVector;
 use common::Plane;
 
 #[derive(Debug, Copy, Clone)]
@@ -80,7 +80,7 @@ pub struct FrustumPlanes {
 }
 
 impl FrustumPlanes {
-    pub fn contain(&self, point: &MVector<f32>, radius: f32) -> bool {
+    pub fn contain(&self, point: &MUnitPointVector<f32>, radius: f32) -> bool {
         for &plane in &[&self.left, &self.right, &self.down, &self.up] {
             if plane.distance_to(point) < -radius {
                 return false;
@@ -101,29 +101,29 @@ mod tests {
     fn planes_sanity() {
         // 90 degree square
         let planes = Frustum::from_vfov(f32::consts::FRAC_PI_4, 1.0).planes();
-        assert!(planes.contain(&MVector::origin(), 0.1));
+        assert!(planes.contain(&MUnitPointVector::origin(), 0.1));
         assert!(planes.contain(
-            &(MIsometry::translation_along(&-na::Vector3::z()) * MVector::origin()),
+            &(MIsometry::translation_along(&-na::Vector3::z()) * MUnitPointVector::origin()),
             0.0
         ));
         assert!(!planes.contain(
-            &(MIsometry::translation_along(&na::Vector3::z()) * MVector::origin()),
+            &(MIsometry::translation_along(&na::Vector3::z()) * MUnitPointVector::origin()),
             0.0
         ));
         assert!(!planes.contain(
-            &(MIsometry::translation_along(&na::Vector3::x()) * MVector::origin()),
+            &(MIsometry::translation_along(&na::Vector3::x()) * MUnitPointVector::origin()),
             0.0
         ));
         assert!(!planes.contain(
-            &(MIsometry::translation_along(&na::Vector3::y()) * MVector::origin()),
+            &(MIsometry::translation_along(&na::Vector3::y()) * MUnitPointVector::origin()),
             0.0
         ));
         assert!(!planes.contain(
-            &(MIsometry::translation_along(&-na::Vector3::x()) * MVector::origin()),
+            &(MIsometry::translation_along(&-na::Vector3::x()) * MUnitPointVector::origin()),
             0.0
         ));
         assert!(!planes.contain(
-            &(MIsometry::translation_along(&-na::Vector3::y()) * MVector::origin()),
+            &(MIsometry::translation_along(&-na::Vector3::y()) * MUnitPointVector::origin()),
             0.0
         ));
     }
