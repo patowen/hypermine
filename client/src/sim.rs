@@ -12,7 +12,7 @@ use common::{
     collision_math::Ray,
     graph::{Graph, NodeId},
     graph_ray_casting,
-    math::{MIsometry, MVector},
+    math::{MIsometry, MUnitDirectionVector, MUnitPointVector},
     node::{populate_fresh_nodes, ChunkId, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
@@ -550,7 +550,7 @@ impl Sim {
         let ray_casing_result = graph_ray_casting::ray_cast(
             &self.graph,
             &view_position,
-            &Ray::new(MVector::w(), -MVector::z()),
+            &Ray::new(MUnitPointVector::w(), -MUnitDirectionVector::z()),
             self.cfg.character.block_reach,
         );
 
