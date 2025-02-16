@@ -459,7 +459,7 @@ mod tests {
         let ray_test_points: Vec<_> = (0..num_ray_test_points)
             .map(|i| {
                 ray.ray_point(tanh_distance * (i as f32 / (num_ray_test_points - 1) as f32))
-                    .normalized()
+                    .normalized_point()
             })
             .collect();
 
@@ -482,7 +482,7 @@ mod tests {
                 let mut plane_normal = MVector::zero();
                 plane_normal[t_axis] = 1.0;
                 plane_normal[3] = layout.grid_to_dual(t);
-                let plane_normal = plane_normal.normalized();
+                let plane_normal = plane_normal.normalized_direction();
 
                 for test_point in &ray_test_points {
                     assert!(
@@ -516,7 +516,7 @@ mod tests {
                     line_position[u_axis] = layout.grid_to_dual(u);
                     line_position[v_axis] = layout.grid_to_dual(v);
                     line_position[3] = 1.0;
-                    let line_position = line_position.normalized();
+                    let line_position = line_position.normalized_point();
 
                     for test_point in &ray_test_points {
                         assert!(
@@ -548,7 +548,7 @@ mod tests {
                         layout.grid_to_dual(z),
                         1.0,
                     )
-                    .normalized();
+                    .normalized_point();
 
                     for test_point in &ray_test_points {
                         assert!(

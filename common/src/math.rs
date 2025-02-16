@@ -309,7 +309,7 @@ impl<N: RealField + Copy> MIsometry<N> {
         // recreating a hyperbolic translation matrix using that column.
         let normalized_translation_component = MIsometry::translation(
             &MVector::origin(),
-            &MVector(self.0.column(3).into()).normalized(),
+            &MVector(self.0.column(3).into()).normalized_point(),
         );
 
         // Once we have the translation component, we use that component's
@@ -337,25 +337,38 @@ impl<N: RealField + Copy> MIsometry<N> {
 
 impl<N: RealField + Copy> MVector<N> {
     /// Normalizes the vector so that the Minkowski inner product between the
-    /// vector and itself has absolute value 1. Note that this means that this
-    /// function can be called on a vector representing either a regular point
-    /// or an ultraideal point (but not an ideal point).
+    /// vector and itself is -1. It should be called on vectors with a negative
+    /// self-mip, generally representing points.
     ///
     /// Note that this function is numerically unstable for vectors representing
-    /// points or planes far from the origin, so it is recommended to avoid this
-    /// function for such vectors.
-    pub fn normalized(&self) -> Self {
-        // TODO: To avoid subtle bugs, we should try to have different functions
-        // for points vs ultraideal points that use `self.mip(self)` or
-        // `-self.mip(self)` instead of `self.mip(self).abs()`. The correct sign
-        // should already be known by the caller. This is something that can be
-        // introduced with additional `MVector` types that distinguish between
-        // these two types of points.
-        let scale_factor_squared = self.mip(self).abs();
-        if scale_factor_squared == na::zero() {
+    /// points far from the origin, so it is recommended to avoid this function
+    /// for such vectors.
+    pub fn normalized_point(&self) -> Self {
+        let scale_factor_squared = -self.mip(self);
+        if scale_factor_squared <= na::zero() {
             debug_assert!(
                 false,
-                "Normalizing this vector would require division by zero."
+                "Tried to normalize a non-point-like vector as a point."
+            );
+            return MVector::origin();
+        }
+        let scale_factor = scale_factor_squared.sqrt();
+        *self / scale_factor
+    }
+
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself is 1. It should be called on vectors with a positive
+    /// self-mip, generally representing directions.
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// directions from points far from the origin, so it is recommended to
+    /// avoid this function for such vectors.
+    pub fn normalized_direction(&self) -> Self {
+        let scale_factor_squared = self.mip(self);
+        if scale_factor_squared <= na::zero() {
+            debug_assert!(
+                false,
+                "Tried to normalize a non-direction-like vector as a direction."
             );
             return MVector::origin();
         }
@@ -377,7 +390,7 @@ impl<N: RealField + Copy> MVector<N> {
     pub fn midpoint(&self, other: &Self) -> MVector<N> {
         // The midpoint in the hyperboloid model is simply the midpoint in the
         // underlying Euclidean 4-space normalized to land on the hyperboloid.
-        (*self + *other).normalized()
+        (*self + *other).normalized_point()
     }
 
     /// Returns the distance between the this vector and the given vector. An
@@ -644,7 +657,7 @@ mod tests {
     #[rustfmt::skip]
     fn reflect_example() {
         assert_abs_diff_eq!(
-            MIsometry::reflection(&MVector::new(1.0, 0.0, 0.0, 0.5).normalized()),
+            MIsometry::reflection(&MVector::new(1.0, 0.0, 0.0, 0.5).normalized_direction()),
             MIsometry(
                 na::Matrix4::new(
                     -1.666, 0.0, 0.0, 1.333,
@@ -662,8 +675,8 @@ mod tests {
     fn translate_example() {
         assert_abs_diff_eq!(
             MIsometry::translation(
-                &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
-                &MVector::new(0.3, -0.7, 0.0, 1.0).normalized()
+                &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point(),
+                &MVector::new(0.3, -0.7, 0.0, 1.0).normalized_point()
             ),
             MIsometry(
                 na::Matrix4::new(
@@ -679,8 +692,8 @@ mod tests {
 
     #[test]
     fn translate_identity() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
-        let b = MVector::new(0.3, -0.7, 0.0, 1.0).normalized();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point();
+        let b = MVector::new(0.3, -0.7, 0.0, 1.0).normalized_point();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         assert_abs_diff_eq!(
             MIsometry::translation(&a, &b),
@@ -693,7 +706,7 @@ mod tests {
 
     #[test]
     fn translate_equivalence() {
-        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
+        let a = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point();
         let o = MVector::new(0.0, 0.0, 0.0, 1.0);
         let direction = a.0.xyz().normalize();
         let distance = dbg!(o.distance(&a));
@@ -713,8 +726,8 @@ mod tests {
 
     #[test]
     fn distance_example() {
-        let a = MVector::new(0.2, 0.0, 0.0, 1.0).normalized();
-        let b = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized();
+        let a = MVector::new(0.2, 0.0, 0.0, 1.0).normalized_point();
+        let b = MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point();
         // Paper doubles distances for reasons unknown
         assert_abs_diff_eq!(a.distance(&b), 2.074 / 2.0, epsilon = 1e-3);
     }
@@ -738,8 +751,8 @@ mod tests {
     #[test]
     fn renormalize_translation() {
         let mat = MIsometry::translation(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized_point(),
         );
         assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
     }
@@ -767,8 +780,8 @@ mod tests {
 
         // translation with some error
         let mat = MIsometry(MIsometry::translation(
-            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized(),
-            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized(),
+            &MVector::new(-0.5, -0.5, 0.0, 1.0).normalized_point(),
+            &MVector::new(0.3, -0.7, 0.0, 1.0).normalized_point(),
         ).0 + error.0 * 0.05);
 
         let normalized_mat = mat.renormalized();

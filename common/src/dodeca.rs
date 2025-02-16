@@ -347,7 +347,7 @@ mod data {
         // All other normals are based on this template normal, with permuations
         // and sign changes.
         let phi = libm::sqrt(1.25) + 0.5; // golden ratio
-        let template_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized();
+        let template_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized_direction();
         let signed_template_normals = {
             let n = template_normal;
             [
@@ -471,7 +471,7 @@ mod data {
             // used here takes advantage of that.
             let vertex_position = (MVector::origin()
                 - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
-                .normalized();
+                .normalized_point();
             MIsometry::from_columns_unchecked(&[
                 -*a.normal_f64(),
                 -*b.normal_f64(),

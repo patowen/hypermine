@@ -164,7 +164,7 @@ mod tests {
                 ray.solve_sphere_plane_intersection(&normal, 0.2_f32.sinh())
                     .unwrap(),
             )
-            .normalized();
+            .normalized_point();
 
         assert_abs_diff_eq!(hit_point.mip(&normal), 0.2_f32.sinh(), epsilon = 1e-4);
     }
@@ -213,7 +213,7 @@ mod tests {
         let ray = MIsometry::translation_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 MVector::origin(),
-                MVector::new(1.0, 2.0, 3.0, 0.0).normalized(),
+                MVector::new(1.0, 2.0, 3.0, 0.0).normalized_direction(),
             );
         let line_normal0 = MVector::x();
         let line_normal1 = MVector::z();
@@ -222,7 +222,7 @@ mod tests {
                 ray.solve_sphere_line_intersection(&line_normal0, &line_normal1, 0.2_f32.sinh())
                     .unwrap(),
             )
-            .normalized();
+            .normalized_point();
         // Measue the distance from hit_point to the line and ensure it's equal to the radius
         assert_abs_diff_eq!(
             (hit_point.mip(&line_normal0).powi(2) + hit_point.mip(&line_normal1).powi(2)).sqrt(),
@@ -302,7 +302,7 @@ mod tests {
         let ray = MIsometry::translation_along(&na::Vector3::new(0.0, 0.0, -0.5))
             * &Ray::new(
                 MVector::origin(),
-                MVector::new(1.0, 2.0, 6.0, 0.0).normalized(),
+                MVector::new(1.0, 2.0, 6.0, 0.0).normalized_direction(),
             );
         let point_position = MVector::origin();
         let point_normal0 = MVector::x();
@@ -318,7 +318,7 @@ mod tests {
                 )
                 .unwrap(),
             )
-            .normalized();
+            .normalized_point();
         assert_abs_diff_eq!(
             -hit_point.mip(&point_position),
             0.2_f32.cosh(),
@@ -393,7 +393,7 @@ mod tests {
         let normal = -MVector::z();
         let hit_point = ray
             .ray_point(ray.solve_point_plane_intersection(&normal).unwrap())
-            .normalized();
+            .normalized_point();
         assert_abs_diff_eq!(hit_point.mip(&normal), 0.0, epsilon = 1e-4);
     }
 

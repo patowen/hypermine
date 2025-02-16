@@ -50,7 +50,7 @@ impl<N: na::RealField + Copy> Mul<Plane<N>> for &MIsometry<N> {
     type Output = Plane<N>;
     fn mul(self, rhs: Plane<N>) -> Plane<N> {
         Plane {
-            normal: (*self * rhs.normal).normalized(),
+            normal: (*self * rhs.normal).normalized_direction(),
         }
     }
 }
@@ -72,7 +72,7 @@ impl<N: na::RealField + Copy> Plane<N> {
 impl Plane<f64> {
     /// Like `distance_to`, but using chunk coordinates for a chunk in the same node space
     pub fn distance_to_chunk(&self, chunk: Vertex, coord: &na::Vector3<f64>) -> f64 {
-        let pos = (MVector::from(chunk.chunk_to_node_f64() * coord.push(1.0))).normalized();
+        let pos = (MVector::from(chunk.chunk_to_node_f64() * coord.push(1.0))).normalized_point();
         self.distance_to(&pos)
     }
 }
