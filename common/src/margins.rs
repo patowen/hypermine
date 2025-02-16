@@ -1,7 +1,7 @@
 use crate::{
     dodeca::Vertex,
     graph::Graph,
-    math::PermuteFirstThree,
+    math::PermuteXYZ,
     node::{Chunk, ChunkId, VoxelData},
     voxel_math::{ChunkAxisPermutation, ChunkDirection, CoordAxis, CoordSign, Coords},
     world::Material,

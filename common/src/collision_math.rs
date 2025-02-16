@@ -9,6 +9,8 @@ pub struct Ray {
 }
 
 impl Ray {
+    /// Constructs a new `Ray`. It is the caller's responsibility to ensure that
+    /// `position` and `direction` are orthogonal.
     pub fn new(position: MUnitPointVector<f32>, direction: MUnitDirectionVector<f32>) -> Ray {
         Ray {
             position,

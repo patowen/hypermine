@@ -351,7 +351,8 @@ impl<N: RealField + Copy> MIsometry<N> {
     }
 
     /// Creates an `MIsometry` with the given columns. It is the caller's
-    /// responsibility to ensure that the resulting matrix is a valid isometry.
+    /// responsibility to ensure that the resulting matrix is a valid isometry
+    /// by ensuring that columns are mutually orthogonal.
     #[inline]
     pub fn from_columns_unchecked(
         direction_columns: &[MUnitDirectionVector<N>; 3],
@@ -778,11 +779,13 @@ pub fn rotation_between_axis<N: RealField + Copy>(
     ))
 }
 
-pub trait PermuteFirstThree {
-    /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates are a permuted version of x-y-z coordinates.
-    /// `t_axis` determines which of the three x-y-z coordinates corresponds to the t-coordinate. This function works with
-    /// any indexable entity with at least three entries. Any entry after the third entry is ignored. As an extra guarantee,
-    /// this function only performs even permutations.
+pub trait PermuteXYZ {
+    /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates
+    /// are a permuted version of x-y-z coordinates. `t_axis` determines which
+    /// of the three x-y-z coordinates corresponds to the t-coordinate. This
+    /// function works with any indexable entity with at least three entries.
+    /// Any entry after the third entry is ignored. As an extra guarantee, this
+    /// function only performs even permutations.
     ///
     /// Examples:
     /// ```
@@ -795,7 +798,7 @@ pub trait PermuteFirstThree {
     fn tuv_to_xyz(self, t_axis: usize) -> Self;
 }
 
-impl<T: std::ops::IndexMut<usize, Output = N>, N: Copy> PermuteFirstThree for T {
+impl<T: std::ops::IndexMut<usize, Output = N>, N: Copy> PermuteXYZ for T {
     fn tuv_to_xyz(mut self, t_axis: usize) -> Self {
         (self[t_axis], self[(t_axis + 1) % 3], self[(t_axis + 2) % 3]) =
             (self[0], self[1], self[2]);
@@ -803,29 +806,16 @@ impl<T: std::ops::IndexMut<usize, Output = N>, N: Copy> PermuteFirstThree for T 
     }
 }
 
-impl<N: Scalar + Copy> PermuteFirstThree for MUnitPointVector<N> {
+impl<N: Scalar + Copy> PermuteXYZ for MUnitPointVector<N> {
     fn tuv_to_xyz(self, t_axis: usize) -> Self {
         MUnitPointVector(self.0.tuv_to_xyz(t_axis))
     }
 }
 
-impl<N: Scalar + Copy> PermuteFirstThree for MUnitDirectionVector<N> {
+impl<N: Scalar + Copy> PermuteXYZ for MUnitDirectionVector<N> {
     fn tuv_to_xyz(self, t_axis: usize) -> Self {
         MUnitDirectionVector(self.0.tuv_to_xyz(t_axis))
     }
-}
-
-pub fn tuv_to_xyz_old<T: std::ops::IndexMut<usize, Output = N>, N: Copy>(
-    t_axis: usize,
-    tuv: T,
-) -> T {
-    let mut result = tuv;
-    (
-        result[t_axis],
-        result[(t_axis + 1) % 3],
-        result[(t_axis + 2) % 3],
-    ) = (result[0], result[1], result[2]);
-    result
 }
 
 #[cfg(test)]

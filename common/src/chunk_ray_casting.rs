@@ -1,6 +1,6 @@
 use crate::{
     collision_math::Ray,
-    math::{MVector, PermuteFirstThree},
+    math::{MVector, PermuteXYZ},
     node::{ChunkLayout, VoxelAABB, VoxelData},
     voxel_math::{CoordAxis, CoordSign, Coords},
     world::Material,

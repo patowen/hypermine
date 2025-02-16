@@ -316,7 +316,7 @@ mod data {
     use std::sync::LazyLock;
 
     use crate::dodeca::{Side, Vertex};
-    use crate::math::{MIsometry, MUnitDirectionVector, MVector, PermuteFirstThree};
+    use crate::math::{MIsometry, MUnitDirectionVector, MVector, PermuteXYZ};
     use crate::voxel_math::ChunkAxisPermutation;
 
     /// Whether two sides share an edge
