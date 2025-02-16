@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::math::{MIsometry, MVector};
+use crate::math::{MIsometry, MUnitDirectionVector, MUnitPointVector};
 use crate::voxel_math::ChunkAxisPermutation;
 
 /// Sides of a right dodecahedron
@@ -72,13 +72,13 @@ impl Side {
 
     /// Outward normal vector of this side
     #[inline]
-    pub fn normal(self) -> &'static MVector<f32> {
+    pub fn normal(self) -> &'static MUnitDirectionVector<f32> {
         &data::SIDE_NORMALS_F32[self as usize]
     }
 
     /// Outward normal vector of this side
     #[inline]
-    pub fn normal_f64(self) -> &'static MVector<f64> {
+    pub fn normal_f64(self) -> &'static MUnitDirectionVector<f64> {
         &data::SIDE_NORMALS_F64[self as usize]
     }
 
@@ -96,7 +96,7 @@ impl Side {
 
     /// Whether `p` is opposite the dodecahedron across the plane containing `self`
     #[inline]
-    pub fn is_facing(self, p: &MVector<f32>) -> bool {
+    pub fn is_facing(self, p: &MUnitPointVector<f32>) -> bool {
         let r = self.reflection().row(3).clone_owned();
         (r * na::Vector4::from(*p)).x < p.w
     }
@@ -311,7 +311,7 @@ mod data {
     use std::sync::LazyLock;
 
     use crate::dodeca::{Side, Vertex};
-    use crate::math::{self, MIsometry, MVector};
+    use crate::math::{MIsometry, MUnitDirectionVector, MVector, PermuteFirstThree};
     use crate::voxel_math::ChunkAxisPermutation;
 
     /// Whether two sides share an edge
@@ -332,37 +332,39 @@ mod data {
     });
 
     /// Vector corresponding to the outer normal of each side
-    pub static SIDE_NORMALS_F64: LazyLock<[MVector<f64>; Side::COUNT]> = LazyLock::new(|| {
-        // In Euclidean geometry, the coordinates of a dodecahedron's sides'
-        // normals are the same as the coordinates of the vertices of an
-        // icosahedron centered at the origin. There is a formula for these
-        // vertices' coordinates based on the golden ratio, which we take
-        // advantage of here.
+    pub static SIDE_NORMALS_F64: LazyLock<[MUnitDirectionVector<f64>; Side::COUNT]> =
+        LazyLock::new(|| {
+            // In Euclidean geometry, the coordinates of a dodecahedron's sides'
+            // normals are the same as the coordinates of the vertices of an
+            // icosahedron centered at the origin. There is a formula for these
+            // vertices' coordinates based on the golden ratio, which we take
+            // advantage of here.
 
-        // To set the w-coordinate of these normals, we add an additional
-        // constraint: The `mip` of two adjacent normals must be 0 (since this
-        // is a right-angled dodechadron). Solving for `w` gives us our
-        // `template_normal`. We also make sure to normalize it.
+            // To set the w-coordinate of these normals, we add an additional
+            // constraint: The `mip` of two adjacent normals must be 0 (since this
+            // is a right-angled dodechadron). Solving for `w` gives us our
+            // `template_normal`. We also make sure to normalize it.
 
-        // All other normals are based on this template normal, with permuations
-        // and sign changes.
-        let phi = libm::sqrt(1.25) + 0.5; // golden ratio
-        let template_normal = MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized_direction();
-        let signed_template_normals = {
-            let n = template_normal;
-            [
-                MVector::new(n.x, n.y, n.z, n.w),
-                MVector::new(-n.x, n.y, -n.z, n.w),
-                MVector::new(n.x, -n.y, -n.z, n.w),
-                MVector::new(-n.x, -n.y, n.z, n.w),
-            ]
-        };
+            // All other normals are based on this template normal, with permuations
+            // and sign changes.
+            let phi = libm::sqrt(1.25) + 0.5; // golden ratio
+            let template_normal =
+                MVector::new(1.0, phi, 0.0, libm::sqrt(phi)).normalized_direction();
+            let signed_template_normals = {
+                let n = template_normal;
+                [
+                    MUnitDirectionVector::new_unchecked(n.x, n.y, n.z, n.w),
+                    MUnitDirectionVector::new_unchecked(-n.x, n.y, -n.z, n.w),
+                    MUnitDirectionVector::new_unchecked(n.x, -n.y, -n.z, n.w),
+                    MUnitDirectionVector::new_unchecked(-n.x, -n.y, n.z, n.w),
+                ]
+            };
 
-        Side::VALUES.map(|side| {
-            let signed_template_normal = signed_template_normals[side as usize / 3];
-            math::tuv_to_xyz((3 - side as usize % 3) % 3, signed_template_normal)
-        })
-    });
+            Side::VALUES.map(|side| {
+                let signed_template_normal = signed_template_normals[side as usize / 3];
+                signed_template_normal.tuv_to_xyz((3 - side as usize % 3) % 3)
+            })
+        });
 
     /// Transform that moves from a neighbor to a reference node, for each side
     pub static REFLECTIONS_F64: LazyLock<[MIsometry<f64>; Side::COUNT]> =
@@ -470,14 +472,12 @@ mod data {
             // value that doesn't depend on the normal vector, so the formula
             // used here takes advantage of that.
             let vertex_position = (MVector::origin()
-                - (*a.normal_f64() + *b.normal_f64() + *c.normal_f64()) * mip_origin_normal)
+                - (**a.normal_f64() + **b.normal_f64() + **c.normal_f64()) * mip_origin_normal)
                 .normalized_point();
-            MIsometry::from_columns_unchecked(&[
-                -*a.normal_f64(),
-                -*b.normal_f64(),
-                -*c.normal_f64(),
+            MIsometry::from_columns_unchecked(
+                &[-*a.normal_f64(), -*b.normal_f64(), -*c.normal_f64()],
                 vertex_position,
-            ])
+            )
         })
     });
 
@@ -512,7 +512,7 @@ mod data {
     pub static CHUNK_TO_NODE_PARITY: LazyLock<[bool; Vertex::COUNT]> =
         LazyLock::new(|| Vertex::VALUES.map(|vertex| vertex.dual_to_node().parity()));
 
-    pub static SIDE_NORMALS_F32: LazyLock<[MVector<f32>; Side::COUNT]> =
+    pub static SIDE_NORMALS_F32: LazyLock<[MUnitDirectionVector<f32>; Side::COUNT]> =
         LazyLock::new(|| SIDE_NORMALS_F64.map(|n| n.to_f32()));
 
     pub static REFLECTIONS_F32: LazyLock<[MIsometry<f32>; Side::COUNT]> =
@@ -620,17 +620,17 @@ mod tests {
     #[test]
     fn side_is_facing() {
         for side in Side::iter() {
-            assert!(!side.is_facing(&MVector::origin()));
-            assert!(side.is_facing(&(*side.reflection() * MVector::origin())));
+            assert!(!side.is_facing(&MUnitPointVector::origin()));
+            assert!(side.is_facing(&(*side.reflection() * MUnitPointVector::origin())));
         }
     }
 
     #[test]
     fn radius() {
-        let corner = *Vertex::A.dual_to_node_f64() * MVector::origin();
+        let corner = *Vertex::A.dual_to_node_f64() * MUnitPointVector::origin();
         assert_abs_diff_eq!(
             BOUNDING_SPHERE_RADIUS_F64,
-            corner.distance(&MVector::origin()),
+            corner.distance(&MUnitPointVector::origin()),
             epsilon = 1e-10
         );
         let phi = (1.0 + 5.0f64.sqrt()) / 2.0; // Golden ratio

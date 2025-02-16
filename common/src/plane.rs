@@ -2,13 +2,13 @@ use std::ops::{Mul, Neg};
 
 use crate::{
     dodeca::{Side, Vertex},
-    math::{MIsometry, MVector},
+    math::{MIsometry, MUnitDirectionVector, MVector},
 };
 
 /// A hyperbolic plane
 #[derive(Debug, Copy, Clone)]
 pub struct Plane<N: na::RealField> {
-    normal: MVector<N>,
+    normal: MUnitDirectionVector<N>,
 }
 
 impl From<Side> for Plane<f64> {
@@ -24,7 +24,7 @@ impl<N: na::RealField + Copy> From<na::Unit<na::Vector3<N>>> for Plane<N> {
     /// A plane passing through the origin
     fn from(x: na::Unit<na::Vector3<N>>) -> Self {
         Self {
-            normal: MVector::from(x.into_inner().push(na::zero())),
+            normal: MUnitDirectionVector::from(x),
         }
     }
 }

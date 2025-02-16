@@ -88,7 +88,7 @@ mod tests {
         collision_math::Ray,
         dodeca::{self, Side, Vertex},
         graph::{Graph, NodeId},
-        math::MIsometry,
+        math::{MIsometry, MUnitPointVector},
         node::{populate_fresh_nodes, VoxelData},
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
@@ -197,11 +197,11 @@ mod tests {
                     1.0,
                 )
                 .normalized_point();
-            let ray_direction = ray_target - ray_position;
+            let ray_direction = *ray_target - *ray_position;
 
             let ray = Ray::new(
                 ray_position,
-                (ray_direction + ray_position * ray_position.mip(&ray_direction))
+                (ray_direction + *ray_position * ray_position.mip(&ray_direction))
                     .normalized_direction(),
             );
 
@@ -438,13 +438,13 @@ mod tests {
         }
 
         // The node coordinates of the corner of the missing node
-        let vertex_pos = *Vertex::A.dual_to_node() * MVector::origin();
+        let vertex_pos = *Vertex::A.dual_to_node() * MUnitPointVector::origin();
 
         // Use a ray starting from the origin. The direction vector is vertex_pos with the w coordinate
         // set to 0 and normalized
         let ray = Ray::new(
-            MVector::origin(),
-            (vertex_pos - MVector::w() * vertex_pos.w).normalized_direction(),
+            MUnitPointVector::origin(),
+            (*vertex_pos - MVector::w() * vertex_pos.w).normalized_direction(),
         );
         let sphere_radius = 0.1;
 

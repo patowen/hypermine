@@ -1,7 +1,6 @@
 use crate::{
     collision_math::Ray,
-    math,
-    math::MVector,
+    math::{MVector, PermuteFirstThree},
     node::{ChunkLayout, VoxelAABB, VoxelData},
     voxel_math::{CoordAxis, CoordSign, Coords},
     world::Material,
@@ -69,7 +68,8 @@ fn find_face_collision(
     for t in bounding_box.grid_planes(t_axis) {
         // Find a normal to the grid plane. Note that (t, 0, 0, x) is a normal of the plane whose closest point
         // to the origin is (x, 0, 0, t), and we use that fact here.
-        let normal = math::tuv_to_xyz(t_axis, MVector::new(1.0, 0.0, 0.0, layout.grid_to_dual(t)))
+        let normal = MVector::new(1.0, 0.0, 0.0, layout.grid_to_dual(t))
+            .tuv_to_xyz(t_axis)
             .normalized_direction();
 
         let Some(new_tanh_distance) = ray.solve_point_plane_intersection(&normal) else {
@@ -97,7 +97,7 @@ fn find_face_collision(
         };
 
         let ray_endpoint = ray.ray_point(new_tanh_distance);
-        let contact_point = ray_endpoint - normal * ray_endpoint.mip(&normal);
+        let contact_point = ray_endpoint - *normal * ray_endpoint.mip(&normal);
 
         // Compute the u and v-coordinates of the voxels at the contact point
         let Some(voxel_u) = layout.dual_to_voxel(contact_point[u_axis] / contact_point.w) else {
@@ -111,7 +111,7 @@ fn find_face_collision(
         if !voxel_is_solid(
             voxel_data,
             layout,
-            math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v]),
+            [voxel_t, voxel_u, voxel_v].tuv_to_xyz(t_axis),
         ) {
             continue;
         }
@@ -119,7 +119,7 @@ fn find_face_collision(
         // A collision was found. Update the hit.
         hit = Some(ChunkCastHit {
             tanh_distance: new_tanh_distance,
-            voxel_coords: Coords(math::tuv_to_xyz(t_axis, [voxel_t, voxel_u, voxel_v])),
+            voxel_coords: Coords([voxel_t, voxel_u, voxel_v].tuv_to_xyz(t_axis)),
             face_axis: CoordAxis::try_from(t_axis).unwrap(),
             face_sign,
         });
@@ -198,7 +198,7 @@ mod tests {
 
         let ray = Ray::new(
             ray_start,
-            ((ray_end - ray_start) + ray_start * ray_start.mip(&(ray_end - ray_start)))
+            ((*ray_end - *ray_start) + *ray_start * ray_start.mip(&(*ray_end - *ray_start)))
                 .normalized_direction(),
         );
 
