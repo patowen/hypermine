@@ -16,11 +16,10 @@ use crate::{
     Config, Loader, Sim,
 };
 use common::{
-    dodeca,
-    dodeca::Vertex,
+    dodeca::{self, Vertex},
     graph::NodeId,
     lru_slab::SlotId,
-    math::{MIsometry, MVector},
+    math::{MIsometry, MUnitPointVector},
     node::{Chunk, ChunkId, VoxelData},
     LruSlab,
 };
@@ -127,7 +126,7 @@ impl Voxels {
         let mut workqueue_is_full = false;
         for &(node, ref node_transform) in nearby_nodes {
             let node_to_view = local_to_view * *node_transform;
-            let origin = node_to_view * MVector::origin();
+            let origin = node_to_view * MUnitPointVector::origin();
             if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
                 // Don't bother generating or drawing chunks from nodes that are wholly outside the
                 // frustum.
