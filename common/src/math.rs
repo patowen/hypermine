@@ -43,6 +43,9 @@ use std::ops::*;
 #[repr(C)]
 pub struct MVector<N: Scalar>(na::Vector4<N>);
 
+/// An `MVector` with the constraint that the Minkowski inner product between
+/// the vector and itself is -1. Such a vector can be used to represent a point
+/// in hyperbolic space.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(transparent)]
 pub struct MUnitPointVector<N: Scalar>(MVector<N>);
@@ -55,6 +58,9 @@ impl<N: Scalar> Deref for MUnitPointVector<N> {
     }
 }
 
+/// An `MVector` with the constraint that the Minkowski inner product between
+/// the vector and itself is 1. Such a vector can be used to represent a
+/// direction in hyperbolic space.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(transparent)]
 pub struct MUnitDirectionVector<N: Scalar>(MVector<N>);
