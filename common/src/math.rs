@@ -760,7 +760,7 @@ pub trait PermuteXYZ {
     ///
     /// Examples:
     /// ```
-    /// # use common::math::PermuteFirstThree;
+    /// # use common::math::PermuteXYZ;
     /// assert_eq!([2, 4, 6].tuv_to_xyz(0), [2, 4, 6]);
     /// assert_eq!([2, 4, 6].tuv_to_xyz(1), [6, 2, 4]);
     /// assert_eq!([2, 4, 6].tuv_to_xyz(2), [4, 6, 2]);
@@ -790,35 +790,37 @@ impl<N: Scalar + Copy> PermuteXYZ for MUnitDirectionVector<N> {
 }
 
 #[cfg(test)]
-impl<N: RealField> approx::AbsDiffEq<MIsometry<N>> for MIsometry<N> {
-    type Epsilon = N;
-    #[inline]
-    fn default_epsilon() -> Self::Epsilon {
-        na::Matrix4::<N>::default_epsilon()
-    }
-    #[inline]
-    fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
-        self.0.abs_diff_eq(&other.0, epsilon)
-    }
-}
-
-#[cfg(test)]
-impl<N: RealField> approx::AbsDiffEq<MVector<N>> for MVector<N> {
-    type Epsilon = N;
-    #[inline]
-    fn default_epsilon() -> Self::Epsilon {
-        na::Vector4::<N>::default_epsilon()
-    }
-    #[inline]
-    fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
-        self.0.abs_diff_eq(&other.0, epsilon)
-    }
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use approx::*;
+
+    impl<N: RealField> AbsDiffEq<MIsometry<N>> for MIsometry<N> {
+        type Epsilon = N;
+
+        #[inline]
+        fn default_epsilon() -> Self::Epsilon {
+            na::Matrix4::<N>::default_epsilon()
+        }
+
+        #[inline]
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            self.0.abs_diff_eq(&other.0, epsilon)
+        }
+    }
+
+    impl<N: RealField> AbsDiffEq<MVector<N>> for MVector<N> {
+        type Epsilon = N;
+
+        #[inline]
+        fn default_epsilon() -> Self::Epsilon {
+            na::Vector4::<N>::default_epsilon()
+        }
+
+        #[inline]
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            self.0.abs_diff_eq(&other.0, epsilon)
+        }
+    }
 
     #[test]
     #[rustfmt::skip]
