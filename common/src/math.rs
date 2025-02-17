@@ -158,6 +158,107 @@ impl<N: RealField + Copy> MVector<N> {
     }
 }
 
+impl<N: Scalar> Index<usize> for MVector<N> {
+    type Output = N;
+    #[inline]
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+impl<N: Scalar> IndexMut<usize> for MVector<N> {
+    #[inline]
+    fn index_mut(&mut self, i: usize) -> &mut N {
+        &mut self.0[i]
+    }
+}
+
+impl<N: Scalar> From<na::Vector4<N>> for MVector<N> {
+    /// Reinterprets the input as a vector in Minkowski space.
+    fn from(value: na::Vector4<N>) -> Self {
+        Self(value)
+    }
+}
+
+impl<N: Scalar> From<MVector<N>> for na::Vector4<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
+    fn from(value: MVector<N>) -> na::Vector4<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> Deref for MVector<N> {
+    type Target = na::coordinates::XYZW<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: Scalar> DerefMut for MVector<N> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
+    }
+}
+
+impl<N: RealField> Add for MVector<N> {
+    type Output = Self;
+    #[inline]
+    fn add(self, other: Self) -> Self {
+        Self(self.0 + other.0)
+    }
+}
+
+impl<N: RealField + Copy> std::ops::AddAssign for MVector<N> {
+    #[inline]
+    fn add_assign(&mut self, other: Self) {
+        self.0 += other.0;
+    }
+}
+
+impl<N: RealField> Sub for MVector<N> {
+    type Output = Self;
+    #[inline]
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+
+impl<N: RealField> Neg for MVector<N> {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
+}
+
+impl<N: RealField> Mul<N> for MVector<N> {
+    type Output = MVector<N>;
+    #[inline]
+    fn mul(self, rhs: N) -> Self::Output {
+        MVector(self.0 * rhs)
+    }
+}
+
+impl<N: RealField + Copy> MulAssign<N> for MVector<N> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: N) {
+        self.0 *= rhs;
+    }
+}
+
+impl<N: RealField> Div<N> for MVector<N> {
+    type Output = MVector<N>;
+    #[inline]
+    fn div(self, rhs: N) -> Self::Output {
+        MVector(self.0 / rhs)
+    }
+}
+
 /// An `MVector` with the constraint that the Minkowski inner product between
 /// the vector and itself is -1. Such a vector can be used to represent a point
 /// in hyperbolic space.
@@ -203,32 +304,10 @@ impl<N: Scalar> Deref for MUnitDirectionVector<N> {
 #[repr(transparent)]
 pub struct MIsometry<N: Scalar>(na::Matrix4<N>);
 
-impl<N: Scalar> From<na::Vector4<N>> for MVector<N> {
-    /// Reinterprets the input as a vector in Minkowski space.
-    fn from(value: na::Vector4<N>) -> Self {
-        Self(value)
-    }
-}
-
 impl<N: RealField + Copy> From<na::UnitVector3<N>> for MUnitDirectionVector<N> {
     /// Reinterprets the input as a vector in Minkowski space.
     fn from(value: na::UnitVector3<N>) -> Self {
         MUnitDirectionVector(MVector(value.to_homogeneous()))
-    }
-}
-
-impl<N: Scalar> Deref for MVector<N> {
-    type Target = na::coordinates::XYZW<N>;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-impl<N: Scalar> DerefMut for MVector<N> {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0.deref_mut()
     }
 }
 
@@ -245,16 +324,6 @@ impl<N: Scalar> From<MIsometry<N>> for na::Matrix4<N> {
     /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
     /// coordinates, a transformation within the 3D Beltrami-Klein model.
     fn from(value: MIsometry<N>) -> na::Matrix4<N> {
-        value.0
-    }
-}
-
-impl<N: Scalar> From<MVector<N>> for na::Vector4<N> {
-    /// Unwraps the underlying vector. This effectively reinterprets the vector
-    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
-    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
-    /// inside the unit ball).
-    fn from(value: MVector<N>) -> na::Vector4<N> {
         value.0
     }
 }
@@ -598,46 +667,6 @@ impl<N: RealField> Mul for MIsometry<N> {
     }
 }
 
-impl<N: RealField> Mul<N> for MVector<N> {
-    type Output = MVector<N>;
-    #[inline]
-    fn mul(self, rhs: N) -> Self::Output {
-        MVector(self.0 * rhs)
-    }
-}
-
-impl<N: RealField> Div<N> for MVector<N> {
-    type Output = MVector<N>;
-    #[inline]
-    fn div(self, rhs: N) -> Self::Output {
-        MVector(self.0 / rhs)
-    }
-}
-
-impl<N: RealField> Add for MVector<N> {
-    type Output = Self;
-    #[inline]
-    fn add(self, other: Self) -> Self {
-        Self(self.0 + other.0)
-    }
-}
-
-impl<N: RealField> Sub for MVector<N> {
-    type Output = Self;
-    #[inline]
-    fn sub(self, other: Self) -> Self {
-        Self(self.0 - other.0)
-    }
-}
-
-impl<N: RealField> Neg for MVector<N> {
-    type Output = Self;
-    #[inline]
-    fn neg(self) -> Self {
-        Self(-self.0)
-    }
-}
-
 impl<N: RealField> Neg for MUnitDirectionVector<N> {
     type Output = Self;
     #[inline]
@@ -670,39 +699,10 @@ impl<N: RealField> Mul<MUnitDirectionVector<N>> for MIsometry<N> {
     }
 }
 
-impl<N: RealField + Copy> std::ops::AddAssign for MVector<N> {
-    #[inline]
-    fn add_assign(&mut self, other: Self) {
-        self.0 += other.0;
-    }
-}
-
-impl<N: RealField + Copy> MulAssign<N> for MVector<N> {
-    #[inline]
-    fn mul_assign(&mut self, rhs: N) {
-        self.0 *= rhs;
-    }
-}
-
 impl<N: RealField + Copy> MulAssign for MIsometry<N> {
     #[inline]
     fn mul_assign(&mut self, rhs: Self) {
         self.0 *= rhs.0;
-    }
-}
-
-impl<N: Scalar> Index<usize> for MVector<N> {
-    type Output = N;
-    #[inline]
-    fn index(&self, i: usize) -> &Self::Output {
-        &self.0[i]
-    }
-}
-
-impl<N: Scalar> IndexMut<usize> for MVector<N> {
-    #[inline]
-    fn index_mut(&mut self, i: usize) -> &mut N {
-        &mut self.0[i]
     }
 }
 
