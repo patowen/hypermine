@@ -274,6 +274,71 @@ impl<N: Scalar> Deref for MUnitPointVector<N> {
     }
 }
 
+impl<N: RealField + Copy> MUnitPointVector<N> {
+    /// Returns the midpoint between this vector and the given vector. An
+    /// incorrect result will be returned if the input vectors are not
+    /// normalized.
+    pub fn midpoint(&self, other: &Self) -> MUnitPointVector<N> {
+        // The midpoint in the hyperboloid model is simply the midpoint in the
+        // underlying Euclidean 4-space normalized to land on the hyperboloid.
+        (**self + **other).normalized_point()
+    }
+
+    /// Returns the distance between the this vector and the given vector. An
+    /// incorrect result will be returned if the input vectors are not
+    /// normalized.
+    pub fn distance(&self, other: &Self) -> N {
+        // The absolute value of the mip between two normalized point-like is
+        // the cosh of their distance in hyperbolic space. This is analogous to
+        // the fact that the dot product between two unit vectors is the cos of
+        // their angle (or distance in spherical geometry).
+        (-self.mip(other)).acosh()
+    }
+
+    /// The vector representing the origin in hyperbolic space. Alias for `MVector::w()`.
+    #[inline]
+    pub fn origin() -> Self {
+        Self::w()
+    }
+
+    /// The column vector with components `[0, 0, 0, 1]`.
+    #[inline]
+    pub fn w() -> Self {
+        Self(MVector::w())
+    }
+
+    /// Creates an `MUnitPointVector` with the given components. It is the
+    /// caller's responsibility to ensure that the `MUnitPointVector` invariant
+    /// holds.
+    #[inline]
+    pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
+        Self(MVector::new(x, y, z, w))
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitPointVector<N2> {
+        MUnitPointVector(self.0.cast())
+    }
+}
+
+impl<N: Scalar> From<MUnitPointVector<N>> for MVector<N> {
+    /// Removes the constraint that makes the argument an `MUnitPointVector`
+    fn from(value: MUnitPointVector<N>) -> MVector<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> From<MUnitPointVector<N>> for na::Vector4<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
+    fn from(value: MUnitPointVector<N>) -> na::Vector4<N> {
+        value.0 .0
+    }
+}
+
 /// An `MVector` with the constraint that the Minkowski inner product between
 /// the vector and itself is 1. Such a vector can be used to represent a
 /// direction in hyperbolic space.
@@ -286,6 +351,72 @@ impl<N: Scalar> Deref for MUnitDirectionVector<N> {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl<N: RealField + Copy> MUnitDirectionVector<N> {
+    /// The column vector with components `[1, 0, 0, 0]`.
+    #[inline]
+    pub fn x() -> Self {
+        Self(MVector::x())
+    }
+
+    /// The column vector with components `[0, 1, 0, 0]`.
+    #[inline]
+    pub fn y() -> Self {
+        Self(MVector::y())
+    }
+
+    /// The column vector with components `[0, 0, 1, 0]`.
+    #[inline]
+    pub fn z() -> Self {
+        Self(MVector::z())
+    }
+
+    /// Creates an `MUnitDirectionVector` with the given components. It is the
+    /// caller's responsibility to ensure that the `MUnitDirectionVector`
+    /// invariant holds.
+    #[inline]
+    pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
+        Self(MVector::new(x, y, z, w))
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitDirectionVector<N2> {
+        MUnitDirectionVector(self.0.cast())
+    }
+}
+
+impl<N: Scalar> From<MUnitDirectionVector<N>> for na::Vector4<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
+    fn from(value: MUnitDirectionVector<N>) -> na::Vector4<N> {
+        value.0 .0
+    }
+}
+
+impl<N: Scalar> From<MUnitDirectionVector<N>> for MVector<N> {
+    /// Removes the constraint that makes the argument an `MUnitDirectionVector`
+    fn from(value: MUnitDirectionVector<N>) -> MVector<N> {
+        value.0
+    }
+}
+
+impl<N: RealField + Copy> From<na::UnitVector3<N>> for MUnitDirectionVector<N> {
+    /// Reinterprets the input as a vector in Minkowski space.
+    fn from(value: na::UnitVector3<N>) -> Self {
+        MUnitDirectionVector(MVector(value.to_homogeneous()))
+    }
+}
+
+impl<N: RealField> Neg for MUnitDirectionVector<N> {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self::Output {
+        MUnitDirectionVector(-self.0)
     }
 }
 
@@ -304,13 +435,6 @@ impl<N: Scalar> Deref for MUnitDirectionVector<N> {
 #[repr(transparent)]
 pub struct MIsometry<N: Scalar>(na::Matrix4<N>);
 
-impl<N: RealField + Copy> From<na::UnitVector3<N>> for MUnitDirectionVector<N> {
-    /// Reinterprets the input as a vector in Minkowski space.
-    fn from(value: na::UnitVector3<N>) -> Self {
-        MUnitDirectionVector(MVector(value.to_homogeneous()))
-    }
-}
-
 impl<N: Scalar> Deref for MIsometry<N> {
     type Target = na::coordinates::M4x4<N>;
     #[inline]
@@ -324,40 +448,6 @@ impl<N: Scalar> From<MIsometry<N>> for na::Matrix4<N> {
     /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
     /// coordinates, a transformation within the 3D Beltrami-Klein model.
     fn from(value: MIsometry<N>) -> na::Matrix4<N> {
-        value.0
-    }
-}
-
-impl<N: Scalar> From<MUnitPointVector<N>> for na::Vector4<N> {
-    /// Unwraps the underlying vector. This effectively reinterprets the vector
-    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
-    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
-    /// inside the unit ball).
-    fn from(value: MUnitPointVector<N>) -> na::Vector4<N> {
-        value.0 .0
-    }
-}
-
-impl<N: Scalar> From<MUnitDirectionVector<N>> for na::Vector4<N> {
-    /// Unwraps the underlying vector. This effectively reinterprets the vector
-    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
-    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
-    /// inside the unit ball).
-    fn from(value: MUnitDirectionVector<N>) -> na::Vector4<N> {
-        value.0 .0
-    }
-}
-
-impl<N: Scalar> From<MUnitPointVector<N>> for MVector<N> {
-    /// Removes the constraint that makes the argument an `MUnitPointVector`
-    fn from(value: MUnitPointVector<N>) -> MVector<N> {
-        value.0
-    }
-}
-
-impl<N: Scalar> From<MUnitDirectionVector<N>> for MVector<N> {
-    /// Removes the constraint that makes the argument an `MUnitDirectionVector`
-    fn from(value: MUnitDirectionVector<N>) -> MVector<N> {
         value.0
     }
 }
@@ -577,101 +667,11 @@ impl<N: RealField + Copy> MIsometry<N> {
     }
 }
 
-impl<N: RealField + Copy> MUnitPointVector<N> {
-    /// Returns the midpoint between this vector and the given vector. An
-    /// incorrect result will be returned if the input vectors are not
-    /// normalized.
-    pub fn midpoint(&self, other: &Self) -> MUnitPointVector<N> {
-        // The midpoint in the hyperboloid model is simply the midpoint in the
-        // underlying Euclidean 4-space normalized to land on the hyperboloid.
-        (**self + **other).normalized_point()
-    }
-
-    /// Returns the distance between the this vector and the given vector. An
-    /// incorrect result will be returned if the input vectors are not
-    /// normalized.
-    pub fn distance(&self, other: &Self) -> N {
-        // The absolute value of the mip between two normalized point-like is
-        // the cosh of their distance in hyperbolic space. This is analogous to
-        // the fact that the dot product between two unit vectors is the cos of
-        // their angle (or distance in spherical geometry).
-        (-self.mip(other)).acosh()
-    }
-
-    /// The vector representing the origin in hyperbolic space. Alias for `MVector::w()`.
-    #[inline]
-    pub fn origin() -> Self {
-        Self::w()
-    }
-
-    /// The column vector with components `[0, 0, 0, 1]`.
-    #[inline]
-    pub fn w() -> Self {
-        Self(MVector::w())
-    }
-
-    /// Creates an `MUnitPointVector` with the given components. It is the
-    /// caller's responsibility to ensure that the `MUnitPointVector` invariant
-    /// holds.
-    #[inline]
-    pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
-        Self(MVector::new(x, y, z, w))
-    }
-
-    /// Cast the components of `self` to another type.
-    #[inline]
-    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitPointVector<N2> {
-        MUnitPointVector(self.0.cast())
-    }
-}
-
-impl<N: RealField + Copy> MUnitDirectionVector<N> {
-    /// The column vector with components `[1, 0, 0, 0]`.
-    #[inline]
-    pub fn x() -> Self {
-        Self(MVector::x())
-    }
-
-    /// The column vector with components `[0, 1, 0, 0]`.
-    #[inline]
-    pub fn y() -> Self {
-        Self(MVector::y())
-    }
-
-    /// The column vector with components `[0, 0, 1, 0]`.
-    #[inline]
-    pub fn z() -> Self {
-        Self(MVector::z())
-    }
-
-    /// Creates an `MUnitDirectionVector` with the given components. It is the
-    /// caller's responsibility to ensure that the `MUnitDirectionVector`
-    /// invariant holds.
-    #[inline]
-    pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
-        Self(MVector::new(x, y, z, w))
-    }
-
-    /// Cast the components of `self` to another type.
-    #[inline]
-    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitDirectionVector<N2> {
-        MUnitDirectionVector(self.0.cast())
-    }
-}
-
 impl<N: RealField> Mul for MIsometry<N> {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         MIsometry(self.0 * rhs.0)
-    }
-}
-
-impl<N: RealField> Neg for MUnitDirectionVector<N> {
-    type Output = Self;
-    #[inline]
-    fn neg(self) -> Self::Output {
-        MUnitDirectionVector(-self.0)
     }
 }
 
