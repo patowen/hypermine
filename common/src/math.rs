@@ -8,6 +8,7 @@
 
 use na::{RealField, Scalar};
 use serde::{Deserialize, Serialize};
+use simba::scalar::SupersetOf;
 use std::ops::*;
 
 /// A stack-allocated 4-dimensional column-vector in Minkowski space. Such
@@ -97,6 +98,12 @@ impl<N: RealField + Copy> MVector<N> {
     /// computing other matrices, such as reflection or translation matrices.
     fn minkowski_outer_product(self, other: &Self) -> na::Matrix4<N> {
         self.0 * na::RowVector4::new(other.x, other.y, other.z, -other.w)
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MVector<N2> {
+        MVector(self.0.cast())
     }
 
     /// The column vector with components `[0, 0, 0, 0]`.
@@ -283,66 +290,6 @@ impl<N: Scalar> From<MUnitDirectionVector<N>> for MVector<N> {
     /// Removes the constraint that makes the argument an `MUnitDirectionVector`
     fn from(value: MUnitDirectionVector<N>) -> MVector<N> {
         value.0
-    }
-}
-
-impl MIsometry<f32> {
-    /// Casts the components to an `f64`
-    pub fn to_f64(self) -> MIsometry<f64> {
-        MIsometry(self.0.cast::<f64>())
-    }
-}
-
-impl MIsometry<f64> {
-    /// Casts the components to an `f32`
-    pub fn to_f32(self) -> MIsometry<f32> {
-        MIsometry(self.0.cast::<f32>())
-    }
-}
-
-impl MVector<f32> {
-    /// Casts the components to an `f64`
-    pub fn to_f64(self) -> MVector<f64> {
-        MVector(self.0.cast::<f64>())
-    }
-}
-
-impl MVector<f64> {
-    /// Casts the components to an `f32`
-    pub fn to_f32(self) -> MVector<f32> {
-        MVector(self.0.cast::<f32>())
-    }
-}
-
-impl MUnitPointVector<f32> {
-    /// Casts the components to an `f64`
-    #[inline]
-    pub fn to_f64(self) -> MUnitPointVector<f64> {
-        MUnitPointVector(self.0.to_f64())
-    }
-}
-
-impl MUnitPointVector<f64> {
-    /// Casts the components to an `f32`
-    #[inline]
-    pub fn to_f32(self) -> MUnitPointVector<f32> {
-        MUnitPointVector(self.0.to_f32())
-    }
-}
-
-impl MUnitDirectionVector<f32> {
-    /// Casts the components to an `f64`
-    #[inline]
-    pub fn to_f64(self) -> MUnitDirectionVector<f64> {
-        MUnitDirectionVector(self.0.to_f64())
-    }
-}
-
-impl MUnitDirectionVector<f64> {
-    /// Casts the components to an `f32`
-    #[inline]
-    pub fn to_f32(self) -> MUnitDirectionVector<f32> {
-        MUnitDirectionVector(self.0.to_f32())
     }
 }
 
@@ -553,6 +500,12 @@ impl<N: RealField + Copy> MIsometry<N> {
         // orientation components.
         normalized_translation_component * normalized_orientation_component
     }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MIsometry<N2> {
+        MIsometry(self.0.cast())
+    }
 }
 
 impl<N: RealField + Copy> MUnitPointVector<N> {
@@ -595,6 +548,12 @@ impl<N: RealField + Copy> MUnitPointVector<N> {
     pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
         Self(MVector::new(x, y, z, w))
     }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitPointVector<N2> {
+        MUnitPointVector(self.0.cast())
+    }
 }
 
 impl<N: RealField + Copy> MUnitDirectionVector<N> {
@@ -622,6 +581,12 @@ impl<N: RealField + Copy> MUnitDirectionVector<N> {
     #[inline]
     pub fn new_unchecked(x: N, y: N, z: N, w: N) -> Self {
         Self(MVector::new(x, y, z, w))
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MUnitDirectionVector<N2> {
+        MUnitDirectionVector(self.0.cast())
     }
 }
 
