@@ -43,6 +43,114 @@ use std::ops::*;
 #[repr(transparent)]
 pub struct MVector<N: Scalar>(na::Vector4<N>);
 
+impl<N: RealField + Copy> MVector<N> {
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself is -1. It should be called on vectors with a negative
+    /// self-mip, generally representing points.
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// points far from the origin, so it is recommended to avoid this function
+    /// for such vectors.
+    pub fn normalized_point(&self) -> MUnitPointVector<N> {
+        let scale_factor_squared = -self.mip(self);
+        if scale_factor_squared <= na::zero() {
+            debug_assert!(
+                false,
+                "Tried to normalize a non-point-like vector as a point."
+            );
+            return MUnitPointVector(MVector::origin());
+        }
+        let scale_factor = scale_factor_squared.sqrt();
+        MUnitPointVector(*self / scale_factor)
+    }
+
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself is 1. It should be called on vectors with a positive
+    /// self-mip, generally representing directions.
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// directions from points far from the origin, so it is recommended to
+    /// avoid this function for such vectors.
+    pub fn normalized_direction(&self) -> MUnitDirectionVector<N> {
+        let scale_factor_squared = self.mip(self);
+        if scale_factor_squared <= na::zero() {
+            debug_assert!(
+                false,
+                "Tried to normalize a non-direction-like vector as a direction."
+            );
+            return MUnitDirectionVector(MVector::x());
+        }
+        let scale_factor = scale_factor_squared.sqrt();
+        MUnitDirectionVector(*self / scale_factor)
+    }
+
+    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
+    /// product, but the product of the w-components is negated. This is the
+    /// main operation that distinguishes Minkowski space from Euclidean
+    /// 4-space.
+    pub fn mip(&self, other: &Self) -> N {
+        self.x * other.x + self.y * other.y + self.z * other.z - self.w * other.w
+    }
+
+    /// The Minkowski-space equivalent of the outer product of two vectors. This
+    /// produces a rank-one matrix that is a useful intermediate result when
+    /// computing other matrices, such as reflection or translation matrices.
+    fn minkowski_outer_product(self, other: &Self) -> na::Matrix4<N> {
+        self.0 * na::RowVector4::new(other.x, other.y, other.z, -other.w)
+    }
+
+    /// The column vector with components `[0, 0, 0, 0]`.
+    #[inline]
+    pub fn zero() -> Self {
+        Self(na::zero())
+    }
+
+    /// The vector representing the origin in hyperbolic space. Alias for `MVector::w()`.
+    #[inline]
+    pub fn origin() -> Self {
+        Self::w()
+    }
+
+    /// The column vector with components `[1, 0, 0, 0]`.
+    #[inline]
+    pub fn x() -> Self {
+        Self(na::Vector4::x())
+    }
+
+    /// The column vector with components `[0, 1, 0, 0]`.
+    #[inline]
+    pub fn y() -> Self {
+        Self(na::Vector4::y())
+    }
+
+    /// The column vector with components `[0, 0, 1, 0]`.
+    #[inline]
+    pub fn z() -> Self {
+        Self(na::Vector4::z())
+    }
+
+    /// The column vector with components `[0, 0, 0, 1]`.
+    #[inline]
+    pub fn w() -> Self {
+        Self(na::Vector4::w())
+    }
+
+    /// Creates an `MVector` with the given components.
+    #[inline]
+    pub fn new(x: N, y: N, z: N, w: N) -> Self {
+        MVector(na::Vector4::new(x, y, z, w))
+    }
+
+    /// The first three coordinates of the vector. When working with an
+    /// `MVector` representing a velocity/direction from the origin, the
+    /// w-coordinate should always be 0, so using this function to extract a 3D
+    /// vector can help make that assumption more explicit.
+    #[inline]
+    pub fn xyz(self) -> na::Vector3<N> {
+        self.0.xyz()
+    }
+}
+
 /// An `MVector` with the constraint that the Minkowski inner product between
 /// the vector and itself is -1. Such a vector can be used to represent a point
 /// in hyperbolic space.
@@ -444,114 +552,6 @@ impl<N: RealField + Copy> MIsometry<N> {
         // Finally, we recombine the newly-renormalized translation and
         // orientation components.
         normalized_translation_component * normalized_orientation_component
-    }
-}
-
-impl<N: RealField + Copy> MVector<N> {
-    /// Normalizes the vector so that the Minkowski inner product between the
-    /// vector and itself is -1. It should be called on vectors with a negative
-    /// self-mip, generally representing points.
-    ///
-    /// Note that this function is numerically unstable for vectors representing
-    /// points far from the origin, so it is recommended to avoid this function
-    /// for such vectors.
-    pub fn normalized_point(&self) -> MUnitPointVector<N> {
-        let scale_factor_squared = -self.mip(self);
-        if scale_factor_squared <= na::zero() {
-            debug_assert!(
-                false,
-                "Tried to normalize a non-point-like vector as a point."
-            );
-            return MUnitPointVector(MVector::origin());
-        }
-        let scale_factor = scale_factor_squared.sqrt();
-        MUnitPointVector(*self / scale_factor)
-    }
-
-    /// Normalizes the vector so that the Minkowski inner product between the
-    /// vector and itself is 1. It should be called on vectors with a positive
-    /// self-mip, generally representing directions.
-    ///
-    /// Note that this function is numerically unstable for vectors representing
-    /// directions from points far from the origin, so it is recommended to
-    /// avoid this function for such vectors.
-    pub fn normalized_direction(&self) -> MUnitDirectionVector<N> {
-        let scale_factor_squared = self.mip(self);
-        if scale_factor_squared <= na::zero() {
-            debug_assert!(
-                false,
-                "Tried to normalize a non-direction-like vector as a direction."
-            );
-            return MUnitDirectionVector(MVector::x());
-        }
-        let scale_factor = scale_factor_squared.sqrt();
-        MUnitDirectionVector(*self / scale_factor)
-    }
-
-    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
-    /// product, but the product of the w-components is negated. This is the
-    /// main operation that distinguishes Minkowski space from Euclidean
-    /// 4-space.
-    pub fn mip(&self, other: &Self) -> N {
-        self.x * other.x + self.y * other.y + self.z * other.z - self.w * other.w
-    }
-
-    /// The Minkowski-space equivalent of the outer product of two vectors. This
-    /// produces a rank-one matrix that is a useful intermediate result when
-    /// computing other matrices, such as reflection or translation matrices.
-    fn minkowski_outer_product(self, other: &Self) -> na::Matrix4<N> {
-        self.0 * na::RowVector4::new(other.x, other.y, other.z, -other.w)
-    }
-
-    /// The column vector with components `[0, 0, 0, 0]`.
-    #[inline]
-    pub fn zero() -> Self {
-        Self(na::zero())
-    }
-
-    /// The vector representing the origin in hyperbolic space. Alias for `MVector::w()`.
-    #[inline]
-    pub fn origin() -> Self {
-        Self::w()
-    }
-
-    /// The column vector with components `[1, 0, 0, 0]`.
-    #[inline]
-    pub fn x() -> Self {
-        Self(na::Vector4::x())
-    }
-
-    /// The column vector with components `[0, 1, 0, 0]`.
-    #[inline]
-    pub fn y() -> Self {
-        Self(na::Vector4::y())
-    }
-
-    /// The column vector with components `[0, 0, 1, 0]`.
-    #[inline]
-    pub fn z() -> Self {
-        Self(na::Vector4::z())
-    }
-
-    /// The column vector with components `[0, 0, 0, 1]`.
-    #[inline]
-    pub fn w() -> Self {
-        Self(na::Vector4::w())
-    }
-
-    /// Creates an `MVector` with the given components.
-    #[inline]
-    pub fn new(x: N, y: N, z: N, w: N) -> Self {
-        MVector(na::Vector4::new(x, y, z, w))
-    }
-
-    /// The first three coordinates of the vector. When working with an
-    /// `MVector` representing a velocity/direction from the origin, the
-    /// w-coordinate should always be 0, so using this function to extract a 3D
-    /// vector can help make that assumption more explicit.
-    #[inline]
-    pub fn xyz(self) -> na::Vector3<N> {
-        self.0.xyz()
     }
 }
 
