@@ -435,44 +435,6 @@ impl<N: RealField> Neg for MUnitDirectionVector<N> {
 #[repr(transparent)]
 pub struct MIsometry<N: Scalar>(na::Matrix4<N>);
 
-impl<N: Scalar> Deref for MIsometry<N> {
-    type Target = na::coordinates::M4x4<N>;
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-impl<N: Scalar> From<MIsometry<N>> for na::Matrix4<N> {
-    /// Unwraps the underlying matrix. This effectively reinterprets the matrix
-    /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
-    /// coordinates, a transformation within the 3D Beltrami-Klein model.
-    fn from(value: MIsometry<N>) -> na::Matrix4<N> {
-        value.0
-    }
-}
-
-impl<N: RealField + Copy> AsRef<[[N; 4]; 4]> for MIsometry<N> {
-    #[inline]
-    fn as_ref(&self) -> &[[N; 4]; 4] {
-        self.0.as_ref()
-    }
-}
-
-impl<N: RealField + Copy> From<na::UnitQuaternion<N>> for MIsometry<N> {
-    /// Converts a quaternion into the matrix for the rotation it represents.
-    fn from(value: na::UnitQuaternion<N>) -> Self {
-        MIsometry(value.to_homogeneous())
-    }
-}
-
-impl<N: RealField + Copy> From<na::Rotation3<N>> for MIsometry<N> {
-    /// Converts a rotation into the matrix representing that rotation.
-    fn from(value: na::Rotation3<N>) -> Self {
-        MIsometry(value.to_homogeneous())
-    }
-}
-
 impl<N: RealField + Copy> MIsometry<N> {
     /// Returns a view containing the i-th row of this matrix.
     #[inline]
@@ -667,11 +629,64 @@ impl<N: RealField + Copy> MIsometry<N> {
     }
 }
 
+impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
+    type Output = N;
+    #[inline]
+    fn index(&self, ij: (usize, usize)) -> &Self::Output {
+        &self.0[ij]
+    }
+}
+
+impl<N: RealField + Copy> From<na::UnitQuaternion<N>> for MIsometry<N> {
+    /// Converts a quaternion into the matrix for the rotation it represents.
+    fn from(value: na::UnitQuaternion<N>) -> Self {
+        MIsometry(value.to_homogeneous())
+    }
+}
+
+impl<N: RealField + Copy> From<na::Rotation3<N>> for MIsometry<N> {
+    /// Converts a rotation into the matrix representing that rotation.
+    fn from(value: na::Rotation3<N>) -> Self {
+        MIsometry(value.to_homogeneous())
+    }
+}
+
+impl<N: Scalar> From<MIsometry<N>> for na::Matrix4<N> {
+    /// Unwraps the underlying matrix. This effectively reinterprets the matrix
+    /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a transformation within the 3D Beltrami-Klein model.
+    fn from(value: MIsometry<N>) -> na::Matrix4<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> Deref for MIsometry<N> {
+    type Target = na::coordinates::M4x4<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: RealField + Copy> AsRef<[[N; 4]; 4]> for MIsometry<N> {
+    #[inline]
+    fn as_ref(&self) -> &[[N; 4]; 4] {
+        self.0.as_ref()
+    }
+}
+
 impl<N: RealField> Mul for MIsometry<N> {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self::Output {
         MIsometry(self.0 * rhs.0)
+    }
+}
+
+impl<N: RealField + Copy> MulAssign for MIsometry<N> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: Self) {
+        self.0 *= rhs.0;
     }
 }
 
@@ -696,21 +711,6 @@ impl<N: RealField> Mul<MUnitDirectionVector<N>> for MIsometry<N> {
     #[inline]
     fn mul(self, rhs: MUnitDirectionVector<N>) -> Self::Output {
         MUnitDirectionVector(self * rhs.0)
-    }
-}
-
-impl<N: RealField + Copy> MulAssign for MIsometry<N> {
-    #[inline]
-    fn mul_assign(&mut self, rhs: Self) {
-        self.0 *= rhs.0;
-    }
-}
-
-impl<N: Scalar> Index<(usize, usize)> for MIsometry<N> {
-    type Output = N;
-    #[inline]
-    fn index(&self, ij: (usize, usize)) -> &Self::Output {
-        &self.0[ij]
     }
 }
 
