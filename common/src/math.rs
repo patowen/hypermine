@@ -40,7 +40,7 @@ use std::ops::*;
 /// these operations are meaningless in Minkowski space and are not preserved by
 /// isometries.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct MVector<N: Scalar>(na::Vector4<N>);
 
 /// An `MVector` with the constraint that the Minkowski inner product between
@@ -85,7 +85,7 @@ impl<N: Scalar> Deref for MUnitDirectionVector<N> {
 /// - The Minkowski inner product of a column with itself is 1 for the first
 ///   three columns, and -1 for the last column.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
-#[repr(C)]
+#[repr(transparent)]
 pub struct MIsometry<N: Scalar>(na::Matrix4<N>);
 
 impl<N: Scalar> From<na::Vector4<N>> for MVector<N> {
