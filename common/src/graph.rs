@@ -141,7 +141,6 @@ impl Graph {
 
         self.ensure_minimal_node_state(node_id);
         for (side, parent) in self.descenders(node_id) {
-            self.ensure_node_state(parent);
             for sibling_side in Side::iter() {
                 if !side.adjacent_to(sibling_side) {
                     continue;
@@ -151,14 +150,7 @@ impl Graph {
             }
         }
 
-        let parent_side = self.parent(node_id).unwrap();
-
-        let parent_node_state = self.nodes[&self.neighbor(node_id, parent_side).unwrap()]
-            .value
-            .state
-            .as_ref()
-            .unwrap();
-        let node_state = NodeState::child(parent_node_state, self, node_id, parent_side);
+        let node_state = NodeState::new(self, node_id);
         self.nodes.get_mut(&node_id).unwrap().value.state = Some(node_state);
     }
 

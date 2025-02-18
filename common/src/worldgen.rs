@@ -103,6 +103,60 @@ impl NodeState {
         }
     }
 
+    pub fn new(graph: &Graph, node: NodeId) -> Self {
+        if node == NodeId::ROOT {
+            return Self {
+                kind: NodeStateKind::ROOT,
+                surface: Plane::from(Side::A),
+                road_state: NodeStateRoad::ROOT,
+                enviro: EnviroFactors {
+                    max_elevation: 0.0,
+                    temperature: 0.0,
+                    rainfall: 0.0,
+                    blockiness: 0.0,
+                },
+            };
+        }
+
+        let mut parents = graph
+            .descenders(node)
+            .map(|(s, n)| (s, graph.get(n).state.as_ref().unwrap()));
+
+        let Some((a_side, a_state)) = parents.next() else {
+            unreachable!();
+        };
+        let enviro = match parents.next() {
+            None => {
+                let parent_side = graph.parent(node).unwrap();
+                let parent_node = graph.neighbor(node, parent_side).unwrap();
+                let parent_state = &graph.get(parent_node).state.as_ref().unwrap();
+                let spice = graph.hash_of(node) as u64;
+                EnviroFactors::varied_from(parent_state.enviro, spice)
+            }
+            Some((b_side, b_state)) => {
+                let ab_node = graph
+                    .neighbor(graph.neighbor(node, a_side).unwrap(), b_side)
+                    .unwrap();
+                let ab_state = &graph.get(ab_node).state.as_ref().unwrap();
+                EnviroFactors::continue_from(a_state.enviro, b_state.enviro, ab_state.enviro)
+            }
+        };
+
+        let child_kind = a_state.kind.child(a_side);
+        let child_road = a_state.road_state.child(a_side);
+
+        Self {
+            kind: child_kind,
+            surface: match child_kind {
+                Land => Plane::from(Side::A),
+                Sky => -Plane::from(Side::A),
+                _ => a_side * a_state.surface,
+            },
+            road_state: child_road,
+            enviro,
+        }
+    }
+
     pub fn child(&self, graph: &Graph, node: NodeId, side: Side) -> Self {
         let mut d = graph
             .descenders(node)
