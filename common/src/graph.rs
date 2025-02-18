@@ -10,6 +10,7 @@ use crate::{
     dodeca::Side,
     math::{MIsometry, MVector},
     node::{ChunkId, ChunkLayout, Node},
+    worldgen::{MinimalNodeState, NodeState},
 };
 
 /// Graph of the right dodecahedral tiling of H^3
@@ -118,6 +119,47 @@ impl Graph {
     #[inline]
     pub fn length(&self, node: NodeId) -> u32 {
         self.nodes[&node].length
+    }
+
+    pub fn ensure_minimal_node_state(&mut self, node_id: NodeId) {
+        if self.nodes[&node_id].value.minimal_state.is_some() {
+            return;
+        }
+
+        for (_, parent) in self.descenders(node_id) {
+            self.ensure_node_state(parent);
+        }
+
+        let minimal_node_state = MinimalNodeState::new(self, node_id);
+        self.nodes.get_mut(&node_id).unwrap().value.minimal_state = Some(minimal_node_state);
+    }
+
+    pub fn ensure_node_state(&mut self, node_id: NodeId) {
+        if self.nodes[&node_id].value.state.is_some() {
+            return;
+        }
+
+        self.ensure_minimal_node_state(node_id);
+        for (side, parent) in self.descenders(node_id) {
+            self.ensure_node_state(parent);
+            for sibling_side in Side::iter() {
+                if !side.adjacent_to(sibling_side) {
+                    continue;
+                }
+                let sibling = self.ensure_neighbor(parent, sibling_side);
+                self.ensure_minimal_node_state(sibling);
+            }
+        }
+
+        let parent_side = self.parent(node_id).unwrap();
+
+        let parent_node_state = self.nodes[&self.neighbor(node_id, parent_side).unwrap()]
+            .value
+            .state
+            .as_ref()
+            .unwrap();
+        let node_state = NodeState::child(parent_node_state, self, node_id, parent_side);
+        self.nodes.get_mut(&node_id).unwrap().value.state = Some(node_state);
     }
 
     /// Given a `transform` relative to a `reference` node, computes the node

@@ -67,7 +67,13 @@ pub struct MinimalNodeState {
 }
 
 impl MinimalNodeState {
-    pub fn new(&self, graph: &Graph, node: NodeId) -> Self {
+    pub fn root() -> Self {
+        Self {
+            candidate_horosphere: None,
+        }
+    }
+
+    pub fn new(graph: &Graph, node: NodeId) -> Self {
         Self {
             candidate_horosphere: None,
         }
@@ -698,6 +704,7 @@ mod test {
 
             // assigning state
             *g.get_mut(new_node) = Node {
+                minimal_state: None,
                 state: {
                     let mut state = NodeState::root();
                     state.enviro.max_elevation = i as f64 + 1.0;

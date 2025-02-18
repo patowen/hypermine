@@ -11,7 +11,7 @@ use crate::lru_slab::SlotId;
 use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
 use crate::voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords};
 use crate::world::Material;
-use crate::worldgen::NodeState;
+use crate::worldgen::{MinimalNodeState, NodeState};
 use crate::{margins, Chunks};
 
 /// Unique identifier for a single chunk (1/20 of a dodecahedron) in the graph
@@ -194,6 +194,7 @@ impl IndexMut<ChunkId> for Graph {
 /// used for rendering, is stored here.
 #[derive(Default)]
 pub struct Node {
+    pub minimal_state: Option<MinimalNodeState>,
     pub state: Option<NodeState>,
     /// We can only populate chunks which lie within a cube of populated nodes, so nodes on the edge
     /// of the graph always have some `Fresh` chunks.
@@ -203,6 +204,7 @@ pub struct Node {
 impl Node {
     pub fn root() -> Self {
         Node {
+            minimal_state: Some(MinimalNodeState::root()),
             state: Some(NodeState::root()),
             chunks: Chunks::default(),
         }
@@ -399,6 +401,7 @@ pub fn populate_fresh_nodes(graph: &mut Graph) {
 // TODO: Delete this and populate_fresh_nodes
 fn populate_node(graph: &mut Graph, node: NodeId) {
     *graph.get_mut(node) = Node {
+        minimal_state: None,
         state: Some(
             graph
                 .parent(node)
