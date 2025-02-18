@@ -29,19 +29,19 @@ impl ChunkId {
 
 impl Graph {
     pub fn get_chunk_mut(&mut self, chunk: ChunkId) -> Option<&mut Chunk> {
-        Some(&mut self.get_mut(chunk.node).as_mut()?.chunks[chunk.vertex])
+        Some(&mut self.get_mut(chunk.node).chunks[chunk.vertex])
     }
 
     pub fn get_chunk(&self, chunk: ChunkId) -> Option<&Chunk> {
-        Some(&self.get(chunk.node).as_ref()?.chunks[chunk.vertex])
+        Some(&self.get(chunk.node).chunks[chunk.vertex])
     }
 
     /// Returns the up-direction relative to the given position, or `None` if the
     /// position is in an unpopulated node.
     pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
-        let node = self.get(position.node).as_ref()?;
+        let node = self.get(position.node);
         Some(na::UnitVector3::new_normalize(
-            (position.local.mtranspose() * node.state.up_direction()).xyz(),
+            (position.local.mtranspose() * node.state.as_ref()?.up_direction()).xyz(),
         ))
     }
 
@@ -192,11 +192,21 @@ impl IndexMut<ChunkId> for Graph {
 /// A single dodecahedral node in the graph. All information related to world
 /// generation and the blocks within the node, along with auxiliary information
 /// used for rendering, is stored here.
+#[derive(Default)]
 pub struct Node {
-    pub state: NodeState,
+    pub state: Option<NodeState>,
     /// We can only populate chunks which lie within a cube of populated nodes, so nodes on the edge
-    /// of the graph always have some `None` chunks.
+    /// of the graph always have some `Fresh` chunks.
     pub chunks: Chunks<Chunk>,
+}
+
+impl Node {
+    pub fn root() -> Self {
+        Node {
+            state: Some(NodeState::root()),
+            chunks: Chunks::default(),
+        }
+    }
 }
 
 /// Stores the actual voxel data of the chunk, along with metadata used for
@@ -386,17 +396,24 @@ pub fn populate_fresh_nodes(graph: &mut Graph) {
     }
 }
 
+// TODO: Delete this and populate_fresh_nodes
 fn populate_node(graph: &mut Graph, node: NodeId) {
-    *graph.get_mut(node) = Some(Node {
-        state: graph
-            .parent(node)
-            .and_then(|i| {
-                let parent_state = &graph.get(graph.neighbor(node, i)?).as_ref()?.state;
-                Some(parent_state.child(graph, node, i))
-            })
-            .unwrap_or_else(NodeState::root),
+    *graph.get_mut(node) = Node {
+        state: Some(
+            graph
+                .parent(node)
+                .map(|i| {
+                    let parent_state = graph
+                        .get(graph.neighbor(node, i).unwrap())
+                        .state
+                        .as_ref()
+                        .unwrap();
+                    parent_state.child(graph, node, i)
+                })
+                .unwrap_or_else(NodeState::root),
+        ),
         chunks: Chunks::default(),
-    });
+    };
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.

@@ -100,12 +100,12 @@ impl Graph {
     }
 
     #[inline]
-    pub fn get(&self, node: NodeId) -> &Option<Node> {
+    pub fn get(&self, node: NodeId) -> &Node {
         &self.nodes[&node].value
     }
 
     #[inline]
-    pub fn get_mut(&mut self, node: NodeId) -> &mut Option<Node> {
+    pub fn get_mut(&mut self, node: NodeId) -> &mut Node {
         &mut self.nodes.get_mut(&node).unwrap().value
     }
 
@@ -286,7 +286,7 @@ impl NodeId {
 }
 
 struct NodeContainer {
-    value: Option<Node>,
+    value: Node,
     parent_side: Option<Side>,
     /// Distance to origin via parents
     length: u32,
@@ -296,7 +296,11 @@ struct NodeContainer {
 impl NodeContainer {
     fn new(parent_side: Option<Side>, length: u32) -> Self {
         Self {
-            value: None,
+            value: if parent_side.is_none() {
+                Node::root()
+            } else {
+                Node::default()
+            },
             parent_side,
             length,
             neighbors: [None; Side::VALUES.len()],

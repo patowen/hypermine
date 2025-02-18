@@ -62,6 +62,18 @@ impl NodeStateRoad {
     }
 }
 
+pub struct MinimalNodeState {
+    candidate_horosphere: Option<MVector<f32>>,
+}
+
+impl MinimalNodeState {
+    pub fn new(&self, graph: &Graph, node: NodeId) -> Self {
+        Self {
+            candidate_horosphere: None,
+        }
+    }
+}
+
 /// Contains all information about a node used for world generation. Most world
 /// generation logic uses this information as a starting point.
 pub struct NodeState {
@@ -88,12 +100,12 @@ impl NodeState {
     pub fn child(&self, graph: &Graph, node: NodeId, side: Side) -> Self {
         let mut d = graph
             .descenders(node)
-            .map(|(s, n)| (s, &graph.get(n).as_ref().unwrap().state));
+            .map(|(s, n)| (s, graph.get(n).state.as_ref().unwrap()));
         let enviro = match (d.next(), d.next()) {
             (Some(_), None) => {
                 let parent_side = graph.parent(node).unwrap();
                 let parent_node = graph.neighbor(node, parent_side).unwrap();
-                let parent_state = &graph.get(parent_node).as_ref().unwrap().state;
+                let parent_state = &graph.get(parent_node).state.as_ref().unwrap();
                 let spice = graph.hash_of(node) as u64;
                 EnviroFactors::varied_from(parent_state.enviro, spice)
             }
@@ -101,7 +113,7 @@ impl NodeState {
                 let ab_node = graph
                     .neighbor(graph.neighbor(node, a_side).unwrap(), b_side)
                     .unwrap();
-                let ab_state = &graph.get(ab_node).as_ref().unwrap().state;
+                let ab_state = &graph.get(ab_node).state.as_ref().unwrap();
                 EnviroFactors::continue_from(a_state.enviro, b_state.enviro, ab_state.enviro)
             }
             _ => unreachable!(),
@@ -185,7 +197,7 @@ impl ChunkParams {
     ///
     /// Returns `None` if an unpopulated node is needed.
     pub fn new(dimension: u8, graph: &Graph, chunk: ChunkId) -> Option<Self> {
-        let state = &graph.get(chunk.node).as_ref()?.state;
+        let state = &graph.get(chunk.node).state.as_ref()?;
         Some(Self {
             dimension,
             chunk: chunk.vertex,
@@ -527,7 +539,7 @@ fn chunk_incident_enviro_factors(
         .vertex
         .dual_vertices()
         .map(|(_, mut path)| path.try_fold(chunk.node, |node, side| graph.neighbor(node, side)))
-        .filter_map(|node| Some(graph.get(node?).as_ref()?.state.enviro));
+        .filter_map(|node| Some(graph.get(node?).state.as_ref()?.enviro));
 
     // this is a bit cursed, but I don't want to collect into a vec because perf,
     // and I can't just return an iterator because then something still references graph.
@@ -685,14 +697,14 @@ mod test {
             let new_node = path.fold(NodeId::ROOT, |node, side| g.ensure_neighbor(node, side));
 
             // assigning state
-            *g.get_mut(new_node) = Some(Node {
+            *g.get_mut(new_node) = Node {
                 state: {
                     let mut state = NodeState::root();
                     state.enviro.max_elevation = i as f64 + 1.0;
-                    state
+                    Some(state)
                 },
                 chunks: Chunks::default(),
-            });
+            };
         }
 
         let enviros =

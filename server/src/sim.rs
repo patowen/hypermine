@@ -313,7 +313,7 @@ impl Sim {
 
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
         let mut chunks = vec![];
-        let node_data = self.graph.get(node).as_ref().unwrap();
+        let node_data = self.graph.get(node);
         for vertex in Vertex::iter() {
             if !self.modified_chunks.contains(&ChunkId::new(node, vertex)) {
                 continue;
@@ -465,7 +465,7 @@ impl Sim {
         }
         for &chunk_id in self.modified_chunks.iter() {
             let voxels =
-                match self.graph.get(chunk_id.node).as_ref().unwrap().chunks[chunk_id.vertex] {
+                match self.graph.get(chunk_id.node).chunks[chunk_id.vertex] {
                     Chunk::Populated { ref voxels, .. } => voxels,
                     _ => panic!("ungenerated chunk is marked as modified"),
                 };

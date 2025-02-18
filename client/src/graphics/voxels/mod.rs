@@ -208,7 +208,7 @@ impl Voxels {
                                     ref mut old_surface,
                                     ..
                                 } =
-                                    sim.graph.get_mut(lru.node).as_mut().unwrap().chunks[lru.chunk]
+                                    sim.graph.get_mut(lru.node).chunks[lru.chunk]
                                 {
                                     // Remove references to released slot IDs
                                     if surface.map_or(false, |slot| lru_slot == slot) {
