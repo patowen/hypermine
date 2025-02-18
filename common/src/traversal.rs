@@ -21,6 +21,7 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
 
     pending.push_back((start.node, MIsometry::identity()));
     visited.insert(start.node);
+    graph.ensure_node_state(start.node);
     let start_p = start.local * MVector::origin();
 
     while let Some((node, current_transform)) = pending.pop_front() {
@@ -30,6 +31,7 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
                 continue;
             }
             visited.insert(neighbor);
+            graph.ensure_node_state(neighbor);
             let neighbor_transform = current_transform * *side.reflection();
             let neighbor_p = neighbor_transform * MVector::origin();
             if -start_p.mip(&neighbor_p) > distance.cosh() {

@@ -28,13 +28,18 @@ pub fn run_character_step(
     input: &CharacterInput,
     dt_seconds: f32,
 ) {
+    let Some(up) = graph.get_relative_up(position) else {
+        tracing::error!("Player moved into chunk without NodeState");
+        return;
+    };
+
     let ctx = CharacterControllerContext {
         cfg: &sim_config.character,
         collision_context: CollisionContext {
             graph,
             radius: sim_config.character.character_radius,
         },
-        up: graph.get_relative_up(position).unwrap(),
+        up,
         dt_seconds,
         movement_input: sanitize_motion_input(input.movement),
         jump_input: input.jump,

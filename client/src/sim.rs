@@ -300,6 +300,7 @@ impl Sim {
                     if pos.node != new_pos.node {
                         self.graph_entities.remove(pos.node, entity);
                         self.graph_entities.insert(new_pos.node, entity);
+                        self.graph.ensure_node_state(new_pos.node);
                     }
                     *pos = *new_pos;
                 }
@@ -371,7 +372,7 @@ impl Sim {
             metrics::declare_ready_for_profiling();
         }
         for node in &msg.nodes {
-            self.graph.insert_neighbor(node.parent, node.side);
+            self.graph.ensure_neighbor(node.parent, node.side);
         }
         populate_fresh_nodes(&mut self.graph);
         for block_update in msg.block_updates.into_iter() {
@@ -422,6 +423,7 @@ impl Sim {
                 }
                 Position(x) => {
                     node = Some(x.node);
+                    self.graph.ensure_node_state(x.node);
                     builder.add(x);
                 }
                 Inventory(x) => {
@@ -500,11 +502,10 @@ impl Sim {
             self.since_input_sent.as_secs_f32(),
         );
 
-        self.local_character_controller.update_position(
-            view_position,
-            self.graph.get_relative_up(&view_position).unwrap(),
-            !self.no_clip,
-        )
+        if let Some(up) = self.graph.get_relative_up(&view_position) {
+            self.local_character_controller
+                .update_position(view_position, up, !self.no_clip)
+        }
     }
 
     pub fn view(&self) -> Position {

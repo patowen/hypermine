@@ -400,23 +400,6 @@ pub fn populate_fresh_nodes(graph: &mut Graph) {
 
 // TODO: Delete this and populate_fresh_nodes
 fn populate_node(graph: &mut Graph, node: NodeId) {
-    *graph.get_mut(node) = Node {
-        minimal_state: None,
-        state: Some(
-            graph
-                .parent(node)
-                .map(|i| {
-                    let parent_state = graph
-                        .get(graph.neighbor(node, i).unwrap())
-                        .state
-                        .as_ref()
-                        .unwrap();
-                    parent_state.child(graph, node, i)
-                })
-                .unwrap_or_else(NodeState::root),
-        ),
-        chunks: Chunks::default(),
-    };
 }
 
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
