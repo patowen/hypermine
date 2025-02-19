@@ -18,7 +18,7 @@ use common::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         Inventory, Position,
     },
-    sanitize_motion_input,
+    sanitize_motion_input, traversal,
     world::Material,
     EntityId, GraphEntities, SimConfig, Step,
 };
@@ -218,6 +218,11 @@ impl Sim {
 
     pub fn step(&mut self, dt: Duration, net: &mut server::Handle) {
         self.local_character_controller.renormalize_orientation();
+        traversal::ensure_nearby(
+            &mut self.graph,
+            &self.local_character_controller.oriented_position(),
+            self.cfg.view_distance,
+        );
 
         let step_interval = self.cfg.step_interval;
         self.since_input_sent += dt;
