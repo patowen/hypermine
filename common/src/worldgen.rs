@@ -1,3 +1,4 @@
+use circle_structure::Horosphere;
 use rand::{distr::Uniform, Rng, SeedableRng};
 use rand_distr::Normal;
 
@@ -11,6 +12,8 @@ use crate::{
     world::Material,
     Plane,
 };
+
+mod circle_structure;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum NodeStateKind {
@@ -63,19 +66,26 @@ impl NodeStateRoad {
 }
 
 pub struct MinimalNodeState {
-    candidate_horosphere: Option<MVector<f32>>,
+    possible_horosphere: Option<Horosphere>,
 }
 
 impl MinimalNodeState {
     pub fn root() -> Self {
         Self {
-            candidate_horosphere: None,
+            possible_horosphere: None,
         }
     }
 
     pub fn new(graph: &Graph, node: NodeId) -> Self {
+        let spice = graph.hash_of(node) as u64;
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(spice, 42));
+        let horosphere_pos =
+            circle_structure::get_random_candidate_horosphere(&mut rng, graph, node);
         Self {
-            candidate_horosphere: None,
+            possible_horosphere: horosphere_pos.map(|p| Horosphere {
+                owner: node,
+                pos: p,
+            }),
         }
     }
 }
@@ -87,6 +97,7 @@ pub struct NodeState {
     surface: Plane<f64>,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
+    horosphere: Option<Horosphere>,
 }
 impl NodeState {
     pub fn root() -> Self {
@@ -100,6 +111,7 @@ impl NodeState {
                 rainfall: 0.0,
                 blockiness: 0.0,
             },
+            horosphere: None,
         }
     }
 
@@ -115,6 +127,7 @@ impl NodeState {
                     rainfall: 0.0,
                     blockiness: 0.0,
                 },
+                horosphere: None,
             };
         }
 
@@ -154,6 +167,7 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
+            horosphere: None,
         }
     }
 
@@ -191,6 +205,7 @@ impl NodeState {
             },
             road_state: child_road,
             enviro,
+            horosphere: None,
         }
     }
 

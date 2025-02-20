@@ -141,10 +141,7 @@ impl Graph {
 
         self.ensure_minimal_node_state(node_id);
         for (side, parent) in self.descenders(node_id) {
-            for sibling_side in Side::iter() {
-                if !side.adjacent_to(sibling_side) {
-                    continue;
-                }
+            for sibling_side in Side::iter().filter(|s| s.adjacent_to(side)) {
                 let sibling = self.ensure_neighbor(parent, sibling_side);
                 self.ensure_minimal_node_state(sibling);
             }
