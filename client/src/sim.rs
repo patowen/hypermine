@@ -13,7 +13,7 @@ use common::{
     graph::{Graph, NodeId},
     graph_ray_casting,
     math::{MIsometry, MVector},
-    node::{populate_fresh_nodes, ChunkId, VoxelData},
+    node::{ChunkId, VoxelData},
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         Inventory, Position,
@@ -84,7 +84,7 @@ pub struct Sim {
 impl Sim {
     pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
         let mut graph = Graph::new(cfg.chunk_size);
-        populate_fresh_nodes(&mut graph);
+        graph.clear_fresh();
         Self {
             graph,
             preloaded_block_updates: FxHashMap::default(),
@@ -386,7 +386,7 @@ impl Sim {
         for node in &msg.nodes {
             self.graph.ensure_neighbor(node.parent, node.side);
         }
-        populate_fresh_nodes(&mut self.graph);
+        self.graph.clear_fresh();
         for block_update in msg.block_updates.into_iter() {
             if !self.graph.update_block(&block_update) {
                 self.preloaded_block_updates

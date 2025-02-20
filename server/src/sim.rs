@@ -18,7 +18,7 @@ use tracing::{error, error_span, info, trace};
 use common::{
     character_controller, dodeca,
     graph::{Graph, NodeId},
-    node::{populate_fresh_nodes, Chunk},
+    node::Chunk,
     proto::{
         Character, CharacterInput, CharacterState, ClientHello, Command, Component, FreshNode,
         Position, Spawns, StateDelta,
@@ -463,11 +463,10 @@ impl Sim {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
         for &chunk_id in self.modified_chunks.iter() {
-            let voxels =
-                match self.graph.get(chunk_id.node).chunks[chunk_id.vertex] {
-                    Chunk::Populated { ref voxels, .. } => voxels,
-                    _ => panic!("ungenerated chunk is marked as modified"),
-                };
+            let voxels = match self.graph.get(chunk_id.node).chunks[chunk_id.vertex] {
+                Chunk::Populated { ref voxels, .. } => voxels,
+                _ => panic!("ungenerated chunk is marked as modified"),
+            };
 
             spawns
                 .voxel_data
@@ -625,7 +624,7 @@ impl Sim {
     /// does not have any partially-initialized graph nodes.
     fn populate_fresh_graph_nodes(&mut self) {
         let fresh_nodes = self.graph.fresh().to_vec();
-        populate_fresh_nodes(&mut self.graph);
+        self.graph.clear_fresh();
 
         self.accumulated_changes
             .fresh_nodes

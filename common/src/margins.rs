@@ -370,7 +370,7 @@ mod tests {
         let neighbor_vertex = current_vertex.adjacent_vertices()[1];
         let neighbor_node =
             graph.ensure_neighbor(NodeId::ROOT, current_vertex.canonical_sides()[0]);
-        node::populate_fresh_nodes(&mut graph);
+        graph.clear_fresh();
 
         // These are the chunks this test will work with.
         let current_chunk = ChunkId::new(NodeId::ROOT, current_vertex);

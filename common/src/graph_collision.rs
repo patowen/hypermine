@@ -89,7 +89,7 @@ mod tests {
         dodeca::{self, Side, Vertex},
         graph::{Graph, NodeId},
         math::MIsometry,
-        node::{populate_fresh_nodes, VoxelData},
+        node::VoxelData,
         proto::Position,
         traversal::{ensure_nearby, nearby_nodes},
         voxel_math::Coords,
@@ -152,7 +152,7 @@ mod tests {
 
             // Set up a graph with void chunks
             ensure_nearby(&mut graph, &Position::origin(), graph_radius);
-            populate_fresh_nodes(&mut graph);
+            graph.clear_fresh();
             for (node, _) in nearby_nodes(&graph, &Position::origin(), graph_radius) {
                 for vertex in dodeca::Vertex::iter() {
                     graph[ChunkId::new(node, vertex)] = Chunk::Populated {
@@ -419,7 +419,7 @@ mod tests {
         ];
 
         // Populate all graph nodes
-        populate_fresh_nodes(&mut graph);
+        graph.clear_fresh();
         for node in [
             &[NodeId::ROOT],
             first_neighbors.as_slice(),

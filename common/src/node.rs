@@ -378,20 +378,6 @@ impl ChunkLayout {
     }
 }
 
-/// Ensures that every new node of the given Graph is populated with a [Node] and is
-/// ready for world generation.
-pub fn populate_fresh_nodes(graph: &mut Graph) {
-    let fresh = graph.fresh().to_vec();
-    graph.clear_fresh();
-    for &node in &fresh {
-        populate_node(graph, node);
-    }
-}
-
-// TODO: Delete this and populate_fresh_nodes
-fn populate_node(graph: &mut Graph, node: NodeId) {
-}
-
 /// Represents a discretized region in the voxel grid contained by an axis-aligned bounding box.
 pub struct VoxelAABB {
     // The bounds are of the form [[x_min, x_max], [y_min, y_max], [z_min, z_max]], using voxel coordinates with a one-block
