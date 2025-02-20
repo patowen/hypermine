@@ -327,11 +327,7 @@ struct NodeContainer {
 impl NodeContainer {
     fn new(parent_side: Option<Side>, length: u32) -> Self {
         Self {
-            value: if parent_side.is_none() {
-                Node::root()
-            } else {
-                Node::default()
-            },
+            value: Node::default(),
             parent_side,
             length,
             neighbors: [None; Side::VALUES.len()],

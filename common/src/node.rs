@@ -201,16 +201,6 @@ pub struct Node {
     pub chunks: Chunks<Chunk>,
 }
 
-impl Node {
-    pub fn root() -> Self {
-        Node {
-            minimal_state: Some(MinimalNodeState::root()),
-            state: Some(NodeState::root()),
-            chunks: Chunks::default(),
-        }
-    }
-}
-
 /// Stores the actual voxel data of the chunk, along with metadata used for
 /// rendering. This is an enum type to account for chunks that have not been
 /// fully generated yet.

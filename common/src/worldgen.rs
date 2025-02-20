@@ -70,12 +70,6 @@ pub struct MinimalNodeState {
 }
 
 impl MinimalNodeState {
-    pub fn root() -> Self {
-        Self {
-            possible_horosphere: None,
-        }
-    }
-
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         let spice = graph.hash_of(node) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(spice, 42));
@@ -100,21 +94,6 @@ pub struct NodeState {
     horosphere: Option<Horosphere>,
 }
 impl NodeState {
-    pub fn root() -> Self {
-        Self {
-            kind: NodeStateKind::ROOT,
-            surface: Plane::from(Side::A),
-            road_state: NodeStateRoad::ROOT,
-            enviro: EnviroFactors {
-                max_elevation: 0.0,
-                temperature: 0.0,
-                rainfall: 0.0,
-                blockiness: 0.0,
-            },
-            horosphere: None,
-        }
-    }
-
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         if node == NodeId::ROOT {
             return Self {
@@ -164,44 +143,6 @@ impl NodeState {
                 Land => Plane::from(Side::A),
                 Sky => -Plane::from(Side::A),
                 _ => a_side * a_state.surface,
-            },
-            road_state: child_road,
-            enviro,
-            horosphere: None,
-        }
-    }
-
-    pub fn child(&self, graph: &Graph, node: NodeId, side: Side) -> Self {
-        let mut d = graph
-            .descenders(node)
-            .map(|(s, n)| (s, graph.get(n).state.as_ref().unwrap()));
-        let enviro = match (d.next(), d.next()) {
-            (Some(_), None) => {
-                let parent_side = graph.parent(node).unwrap();
-                let parent_node = graph.neighbor(node, parent_side).unwrap();
-                let parent_state = &graph.get(parent_node).state.as_ref().unwrap();
-                let spice = graph.hash_of(node) as u64;
-                EnviroFactors::varied_from(parent_state.enviro, spice)
-            }
-            (Some((a_side, a_state)), Some((b_side, b_state))) => {
-                let ab_node = graph
-                    .neighbor(graph.neighbor(node, a_side).unwrap(), b_side)
-                    .unwrap();
-                let ab_state = &graph.get(ab_node).state.as_ref().unwrap();
-                EnviroFactors::continue_from(a_state.enviro, b_state.enviro, ab_state.enviro)
-            }
-            _ => unreachable!(),
-        };
-
-        let child_kind = self.kind.child(side);
-        let child_road = self.road_state.child(side);
-
-        Self {
-            kind: child_kind,
-            surface: match child_kind {
-                Land => Plane::from(Side::A),
-                Sky => -Plane::from(Side::A),
-                _ => side * self.surface,
             },
             road_state: child_road,
             enviro,
@@ -775,7 +716,7 @@ mod test {
             *g.get_mut(new_node) = Node {
                 minimal_state: None,
                 state: {
-                    let mut state = NodeState::root();
+                    let mut state = NodeState::new(&g, NodeId::ROOT);
                     state.enviro.max_elevation = i as f64 + 1.0;
                     Some(state)
                 },
