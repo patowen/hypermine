@@ -29,7 +29,7 @@ pub use self::{
 };
 
 unsafe fn as_bytes<T: Copy>(x: &T) -> &[u8] {
-    std::slice::from_raw_parts(x as *const T as *const u8, std::mem::size_of::<T>())
+    unsafe { std::slice::from_raw_parts(x as *const T as *const u8, std::mem::size_of::<T>()) }
 }
 
 #[repr(C)]

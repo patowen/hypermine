@@ -12,7 +12,7 @@ use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
 use crate::voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords};
 use crate::world::Material;
 use crate::worldgen::{MinimalNodeState, NodeState};
-use crate::{margins, Chunks};
+use crate::{Chunks, margins};
 
 /// Unique identifier for a single chunk (1/20 of a dodecahedron) in the graph
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -373,7 +373,7 @@ impl ChunkLayout {
 
     /// Takes in a single grid coordinate and returns a range containing all voxel coordinates surrounding it.
     #[inline]
-    pub fn neighboring_voxels(&self, grid_coord: u8) -> impl Iterator<Item = u8> {
+    pub fn neighboring_voxels(&self, grid_coord: u8) -> impl Iterator<Item = u8> + use<> {
         grid_coord.saturating_sub(1)..grid_coord.saturating_add(1).min(self.dimension())
     }
 }
@@ -429,7 +429,7 @@ impl VoxelAABB {
         axis0: usize,
         axis1: usize,
         axis2: usize,
-    ) -> impl Iterator<Item = (u8, u8, u8)> {
+    ) -> impl Iterator<Item = (u8, u8, u8)> + use<> {
         let bounds = self.bounds;
         (bounds[axis0][0]..bounds[axis0][1]).flat_map(move |i| {
             (bounds[axis1][0]..bounds[axis1][1])
@@ -438,14 +438,14 @@ impl VoxelAABB {
     }
 
     /// Iterator over grid lines intersecting the region, represented as ordered pairs determining the line's two fixed coordinates
-    pub fn grid_lines(&self, axis0: usize, axis1: usize) -> impl Iterator<Item = (u8, u8)> {
+    pub fn grid_lines(&self, axis0: usize, axis1: usize) -> impl Iterator<Item = (u8, u8)> + use<> {
         let bounds = self.bounds;
         (bounds[axis0][0]..bounds[axis0][1])
             .flat_map(move |i| (bounds[axis1][0]..bounds[axis1][1]).map(move |j| (i, j)))
     }
 
     /// Iterator over grid planes intersecting the region, represented as integers determining the plane's fixed coordinate
-    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = u8> {
+    pub fn grid_planes(&self, axis: usize) -> impl Iterator<Item = u8> + use<> {
         self.bounds[axis][0]..self.bounds[axis][1]
     }
 }

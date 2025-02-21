@@ -8,7 +8,7 @@ use crate::{
     local_character_controller::LocalCharacterController, metrics, prediction::PredictedMotion,
 };
 use common::{
-    character_controller,
+    EntityId, GraphEntities, SimConfig, Step, character_controller,
     collision_math::Ray,
     graph::{Graph, NodeId},
     graph_ray_casting,
@@ -20,7 +20,6 @@ use common::{
     },
     sanitize_motion_input, traversal,
     world::Material,
-    EntityId, GraphEntities, SimConfig, Step,
 };
 
 const MATERIAL_PALETTE: [Material; 10] = [

@@ -1,10 +1,9 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 
 use common::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
-    node::Chunk,
-    node::ChunkId,
+    node::{Chunk, ChunkId},
     proto::Position,
     traversal::ensure_nearby,
     worldgen::ChunkParams,
