@@ -9,9 +9,15 @@ use crate::{
     math::MVector,
 };
 
+#[derive(Clone, Copy)]
 pub struct Horosphere {
     pub owner: NodeId,
-    pub pos: MVector<f32>, // TODO: Explain
+    pub pos: MVector<f32>, // TODO: Explain (equation of horosphere is `mip(h,p) == -1`)
+}
+
+#[derive(Clone, Copy)]
+pub struct ChunkHorosphere {
+    pub pos: MVector<f32>,
 }
 
 pub fn get_random_candidate_horosphere(

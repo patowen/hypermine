@@ -132,6 +132,12 @@ impl NodeState {
         let road_state = parents[0].map_or(NodeStateRoad::ROOT, |p| {
             p.node_state.road_state.child(p.side)
         });
+        let horosphere = graph
+            .get(node)
+            .minimal_state
+            .as_ref()
+            .unwrap()
+            .possible_horosphere;
 
         Self {
             kind,
@@ -142,7 +148,7 @@ impl NodeState {
             },
             road_state,
             enviro,
-            horosphere: None,
+            horosphere,
         }
     }
 
@@ -209,6 +215,7 @@ pub struct ChunkParams {
     is_road_support: bool,
     /// Random quantity used to seed terrain gen
     node_spice: u64,
+    horosphere: Option<Horosphere>,
 }
 
 impl ChunkParams {
@@ -227,6 +234,7 @@ impl ChunkParams {
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: graph.hash_of(chunk.node) as u64,
+            horosphere: state.horosphere,
         })
     }
 
@@ -273,6 +281,8 @@ impl ChunkParams {
         } else if self.is_road_support {
             self.generate_road_support(&mut voxels);
         }
+
+        self.generate_horosphere(&mut voxels);
 
         // TODO: Don't generate detailed data for solid chunks with no neighboring voids
 
@@ -413,6 +423,13 @@ impl ChunkParams {
         criteria_met += u32::from(x == z);
 
         criteria_met >= 2
+    }
+
+    fn generate_horosphere(&self, voxels: &mut VoxelData) {
+        if let Some(horosphere) = self.horosphere {
+            voxels.data_mut(self.dimension)[index(self.dimension, na::Vector3::new(6, 6, 6))] =
+                Material::RedSandstone;
+        }
     }
 
     /// Plants trees on dirt and grass. Trees consist of a block of wood
