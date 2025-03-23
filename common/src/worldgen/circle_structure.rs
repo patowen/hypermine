@@ -4,20 +4,57 @@ use rand_distr::Poisson;
 use rand_pcg::Pcg64Mcg;
 
 use crate::{
-    dodeca::Side,
+    dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
     math::MVector,
+    node::VoxelData,
+    voxel_math::Coords,
+    world::Material,
 };
 
 #[derive(Clone, Copy)]
 pub struct Horosphere {
     pub owner: NodeId,
-    pub pos: MVector<f32>, // TODO: Explain (equation of horosphere is `mip(h,p) == -1`)
+    pub vector: MVector<f32>, // TODO: Explain (equation of horosphere is `mip(h,p) == -1`)
 }
 
-#[derive(Clone, Copy)]
-pub struct ChunkHorosphere {
-    pub pos: MVector<f32>,
+impl Horosphere {
+    pub fn propagate(&self, side: Side) -> Option<Horosphere> {
+        if self.vector.mip(side.normal()) < 1.0 {
+            Some(Horosphere {
+                owner: self.owner,
+                vector: *side.reflection() * self.vector,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
+        assert!(self.owner == other.owner);
+        self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;
+    }
+
+    pub fn renormalize(&mut self) {
+        self.vector.w = self.vector.xyz().norm();
+    }
+
+    pub fn chunk_data(&self, vertex: Vertex) -> HorosphereChunk {
+        HorosphereChunk {
+            vector: *vertex.node_to_dual() * self.vector,
+        }
+    }
+}
+
+pub struct HorosphereChunk {
+    pub vector: MVector<f32>,
+}
+
+impl HorosphereChunk {
+    pub fn generate(&self, voxels: &mut VoxelData, chunk_size: u8) {
+        voxels.data_mut(chunk_size)[Coords([6, 6, 6]).to_index(chunk_size)] =
+            Material::RedSandstone;
+    }
 }
 
 pub fn get_random_candidate_horosphere(
