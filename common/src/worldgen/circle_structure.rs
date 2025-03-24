@@ -23,7 +23,7 @@ impl Horosphere {
         if self.vector.mip(side.normal()) < 1.0 {
             Some(Horosphere {
                 owner: self.owner,
-                vector: *side.reflection() * self.vector,
+                vector: side.reflection() * self.vector,
             })
         } else {
             None
@@ -41,7 +41,7 @@ impl Horosphere {
 
     pub fn chunk_data(&self, vertex: Vertex) -> HorosphereChunk {
         HorosphereChunk {
-            vector: *vertex.node_to_dual() * self.vector,
+            vector: vertex.node_to_dual() * self.vector,
         }
     }
 }
