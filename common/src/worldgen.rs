@@ -71,6 +71,18 @@ pub struct MinimalNodeState {
 
 impl MinimalNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
+        if let Some((parent_side, parent_node)) = graph.descenders(node).next() {
+            let parent_state = graph.get(parent_node).state.as_ref().unwrap();
+            let propagated_horosphere = parent_state
+                .horosphere
+                .and_then(|h| h.propagate(parent_side));
+            if propagated_horosphere.is_some() {
+                return Self {
+                    possible_horosphere: propagated_horosphere,
+                };
+            }
+        }
+
         let spice = graph.hash_of(node) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(spice, 42));
         let horosphere_pos =
