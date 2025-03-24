@@ -62,7 +62,7 @@ impl HorosphereChunk {
                         z as f32 + 0.5,
                         chunk_size as f32 * Vertex::dual_to_chunk_factor(),
                     )
-                    .normalized();
+                    .normalized_point();
                     if pos.mip(&self.vector) > -1.0 {
                         voxels.data_mut(chunk_size)[Coords([x, y, z]).to_index(chunk_size)] =
                             Material::RedSandstone;

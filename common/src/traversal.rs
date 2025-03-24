@@ -6,7 +6,7 @@ use crate::{
     collision_math::Ray,
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},
-    math::{MIsometry, MVector},
+    math::{MIsometry, MPoint},
     node::ChunkId,
     proto::Position,
 };
@@ -22,7 +22,7 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
     pending.push_back((start.node, MIsometry::identity()));
     visited.insert(start.node);
     graph.ensure_node_state(start.node);
-    let start_p = start.local * MVector::origin();
+    let start_p = start.local * MPoint::origin();
 
     while let Some((node, current_transform)) = pending.pop_front() {
         for side in Side::iter() {
@@ -32,8 +32,8 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
             }
             visited.insert(neighbor);
             graph.ensure_node_state(neighbor);
-            let neighbor_transform = current_transform * *side.reflection();
-            let neighbor_p = neighbor_transform * MVector::origin();
+            let neighbor_transform = current_transform * side.reflection();
+            let neighbor_p = neighbor_transform * MPoint::origin();
             if -start_p.mip(&neighbor_p) > distance.cosh() {
                 continue;
             }
@@ -61,7 +61,7 @@ pub fn nearby_nodes(
     // hundreds of transformations being composed.
     let mut pending = VecDeque::<PendingNode>::new();
     let mut visited = FxHashSet::<NodeId>::default();
-    let start_p = start.local * MVector::origin();
+    let start_p = start.local * MPoint::origin();
 
     pending.push_back(PendingNode {
         id: start.node,
@@ -70,7 +70,7 @@ pub fn nearby_nodes(
     visited.insert(start.node);
 
     while let Some(current) = pending.pop_front() {
-        let current_p = current.transform * MVector::origin();
+        let current_p = current.transform * MPoint::origin();
         if -start_p.mip(&current_p) > distance.cosh() {
             continue;
         }
@@ -86,7 +86,7 @@ pub fn nearby_nodes(
             }
             pending.push_back(PendingNode {
                 id: neighbor,
-                transform: current.transform * *side.reflection(),
+                transform: current.transform * side.reflection(),
             });
             visited.insert(neighbor);
         }
@@ -116,7 +116,7 @@ impl<'a> RayTraverser<'a> {
         let mut closest_vertex_cosh_distance = f32::INFINITY;
         for vertex in Vertex::iter() {
             let vertex_cosh_distance =
-                (*vertex.node_to_dual() * position.local * MVector::origin()).w;
+                (vertex.node_to_dual() * position.local * MPoint::origin()).w;
             if vertex_cosh_distance < closest_vertex_cosh_distance {
                 closest_vertex = vertex;
                 closest_vertex_cosh_distance = vertex_cosh_distance;
@@ -165,7 +165,7 @@ impl<'a> RayTraverser<'a> {
                 continue;
             };
 
-            let local_ray = *vertex.node_to_dual() * node_transform * self.ray;
+            let local_ray = vertex.node_to_dual() * node_transform * self.ray;
 
             // Compute the Klein-Beltrami coordinates of the ray segment's endpoints. To check whether neighboring chunks
             // are needed, we need to check whether the endpoints of the line segments lie outside the boundaries of the square
@@ -181,7 +181,7 @@ impl<'a> RayTraverser<'a> {
                     || klein_ray_end[axis] <= self.klein_lower_boundary
                 {
                     let side = vertex.canonical_sides()[axis];
-                    let next_node_transform = *side.reflection() * node_transform;
+                    let next_node_transform = side.reflection() * node_transform;
                     // Crude check to ensure that the neighboring chunk's node can be in the path of the ray. For simplicity, this
                     // check treats each node as a sphere and assumes the ray is pointed directly towards its center. The check is
                     // needed because chunk generation uses this approximation, and this check is not guaranteed to pass near corners
