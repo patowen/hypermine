@@ -52,8 +52,24 @@ pub struct HorosphereChunk {
 
 impl HorosphereChunk {
     pub fn generate(&self, voxels: &mut VoxelData, chunk_size: u8) {
-        voxels.data_mut(chunk_size)[Coords([6, 6, 6]).to_index(chunk_size)] =
-            Material::RedSandstone;
+        for x in 0..chunk_size {
+            for y in 0..chunk_size {
+                for z in 0..chunk_size {
+                    // TODO: This math should be in ChunkLayout
+                    let pos = MVector::new(
+                        x as f32 + 0.5,
+                        y as f32 + 0.5,
+                        z as f32 + 0.5,
+                        chunk_size as f32 * Vertex::dual_to_chunk_factor(),
+                    )
+                    .normalized();
+                    if pos.mip(&self.vector) > -1.0 {
+                        voxels.data_mut(chunk_size)[Coords([x, y, z]).to_index(chunk_size)] =
+                            Material::RedSandstone;
+                    }
+                }
+            }
+        }
     }
 }
 
