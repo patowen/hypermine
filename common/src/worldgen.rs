@@ -256,33 +256,6 @@ impl ChunkParams {
 
     /// Generate voxels making up the chunk
     pub fn generate_voxels(&self) -> VoxelData {
-        // Determine whether this chunk might contain a boundary between solid and void
-        let mut me_min = self.env.max_elevations[0];
-        let mut me_max = self.env.max_elevations[0];
-        for &me in &self.env.max_elevations[1..] {
-            me_min = me_min.min(me);
-            me_max = me_max.max(me);
-        }
-        // Maximum difference between elevations at the center of a chunk and any other point in the chunk
-        // TODO: Compute what this actually is, current value is a guess! Real one must be > 0.6
-        // empirically.
-        const ELEVATION_MARGIN: f64 = 0.7;
-        let center_elevation = self
-            .surface
-            .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
-        if (center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS)
-            && !(self.is_road || self.is_road_support)
-        {
-            // The whole chunk is above ground and not part of the road
-            return VoxelData::Solid(Material::Void);
-        }
-
-        if (center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS) && !self.is_road {
-            // The whole chunk is underground
-            // TODO: More accurate VoxelData
-            return VoxelData::Solid(Material::Dirt);
-        }
-
         let mut voxels = VoxelData::Solid(Material::Void);
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(self.node_spice, self.chunk as u64));
 
@@ -299,10 +272,7 @@ impl ChunkParams {
         }
 
         // TODO: Don't generate detailed data for solid chunks with no neighboring voids
-
-        if self.dimension > 4 && matches!(voxels, VoxelData::Dense(_)) {
-            self.generate_trees(&mut voxels, &mut rng);
-        }
+        self.generate_trees(&mut voxels, &mut rng);
 
         margins::initialize_margins(self.dimension, &mut voxels);
         voxels
@@ -311,6 +281,33 @@ impl ChunkParams {
     /// Performs all terrain generation that can be done one voxel at a time and with
     /// only the containing chunk's surrounding nodes' envirofactors.
     fn generate_terrain(&self, voxels: &mut VoxelData, rng: &mut Pcg64Mcg) {
+        // Determine whether this chunk might contain a boundary between solid and void
+        let mut me_min = self.env.max_elevations[0];
+        let mut me_max = self.env.max_elevations[0];
+        for &me in &self.env.max_elevations[1..] {
+            me_min = me_min.min(me);
+            me_max = me_max.max(me);
+        }
+        // Maximum difference between elevations at the center of a chunk and any other point in the chunk
+        // TODO: Compute what this actually is, current value is a guess! Real one must be > 0.6
+        // empirically.
+        const ELEVATION_MARGIN: f64 = 0.7;
+        let center_elevation = self
+            .surface
+            .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
+        if center_elevation - ELEVATION_MARGIN > me_max / TERRAIN_SMOOTHNESS {
+            // The whole chunk is above ground
+            *voxels = VoxelData::Solid(Material::Void);
+            return;
+        }
+        if center_elevation + ELEVATION_MARGIN < me_min / TERRAIN_SMOOTHNESS {
+            // The whole chunk is underground
+            *voxels = VoxelData::Solid(Material::Dirt);
+            return;
+        }
+
+        // Otherwise, the chunk might contain a solid/void boundary, so the full terrain generation
+        // code should run.
         let normal = Normal::new(0.0, 0.03).unwrap();
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
@@ -394,6 +391,12 @@ impl ChunkParams {
 
     /// Fills the half-plane below the road with wooden supports.
     fn generate_road_support(&self, voxels: &mut VoxelData) {
+        if voxels.is_solid() && voxels.get(0) != Material::Void {
+            // There is guaranteed no void to fill with the road supports, so
+            // nothing to do here.
+            return;
+        }
+
         let plane = -Plane::from(Side::B);
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
@@ -443,6 +446,16 @@ impl ChunkParams {
     /// and a block of leaves. The leaf block is on the opposite face of the
     /// wood block as the ground block.
     fn generate_trees(&self, voxels: &mut VoxelData, rng: &mut Pcg64Mcg) {
+        if voxels.is_solid() {
+            // No trees can be generated unless there's both land and air.
+            return;
+        }
+
+        if self.dimension <= 4 {
+            // The tree generation algorithm can crash when the chunk size is too small.
+            return;
+        }
+
         // margins are added to keep voxels outside the chunk from being read/written
         let random_position = Uniform::new(1, self.dimension - 1).unwrap();
 
