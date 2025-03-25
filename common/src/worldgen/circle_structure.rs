@@ -12,21 +12,21 @@ use crate::{
     world::Material,
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Horosphere {
     pub owner: NodeId,
     pub vector: MVector<f32>, // TODO: Explain (equation of horosphere is `mip(h,p) == -1`)
 }
 
 impl Horosphere {
-    pub fn propagate(&self, side: Side) -> Option<Horosphere> {
-        if self.vector.mip(side.normal()) > -1.0 {
-            Some(Horosphere {
-                owner: self.owner,
-                vector: side.reflection() * self.vector,
-            })
-        } else {
-            None
+    pub fn should_propagate(&self, side: Side) -> bool {
+        self.vector.mip(side.normal()) > -1.0
+    }
+
+    pub fn propagate(&self, side: Side) -> Horosphere {
+        Horosphere {
+            owner: self.owner,
+            vector: side.reflection() * self.vector,
         }
     }
 

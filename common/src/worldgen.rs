@@ -72,14 +72,19 @@ pub struct MinimalNodeState {
 impl MinimalNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         for (parent_side, parent_node) in graph.descenders(node) {
-            let parent_state = graph.get(parent_node).state.as_ref().unwrap();
-            let propagated_horosphere = parent_state
+            if let Some(parent_horosphere) = graph
+                .get(parent_node)
+                .state
+                .as_ref()
+                .unwrap()
                 .horosphere
-                .and_then(|h| h.propagate(parent_side));
-            if propagated_horosphere.is_some() {
-                return Self {
-                    possible_horosphere: propagated_horosphere,
-                };
+                .as_ref()
+            {
+                if parent_horosphere.should_propagate(parent_side) {
+                    return Self {
+                        possible_horosphere: Some(parent_horosphere.propagate(parent_side)),
+                    };
+                }
             }
         }
 
@@ -144,12 +149,6 @@ impl NodeState {
         let road_state = parents[0].map_or(NodeStateRoad::ROOT, |p| {
             p.node_state.road_state.child(p.side)
         });
-        let horosphere = graph
-            .get(node)
-            .minimal_state
-            .as_ref()
-            .unwrap()
-            .possible_horosphere;
 
         Self {
             kind,
@@ -160,12 +159,60 @@ impl NodeState {
             },
             road_state,
             enviro,
-            horosphere,
+            horosphere: Self::get_horosphere(graph, node, &parents),
         }
     }
 
     pub fn up_direction(&self) -> MDirection<f32> {
         self.surface.normal().cast()
+    }
+
+    // Convert a possible_horosphere into a horosphere if it should be converted, ensuring that
+    // it doesn't intersect with another horosphere.
+    fn get_horosphere(
+        graph: &Graph,
+        node_id: NodeId,
+        parents: &[Option<ParentInfo<'_>>],
+    ) -> Option<Horosphere> {
+        let possible_horosphere = graph
+            .get(node_id)
+            .minimal_state
+            .as_ref()
+            .unwrap()
+            .possible_horosphere
+            .as_ref()?;
+
+        if possible_horosphere.owner != node_id {
+            // The horosphere is propagated and so is already proven to exist.
+            return Some(possible_horosphere.clone());
+        }
+
+        let length = graph.length(node_id);
+        for parent in parents.iter().flatten() {
+            for sibling_side in Side::iter().filter(|s| s.adjacent_to(parent.side)) {
+                let sibling_id = graph.neighbor(parent.node_id, sibling_side).unwrap();
+                if graph.length(sibling_id) != length {
+                    continue;
+                }
+                let Some(sibling_horosphere) = graph
+                    .get(sibling_id)
+                    .minimal_state
+                    .as_ref()
+                    .and_then(|s| s.possible_horosphere.as_ref())
+                else {
+                    continue;
+                };
+                if (sibling_horosphere.owner != sibling_id // If the sibling horosphere is already propagated, it must win.
+                    || sibling_horosphere.vector.w <= possible_horosphere.vector.w) // Use the w-coordinate as an arbitrary tie-breaker to decide which horosphere should win.
+                    && sibling_horosphere.should_propagate(parent.side) // Check that these horospheres can interfere
+                    && possible_horosphere.should_propagate(sibling_side)
+                {
+                    return None;
+                }
+            }
+        }
+
+        Some(possible_horosphere.clone())
     }
 }
 
@@ -246,7 +293,10 @@ impl ChunkParams {
             is_road_support: ((state.kind == Land) || (state.kind == DeepLand))
                 && ((state.road_state == East) || (state.road_state == West)),
             node_spice: graph.hash_of(chunk.node) as u64,
-            horosphere: state.horosphere.map(|h| h.chunk_data(chunk.vertex)),
+            horosphere: state
+                .horosphere
+                .as_ref()
+                .map(|h| h.chunk_data(chunk.vertex)),
         })
     }
 
