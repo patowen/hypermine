@@ -20,7 +20,7 @@ pub struct Horosphere {
 
 impl Horosphere {
     pub fn propagate(&self, side: Side) -> Option<Horosphere> {
-        if self.vector.mip(side.normal()) < 1.0 {
+        if self.vector.mip(side.normal()) > -1.0 {
             Some(Horosphere {
                 owner: self.owner,
                 vector: side.reflection() * self.vector,

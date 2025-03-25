@@ -71,7 +71,7 @@ pub struct MinimalNodeState {
 
 impl MinimalNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
-        if let Some((parent_side, parent_node)) = graph.descenders(node).next() {
+        for (parent_side, parent_node) in graph.descenders(node) {
             let parent_state = graph.get(parent_node).state.as_ref().unwrap();
             let propagated_horosphere = parent_state
                 .horosphere
