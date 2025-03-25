@@ -5,7 +5,7 @@ use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
     margins,
-    math::{self, MDirection, MVector},
+    math::{self, MVector},
     node::{ChunkId, VoxelData},
     plane::Plane,
     terraingen::VoronoiInfo,
@@ -74,7 +74,7 @@ impl NodeState {
     pub fn root() -> Self {
         Self {
             kind: NodeStateKind::ROOT,
-            surface: Plane::from(*Side::A.normal()),
+            surface: Plane::from(Side::A),
             road_state: NodeStateRoad::ROOT,
             enviro: EnviroFactors {
                 max_elevation: 0.0,
@@ -113,9 +113,9 @@ impl NodeState {
         Self {
             kind: child_kind,
             surface: match child_kind {
-                Land => Plane::from(*Side::A.normal()),
-                Sky => -Plane::from(*Side::A.normal()),
-                _ => side.reflection() * self.surface,
+                Land => Plane::from(Side::A),
+                Sky => -Plane::from(Side::A),
+                _ => side * self.surface,
             },
             road_state: child_road,
             enviro,
@@ -309,7 +309,7 @@ impl ChunkParams {
 
     /// Places a road along the guiding plane.
     fn generate_road(&self, voxels: &mut VoxelData) {
-        let plane = -Plane::from(*Side::B.normal());
+        let plane = -Plane::from(Side::B);
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
             let coords = na::Vector3::new(x, y, z);
@@ -339,7 +339,7 @@ impl ChunkParams {
 
     /// Fills the half-plane below the road with wooden supports.
     fn generate_road_support(&self, voxels: &mut VoxelData) {
-        let plane = -Plane::from(*Side::B.normal());
+        let plane = -Plane::from(Side::B);
 
         for (x, y, z) in VoxelCoords::new(self.dimension) {
             let coords = na::Vector3::new(x, y, z);

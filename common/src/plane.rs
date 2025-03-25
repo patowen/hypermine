@@ -1,7 +1,7 @@
 use std::ops::{Mul, Neg};
 
 use crate::{
-    dodeca::Vertex,
+    dodeca::{Side, Vertex},
     math::{MDirection, MIsometry, MPoint, MVector},
 };
 
@@ -14,12 +14,26 @@ pub struct Plane {
     exponent: f32, // Multiply "normal" by e^exponent to get the actual normal vector
 }
 
+impl From<Side> for Plane {
+    /// A surface overlapping with a particular dodecahedron side
+    fn from(side: Side) -> Self {
+        Plane::from(*side.normal())
+    }
+}
+
 impl From<MDirection<f32>> for Plane {
     fn from(normal: MDirection<f32>) -> Self {
         Plane {
             scaled_normal: normal.into(),
             exponent: 0.0,
         }
+    }
+}
+
+impl From<na::Unit<na::Vector3<f32>>> for Plane {
+    /// A plane passing through the origin
+    fn from(x: na::UnitVector3<f32>) -> Self {
+        Self::from(MDirection::from(x))
     }
 }
 
@@ -30,6 +44,14 @@ impl Neg for Plane {
             scaled_normal: -self.scaled_normal,
             exponent: self.exponent,
         }
+    }
+}
+
+impl Mul<Plane> for Side {
+    type Output = Plane;
+    /// Reflect a plane across the side
+    fn mul(self, rhs: Plane) -> Plane {
+        self.reflection() * rhs
     }
 }
 
@@ -45,7 +67,8 @@ impl Mul<Plane> for &MIsometry<f32> {
 }
 
 impl Plane {
-    /// Hyperbolic normal vector identifying the plane, possibly scaled to avoid capping floats
+    /// Hyperbolic normal vector identifying the plane, possibly scaled to avoid
+    /// being too large to represent in an f32.
     pub fn scaled_normal(&self) -> &MVector<f32> {
         &self.scaled_normal
     }
@@ -89,8 +112,6 @@ impl Plane {
 
 #[cfg(test)]
 mod tests {
-    use crate::dodeca::Side;
-
     use super::*;
     use approx::*;
 
@@ -102,14 +123,14 @@ mod tests {
             na::Vector3::z_axis(),
         ] {
             for &distance in &[-1.5, 0.0, 1.5] {
-                let plane = Plane::from(MDirection::from(axis));
+                let plane = Plane::from(axis);
                 assert_abs_diff_eq!(
                     plane.distance_to(
                         &(MIsometry::translation_along(&(axis.into_inner() * distance))
                             * MPoint::origin())
                     ),
                     distance,
-                    epsilon = 1e-5
+                    epsilon = 1e-6
                 );
             }
         }
@@ -117,7 +138,7 @@ mod tests {
 
     #[test]
     fn check_surface_flipped() {
-        let root = Plane::from(*Side::A.normal());
+        let root = Plane::from(Side::A);
         assert_abs_diff_eq!(
             root.distance_to_chunk(Vertex::A, &na::Vector3::new(-1.0, 1.0, 1.0)),
             root.distance_to_chunk(Vertex::J, &na::Vector3::new(-1.0, 1.0, 1.0)) * -1.0,
@@ -128,12 +149,12 @@ mod tests {
     #[test]
     fn check_surface_on_plane() {
         assert_abs_diff_eq!(
-            Plane::from(*Side::A.normal()).distance_to_chunk(
+            Plane::from(Side::A).distance_to_chunk(
                 Vertex::from_sides([Side::A, Side::B, Side::C]).unwrap(),
                 &na::Vector3::new(0.0, 0.7, 0.1), // The first 0.0 is important, the plane is the midplane of the cube in Side::A direction
             ),
             0.0,
-            epsilon = 1e-5,
+            epsilon = 1e-6,
         );
     }
 
@@ -143,36 +164,34 @@ mod tests {
 
         // A cube corner should have the same elevation seen from different cubes
         assert_abs_diff_eq!(
-            Plane::from(*Side::A.normal()).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
-            Plane::from(*Side::A.normal()).distance_to_chunk(
+            Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
+            Plane::from(Side::A).distance_to_chunk(
                 Vertex::from_sides([Side::F, Side::H, Side::J]).unwrap(),
                 &na::Vector3::new(1.0, 1.0, 1.0),
             ),
-            epsilon = 1e-5,
+            epsilon = 1e-6,
         );
 
         // The same corner should have the same distance_to_chunk when represented from the same cube at different corners
         assert_abs_diff_eq!(
-            Plane::from(*Side::A.normal()).distance_to_chunk(abc, &na::Vector3::new(0.0, 1.0, 1.0)),
-            (Side::A.reflection() * Plane::from(*Side::A.normal()))
+            Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(0.0, 1.0, 1.0)),
+            (Side::A * Plane::from(Side::A))
                 .distance_to_chunk(abc, &na::Vector3::new(0.0, 1.0, 1.0),),
-            epsilon = 1e-5,
+            epsilon = 1e-6,
         );
 
         // Corners of midplane cubes separated by the midplane should have the same distance_to_chunk with a different sign
         assert_abs_diff_eq!(
-            Plane::from(*Side::A.normal()).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
-            -Plane::from(*Side::A.normal())
-                .distance_to_chunk(abc, &na::Vector3::new(-1.0, 1.0, 1.0)),
-            epsilon = 1e-5,
+            Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
+            -Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(-1.0, 1.0, 1.0)),
+            epsilon = 1e-6,
         );
 
         // Corners of midplane cubes not separated by the midplane should have the same distance_to_chunk
         assert_abs_diff_eq!(
-            Plane::from(*Side::A.normal()).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
-            Plane::from(*Side::A.normal())
-                .distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, -1.0)),
-            epsilon = 1e-5,
+            Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, 1.0)),
+            Plane::from(Side::A).distance_to_chunk(abc, &na::Vector3::new(1.0, 1.0, -1.0)),
+            epsilon = 1e-6,
         );
     }
 
