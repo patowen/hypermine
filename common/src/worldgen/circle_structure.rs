@@ -39,6 +39,55 @@ impl Horosphere {
         self.vector.w = self.vector.xyz().norm();
     }
 
+    /// Returns whether the structure is freshly created, or whether it's a
+    /// reference to a structure created earlier on in the node graph.
+    pub fn is_fresh(&self, node_id: NodeId) -> bool {
+        self.owner == node_id
+    }
+
+    /// If self and other have to compete to exist as an actual structure,
+    /// returns whether self wins.
+    pub fn has_priority(&self, other: &Horosphere, node_id: NodeId) -> bool {
+        // If both structures are fresh, use the w-coordinate as an arbitrary
+        // tie-breaker to decide which horosphere should win.
+        !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.vector.w < other.vector.w)
+    }
+
+    /// Based on other nodes in the graph, determines whether the structure
+    /// should generate. If false, it means that another horosphere elsewhere
+    /// would interfere, and generation should not proceed.
+    pub fn should_generate(&self, graph: &Graph, node_id: NodeId) -> bool {
+        if !self.is_fresh(node_id) {
+            // The horosphere is propagated and so is already proven to exist.
+            return true;
+        }
+
+        let length = graph.length(node_id);
+        for (parent_side, parent_id) in graph.descenders(node_id) {
+            for sibling_side in Side::iter().filter(|s| s.adjacent_to(parent_side)) {
+                let sibling_id = graph.neighbor(parent_id, sibling_side).unwrap();
+                if graph.length(sibling_id) != length {
+                    continue;
+                }
+                let Some(sibling_horosphere) = graph
+                    .minimal_node_state(sibling_id)
+                    .possible_horosphere
+                    .as_ref()
+                else {
+                    continue;
+                };
+                if !self.has_priority(sibling_horosphere, node_id)
+                    // Check that these structures can interfere by seeing if they share a node in common.
+                    && sibling_horosphere.should_propagate(parent_side)
+                    && self.should_propagate(sibling_side)
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     pub fn chunk_data(&self, vertex: Vertex) -> HorosphereChunk {
         HorosphereChunk {
             vector: vertex.node_to_dual() * self.vector,
