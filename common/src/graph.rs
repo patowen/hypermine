@@ -124,6 +124,11 @@ impl Graph {
         self.nodes[&node].length
     }
 
+    #[inline]
+    pub fn minimal_node_state(&self, node_id: NodeId) -> &MinimalNodeState {
+        self.nodes[&node_id].value.minimal_state.as_ref().unwrap()
+    }
+
     pub fn ensure_minimal_node_state(&mut self, node_id: NodeId) {
         if self.nodes[&node_id].value.minimal_state.is_some() {
             return;
@@ -135,6 +140,11 @@ impl Graph {
 
         let minimal_node_state = MinimalNodeState::new(self, node_id);
         self.nodes.get_mut(&node_id).unwrap().value.minimal_state = Some(minimal_node_state);
+    }
+
+    #[inline]
+    pub fn node_state(&self, node_id: NodeId) -> &NodeState {
+        self.nodes[&node_id].value.state.as_ref().unwrap()
     }
 
     pub fn ensure_node_state(&mut self, node_id: NodeId) {

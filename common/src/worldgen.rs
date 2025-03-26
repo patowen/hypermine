@@ -72,14 +72,7 @@ pub struct MinimalNodeState {
 impl MinimalNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         for (parent_side, parent_node) in graph.descenders(node) {
-            if let Some(parent_horosphere) = graph
-                .get(parent_node)
-                .state
-                .as_ref()
-                .unwrap()
-                .horosphere
-                .as_ref()
-            {
+            if let Some(parent_horosphere) = graph.node_state(parent_node).horosphere.as_ref() {
                 if parent_horosphere.should_propagate(parent_side) {
                     return Self {
                         possible_horosphere: Some(parent_horosphere.propagate(parent_side)),
@@ -117,7 +110,7 @@ impl NodeState {
             .map(|(s, n)| ParentInfo {
                 node_id: n,
                 side: s,
-                node_state: graph.get(n).state.as_ref().unwrap(),
+                node_state: graph.node_state(n),
             })
             .fuse();
         let parents = [parents.next(), parents.next(), parents.next()];
@@ -175,10 +168,7 @@ impl NodeState {
         parents: &[Option<ParentInfo<'_>>],
     ) -> Option<Horosphere> {
         let possible_horosphere = graph
-            .get(node_id)
-            .minimal_state
-            .as_ref()
-            .unwrap()
+            .minimal_node_state(node_id)
             .possible_horosphere
             .as_ref()?;
 
@@ -195,10 +185,9 @@ impl NodeState {
                     continue;
                 }
                 let Some(sibling_horosphere) = graph
-                    .get(sibling_id)
-                    .minimal_state
+                    .minimal_node_state(sibling_id)
+                    .possible_horosphere
                     .as_ref()
-                    .and_then(|s| s.possible_horosphere.as_ref())
                 else {
                     continue;
                 };
@@ -282,7 +271,7 @@ impl ChunkParams {
     ///
     /// Returns `None` if an unpopulated node is needed.
     pub fn new(dimension: u8, graph: &Graph, chunk: ChunkId) -> Option<Self> {
-        let state = &graph.get(chunk.node).state.as_ref()?;
+        let state = graph.get(chunk.node).state.as_ref()?;
         Some(Self {
             dimension,
             chunk: chunk.vertex,
