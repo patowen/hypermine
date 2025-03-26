@@ -3,12 +3,12 @@ use rand::{Rng, SeedableRng, distr::Uniform};
 use rand_distr::Normal;
 
 use crate::{
-    Plane,
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
     margins,
-    math::{self, MDirection},
+    math::{self, MVector},
     node::{ChunkId, VoxelData},
+    plane::Plane,
     terraingen::VoronoiInfo,
     world::Material,
 };
@@ -82,7 +82,7 @@ impl MinimalNodeState {
 /// generation logic uses this information as a starting point.
 pub struct NodeState {
     kind: NodeStateKind,
-    surface: Plane<f64>,
+    surface: Plane,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
     horosphere: Option<Horosphere>,
@@ -149,8 +149,8 @@ impl NodeState {
         }
     }
 
-    pub fn up_direction(&self) -> MDirection<f32> {
-        self.surface.normal().cast()
+    pub fn up_direction(&self) -> MVector<f32> {
+        *self.surface.scaled_normal()
     }
 }
 
@@ -205,7 +205,7 @@ pub struct ChunkParams {
     /// Random quantities stored at the eight adjacent nodes, used for terrain generation
     env: ChunkIncidentEnviroFactors,
     /// Reference plane for the terrain surface
-    surface: Plane<f64>,
+    surface: Plane,
     /// Whether this chunk contains a segment of the road
     is_road: bool,
     /// Whether this chunk contains a section of the road's supports
@@ -279,7 +279,7 @@ impl ChunkParams {
         // Maximum difference between elevations at the center of a chunk and any other point in the chunk
         // TODO: Compute what this actually is, current value is a guess! Real one must be > 0.6
         // empirically.
-        const ELEVATION_MARGIN: f64 = 0.7;
+        const ELEVATION_MARGIN: f32 = 0.7;
         let center_elevation = self
             .surface
             .distance_to_chunk(self.chunk, &na::Vector3::repeat(0.5));
@@ -449,7 +449,7 @@ impl ChunkParams {
 
         let rain = self.env.rainfalls[0];
         let tree_candidate_count =
-            (u32::from(self.dimension - 2).pow(3) as f64 * (rain / 100.0).clamp(0.0, 0.5)) as usize;
+            (u32::from(self.dimension - 2).pow(3) as f32 * (rain / 100.0).clamp(0.0, 0.5)) as usize;
         for _ in 0..tree_candidate_count {
             let loc = na::Vector3::from_fn(|_, _| rng.sample(random_position));
             let voxel_of_interest_index = index(self.dimension, loc);
@@ -518,7 +518,7 @@ impl ChunkParams {
     }
 }
 
-const TERRAIN_SMOOTHNESS: f64 = 10.0;
+const TERRAIN_SMOOTHNESS: f32 = 10.0;
 
 struct NeighborData {
     coords_opposing: na::Vector3<u8>,
@@ -527,10 +527,10 @@ struct NeighborData {
 
 #[derive(Copy, Clone)]
 struct EnviroFactors {
-    max_elevation: f64,
-    temperature: f64,
-    rainfall: f64,
-    blockiness: f64,
+    max_elevation: f32,
+    temperature: f32,
+    rainfall: f32,
+    blockiness: f32,
 }
 impl EnviroFactors {
     fn varied_from(parent: Self, spice: u64) -> Self {
@@ -554,7 +554,7 @@ impl EnviroFactors {
         }
     }
 }
-impl From<EnviroFactors> for (f64, f64, f64, f64) {
+impl From<EnviroFactors> for (f32, f32, f32, f32) {
     fn from(envirofactors: EnviroFactors) -> Self {
         (
             envirofactors.max_elevation,
@@ -565,14 +565,14 @@ impl From<EnviroFactors> for (f64, f64, f64, f64) {
     }
 }
 struct ChunkIncidentEnviroFactors {
-    max_elevations: [f64; 8],
-    temperatures: [f64; 8],
-    rainfalls: [f64; 8],
-    blockinesses: [f64; 8],
+    max_elevations: [f32; 8],
+    temperatures: [f32; 8],
+    rainfalls: [f32; 8],
+    blockinesses: [f32; 8],
 }
 
 /// Returns the max_elevation values for the nodes that are incident to this chunk,
-/// sorted and converted to f64 for use in functions like trilerp.
+/// sorted and converted to f32 for use in functions like trilerp.
 ///
 /// Returns `None` if not all incident nodes are populated.
 fn chunk_incident_enviro_factors(
@@ -643,16 +643,16 @@ fn serp<N: na::RealField + Copy>(v0: N, v1: N, t: N, threshold: N) -> N {
 /// scale controls wavelength and amplitude. It is not 1:1 to the number of blocks in a period.
 /// strength represents extremity of terracing effect. Sensible values are in (0, 0.5).
 /// The greater the value of limiter, the stronger the bias of threshold towards 0.
-fn terracing_diff(elev_raw: f64, block: f64, scale: f64, strength: f64, limiter: f64) -> f64 {
-    let threshold: f64 = strength / (1.0 + libm::pow(2.0, limiter - block));
-    let elev_floor = libm::floor(elev_raw / scale);
+fn terracing_diff(elev_raw: f32, block: f32, scale: f32, strength: f32, limiter: f32) -> f32 {
+    let threshold: f32 = strength / (1.0 + libm::powf(2.0, limiter - block));
+    let elev_floor = libm::floorf(elev_raw / scale);
     let elev_rem = elev_raw / scale - elev_floor;
     scale * elev_floor + serp(0.0, scale, elev_rem, threshold) - elev_raw
 }
 
 /// Location of the center of a voxel in a unit chunk
-fn voxel_center(dimension: u8, voxel: na::Vector3<u8>) -> na::Vector3<f64> {
-    voxel.map(|x| f64::from(x) + 0.5) / f64::from(dimension)
+fn voxel_center(dimension: u8, voxel: na::Vector3<u8>) -> na::Vector3<f32> {
+    voxel.map(|x| f32::from(x) + 0.5) / f32::from(dimension)
 }
 
 fn index(dimension: u8, v: na::Vector3<u8>) -> usize {
@@ -745,7 +745,7 @@ mod test {
                 minimal_state: None,
                 state: {
                     let mut state = NodeState::new(&g, NodeId::ROOT);
-                    state.enviro.max_elevation = i as f64 + 1.0;
+                    state.enviro.max_elevation = i as f32 + 1.0;
                     Some(state)
                 },
                 chunks: Chunks::default(),
@@ -756,7 +756,7 @@ mod test {
             chunk_incident_enviro_factors(&g, ChunkId::new(NodeId::ROOT, Vertex::A)).unwrap();
         for (i, max_elevation) in enviros.max_elevations.into_iter().enumerate() {
             println!("{i}, {max_elevation}");
-            assert_abs_diff_eq!(max_elevation, (i + 1) as f64, epsilon = 1e-8);
+            assert_abs_diff_eq!(max_elevation, (i + 1) as f32, epsilon = 1e-8);
         }
 
         // see corresponding test for trilerp
@@ -771,7 +771,7 @@ mod test {
                     let a = na::Vector3::new(x, y, z);
                     if a == center {
                         checked_center = true;
-                        let c = center.map(|x| x as f64) / CHUNK_SIZE as f64;
+                        let c = center.map(|x| x as f32) / CHUNK_SIZE as f32;
                         let center_max_elevation = trilerp(&enviros.max_elevations, c);
                         assert_abs_diff_eq!(center_max_elevation, 4.5, epsilon = 1e-8);
                         break 'top;

@@ -7,7 +7,7 @@ use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
     math::MVector,
-    node::{self, VoxelData},
+    node::VoxelData,
     voxel_math::Coords,
     world::Material,
 };
