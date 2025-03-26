@@ -71,21 +71,9 @@ pub struct MinimalNodeState {
 
 impl MinimalNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
-        if let Some(horosphere) = Horosphere::from_parents(graph, node) {
-            return Self {
-                possible_horosphere: Some(horosphere),
-            };
-        }
-
-        let spice = graph.hash_of(node) as u64;
-        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(spice, 42));
-        let horosphere_pos =
-            circle_structure::get_random_candidate_horosphere(&mut rng, graph, node);
         Self {
-            possible_horosphere: horosphere_pos.map(|p| Horosphere {
-                owner: node,
-                vector: p,
-            }),
+            possible_horosphere: Horosphere::create_from_parents(graph, node)
+                .or_else(|| Horosphere::maybe_create_fresh(graph, node)),
         }
     }
 }
@@ -139,14 +127,14 @@ impl NodeState {
             p.node_state.road_state.child(p.side)
         });
 
-        let possible_horosphere = graph.minimal_node_state(node).possible_horosphere.as_ref();
-        let horosphere = possible_horosphere.and_then(|h| {
-            if h.should_generate(graph, node) {
-                Some(h.clone())
-            } else {
-                None
-            }
-        });
+        let horosphere =
+            (graph.minimal_node_state(node).possible_horosphere.as_ref()).and_then(|h| {
+                if h.should_generate(graph, node) {
+                    Some(h.clone())
+                } else {
+                    None
+                }
+            });
 
         Self {
             kind,
