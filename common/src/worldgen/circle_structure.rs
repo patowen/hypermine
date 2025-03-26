@@ -19,6 +19,27 @@ pub struct Horosphere {
 }
 
 impl Horosphere {
+    pub fn from_parents(graph: &Graph, node_id: NodeId) -> Option<Horosphere> {
+        let mut horospheres_to_average_iter =
+            graph
+                .descenders(node_id)
+                .filter_map(|(parent_side, parent_id)| {
+                    (graph.node_state(parent_id).horosphere.as_ref())
+                        .filter(|h| h.should_propagate(parent_side))
+                        .map(|h| h.propagate(parent_side))
+                });
+
+        let mut horosphere = horospheres_to_average_iter.next()?;
+        let mut count = 1;
+        for other in horospheres_to_average_iter {
+            count += 1;
+            horosphere.average_with(other, 1.0 / count as f32);
+        }
+
+        horosphere.renormalize();
+        Some(horosphere)
+    }
+
     pub fn should_propagate(&self, side: Side) -> bool {
         self.vector.mip(side.normal()) > -1.0
     }
