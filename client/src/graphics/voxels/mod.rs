@@ -100,17 +100,7 @@ impl Voxels {
                 self.states.peek_mut(chunk).refcount -= 1;
             }
             while let Some(chunk) = self.worldgen.poll() {
-                let chunk_id = ChunkId::new(chunk.node, chunk.chunk);
-                sim.graph.populate_chunk(chunk_id, chunk.voxels);
-
-                // Now that the block is populated, we can apply any pending block updates the server
-                // provided that the client couldn't apply.
-                if let Some(block_updates) = sim.preloaded_block_updates.remove(&chunk_id) {
-                    for block_update in block_updates {
-                        // The chunk was just populated, so a block update should always succeed.
-                        assert!(sim.graph.update_block(&block_update));
-                    }
-                }
+                sim.add_chunk_to_graph(ChunkId::new(chunk.node, chunk.chunk), chunk.voxels);
             }
 
             // Determine what to load/render
@@ -155,7 +145,9 @@ impl Voxels {
                                 &sim.graph,
                                 chunk,
                             ) {
-                                if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
+                                if let Some(voxel_data) = sim.preloaded_voxel_data.remove(&chunk) {
+                                    sim.add_chunk_to_graph(chunk, voxel_data);
+                                } else if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
                                     sim.graph[chunk] = Generating;
                                 } else {
                                     workqueue_is_full = true;

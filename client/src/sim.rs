@@ -40,7 +40,9 @@ pub struct Sim {
     // World state
     pub graph: Graph,
     /// Voxel data that have been downloaded from the server for chunks not yet introduced to the graph
-    pub preloaded_block_updates: FxHashMap<ChunkId, Vec<BlockUpdate>>,
+    preloaded_block_updates: FxHashMap<ChunkId, Vec<BlockUpdate>>,
+    /// Voxel data that has been fetched from the server but not yet introduced to the graph
+    pub preloaded_voxel_data: FxHashMap<ChunkId, VoxelData>,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -87,6 +89,7 @@ impl Sim {
         Self {
             graph,
             preloaded_block_updates: FxHashMap::default(),
+            preloaded_voxel_data: FxHashMap::default(),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -383,6 +386,9 @@ impl Sim {
             metrics::declare_ready_for_profiling();
         }
         for node in &msg.nodes {
+            // We need to get a list of nodes from the server, especially on first log-in,
+            // since otherwise, we won't be able to know where the local character is with
+            // just the NodeId alone.
             self.graph.ensure_neighbor(node.parent, node.side);
         }
         self.graph.clear_fresh();
@@ -399,7 +405,11 @@ impl Sim {
                 tracing::error!("Voxel data received from server is of incorrect dimension");
                 continue;
             };
-            self.graph.populate_chunk(chunk_id, voxel_data);
+            if self.graph.contains(chunk_id.node) {
+                self.graph.populate_chunk(chunk_id, voxel_data);
+            } else {
+                self.preloaded_voxel_data.insert(chunk_id, voxel_data);
+            }
         }
         for (subject, new_entity) in msg.inventory_additions {
             self.world
@@ -414,6 +424,19 @@ impl Sim {
                 .unwrap()
                 .contents
                 .retain(|&id| id != removed_entity);
+        }
+    }
+
+    /// Adds established voxel data to the graph. This could come from world generation or sent from the server,
+    /// depending on whether the chunk has been modified.
+    pub fn add_chunk_to_graph(&mut self, chunk_id: ChunkId, voxels: VoxelData) {
+        self.graph.populate_chunk(chunk_id, voxels);
+
+        if let Some(block_updates) = self.preloaded_block_updates.remove(&chunk_id) {
+            for block_update in block_updates {
+                // The chunk was just populated, so a block update should always succeed.
+                assert!(self.graph.update_block(&block_update));
+            }
         }
     }
 
