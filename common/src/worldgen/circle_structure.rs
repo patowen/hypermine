@@ -106,8 +106,8 @@ impl Horosphere {
                     continue;
                 }
                 let Some(sibling_horosphere) = graph
-                    .minimal_node_state(sibling_id)
-                    .possible_horosphere
+                    .partial_node_state(sibling_id)
+                    .candidate_horosphere
                     .as_ref()
                 else {
                     continue;

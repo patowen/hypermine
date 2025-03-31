@@ -65,14 +65,15 @@ impl NodeStateRoad {
     }
 }
 
-pub struct MinimalNodeState {
-    possible_horosphere: Option<Horosphere>,
+pub struct PartialNodeState {
+    /// This becomes a real structure only if it doesn't interfere with another higher-priority structure.
+    candidate_horosphere: Option<Horosphere>,
 }
 
-impl MinimalNodeState {
+impl PartialNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         Self {
-            possible_horosphere: Horosphere::create_from_parents(graph, node)
+            candidate_horosphere: Horosphere::create_from_parents(graph, node)
                 .or_else(|| Horosphere::maybe_create_fresh(graph, node)),
         }
     }
@@ -112,7 +113,7 @@ impl NodeState {
             }
             (Some(parent_a), Some(parent_b)) => {
                 let ab_node = graph.neighbor(parent_a.node_id, parent_b.side).unwrap();
-                let ab_state = &graph.get(ab_node).state.as_ref().unwrap();
+                let ab_state = &graph.node_state(ab_node);
                 EnviroFactors::continue_from(
                     parent_a.node_state.enviro,
                     parent_b.node_state.enviro,
@@ -128,7 +129,7 @@ impl NodeState {
         });
 
         let horosphere =
-            (graph.minimal_node_state(node).possible_horosphere.as_ref()).and_then(|h| {
+            (graph.partial_node_state(node).candidate_horosphere.as_ref()).and_then(|h| {
                 if h.should_generate(graph, node) {
                     Some(h.clone())
                 } else {
@@ -220,7 +221,7 @@ impl ChunkParams {
     ///
     /// Returns `None` if an unpopulated node is needed.
     pub fn new(dimension: u8, graph: &Graph, chunk: ChunkId) -> Option<Self> {
-        let state = graph.get(chunk.node).state.as_ref()?;
+        let state = graph.node_state(chunk.node);
         Some(Self {
             dimension,
             chunk: chunk.vertex,
@@ -742,7 +743,7 @@ mod test {
 
             // assigning state
             *g.get_mut(new_node) = Node {
-                minimal_state: None,
+                partial_state: None,
                 state: {
                     let mut state = NodeState::new(&g, NodeId::ROOT);
                     state.enviro.max_elevation = i as f32 + 1.0;

@@ -10,7 +10,7 @@ use crate::{
     dodeca::Side,
     math::{MIsometry, MPoint},
     node::{ChunkId, ChunkLayout, Node},
-    worldgen::{MinimalNodeState, NodeState},
+    worldgen::{NodeState, PartialNodeState},
 };
 
 /// Graph of the right dodecahedral tiling of H^3
@@ -125,12 +125,12 @@ impl Graph {
     }
 
     #[inline]
-    pub fn minimal_node_state(&self, node_id: NodeId) -> &MinimalNodeState {
-        self.nodes[&node_id].value.minimal_state.as_ref().unwrap()
+    pub fn partial_node_state(&self, node_id: NodeId) -> &PartialNodeState {
+        self.nodes[&node_id].value.partial_state.as_ref().unwrap()
     }
 
-    pub fn ensure_minimal_node_state(&mut self, node_id: NodeId) {
-        if self.nodes[&node_id].value.minimal_state.is_some() {
+    pub fn ensure_partial_node_state(&mut self, node_id: NodeId) {
+        if self.nodes[&node_id].value.partial_state.is_some() {
             return;
         }
 
@@ -138,8 +138,8 @@ impl Graph {
             self.ensure_node_state(parent);
         }
 
-        let minimal_node_state = MinimalNodeState::new(self, node_id);
-        self.nodes.get_mut(&node_id).unwrap().value.minimal_state = Some(minimal_node_state);
+        let partial_node_state = PartialNodeState::new(self, node_id);
+        self.nodes.get_mut(&node_id).unwrap().value.partial_state = Some(partial_node_state);
     }
 
     #[inline]
@@ -152,11 +152,11 @@ impl Graph {
             return;
         }
 
-        self.ensure_minimal_node_state(node_id);
+        self.ensure_partial_node_state(node_id);
         for (side, parent) in self.descenders(node_id) {
             for sibling_side in Side::iter().filter(|s| s.adjacent_to(side)) {
                 let sibling = self.ensure_neighbor(parent, sibling_side);
-                self.ensure_minimal_node_state(sibling);
+                self.ensure_partial_node_state(sibling);
             }
         }
 
