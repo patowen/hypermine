@@ -140,18 +140,17 @@ impl Voxels {
                                 continue;
                             }
                             // Generate voxel data
-                            if let Some(params) = common::worldgen::ChunkParams::new(
+                            let params = common::worldgen::ChunkParams::new(
                                 self.surfaces.dimension() as u8,
-                                &sim.graph,
+                                &mut sim.graph,
                                 chunk,
-                            ) {
-                                if let Some(voxel_data) = sim.preloaded_voxel_data.remove(&chunk) {
-                                    sim.add_chunk_to_graph(chunk, voxel_data);
-                                } else if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
-                                    sim.graph[chunk] = Generating;
-                                } else {
-                                    workqueue_is_full = true;
-                                }
+                            );
+                            if let Some(voxel_data) = sim.preloaded_voxel_data.remove(&chunk) {
+                                sim.add_chunk_to_graph(chunk, voxel_data);
+                            } else if self.worldgen.load(ChunkDesc { node, params }).is_ok() {
+                                sim.graph[chunk] = Generating;
+                            } else {
+                                workqueue_is_full = true;
                             }
                             continue;
                         }

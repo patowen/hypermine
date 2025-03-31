@@ -45,14 +45,13 @@ fn build_graph(c: &mut Criterion) {
             for node in fresh {
                 for vertex in Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
-                    if let Some(params) = ChunkParams::new(12, &graph, chunk) {
-                        graph[chunk] = Chunk::Populated {
-                            voxels: params.generate_voxels(),
-                            surface: None,
-                            old_surface: None,
-                        };
-                        n += 1;
-                    }
+                    let params = ChunkParams::new(12, &mut graph, chunk);
+                    graph[chunk] = Chunk::Populated {
+                        voxels: params.generate_voxels(),
+                        surface: None,
+                        old_surface: None,
+                    };
+                    n += 1;
                 }
             }
             assert_eq!(n, 640);

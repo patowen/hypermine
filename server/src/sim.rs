@@ -514,11 +514,8 @@ impl Sim {
                         .get_chunk(chunk)
                         .expect("all nodes must be populated before loading their chunks")
                     {
-                        if let Some(params) =
-                            ChunkParams::new(self.cfg.chunk_size, &self.graph, chunk)
-                        {
-                            self.graph.populate_chunk(chunk, params.generate_voxels());
-                        }
+                        let params = ChunkParams::new(self.cfg.chunk_size, &mut self.graph, chunk);
+                        self.graph.populate_chunk(chunk, params.generate_voxels());
                     }
                 }
             }
