@@ -11,7 +11,7 @@ use crate::{
     proto::Position,
 };
 
-/// Ensure all nodes within `distance` of `start` exist
+/// Ensure all nodes exist whose centers are within `distance` of `start`
 pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
     // We do a breadth-first instead of a depth-first traversal here to ensure that we take the
     // minimal path to each node. This greatly helps prevent error from accumulating due to
@@ -21,22 +21,20 @@ pub fn ensure_nearby(graph: &mut Graph, start: &Position, distance: f32) {
 
     pending.push_back((start.node, MIsometry::identity()));
     visited.insert(start.node);
-    graph.ensure_node_state(start.node);
     let start_p = start.local * MPoint::origin();
 
     while let Some((node, current_transform)) = pending.pop_front() {
         for side in Side::iter() {
-            let neighbor = graph.ensure_neighbor(node, side);
-            if visited.contains(&neighbor) {
-                continue;
-            }
-            visited.insert(neighbor);
-            graph.ensure_node_state(neighbor);
             let neighbor_transform = current_transform * side.reflection();
             let neighbor_p = neighbor_transform * MPoint::origin();
             if -start_p.mip(&neighbor_p) > distance.cosh() {
                 continue;
             }
+            let neighbor = graph.ensure_neighbor(node, side);
+            if visited.contains(&neighbor) {
+                continue;
+            }
+            visited.insert(neighbor);
             pending.push_back((neighbor, neighbor_transform));
         }
     }
@@ -236,12 +234,8 @@ mod tests {
     fn traversal_functions_example() {
         let mut graph = Graph::new(1);
         ensure_nearby(&mut graph, &Position::origin(), 6.0);
-        assert_abs_diff_eq!(graph.len(), 502079, epsilon = 50);
+        assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
 
-        // TODO: nearby_nodes has a stricter interpretation of distance than
-        // ensure_nearby, resulting in far fewer nodes. Getting these two
-        // functions to align may be a future performance improvement
-        // opportunity.
         let nodes = nearby_nodes(&graph, &Position::origin(), 6.0);
         assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
     }

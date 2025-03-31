@@ -69,6 +69,11 @@ impl Horosphere {
     pub fn average_with(&mut self, graph: &Graph, other: Horosphere, other_weight: f32) {
         // TODO: This assertion can fail. May need fuzz testing.
         if self.owner != other.owner {
+            /*
+            [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C]
+            !=
+            [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
+             */
             tracing::error!(
                 "average_with failed.\n{:?}\n!=\n{:?}",
                 graph.node_path(self.owner),
