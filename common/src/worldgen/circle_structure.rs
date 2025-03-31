@@ -199,3 +199,53 @@ impl HorosphereChunk {
         }
     }
 }
+
+#[cfg(test)]
+#[allow(unused)]
+mod test {
+    use super::*;
+    use crate::{dodeca::Side, math::MIsometry, proto::Position, traversal::ensure_nearby};
+    use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
+
+    #[test]
+    fn average_with_test() {
+        /*
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C]
+        !=
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
+        for
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, F, C, B]
+        */
+
+
+        /*
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, G, C]
+        !=
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
+        for
+        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, G, C, F, B]
+
+        Sibling relationship path: CBGF
+        */
+        let mut graph = Graph::new(12);
+        let mut node_id = NodeId::ROOT;
+        for side in [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C] {
+            node_id = graph.ensure_neighbor(node_id, side);
+            graph.ensure_node_state(node_id);
+            ensure_nearby(&mut graph, &Position { node: node_id, local: MIsometry::identity() }, 3.0);
+        }
+
+        let mut node_id = NodeId::ROOT;
+        for side in [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B] {
+            node_id = graph.ensure_neighbor(node_id, side);
+            graph.ensure_node_state(node_id);
+            ensure_nearby(&mut graph, &Position { node: node_id, local: MIsometry::identity() }, 3.0);
+        }
+
+        let fresh = graph.fresh().to_vec();
+        for node_id in fresh {
+            println!("{:?}", graph.node_path(node_id));
+            graph.ensure_node_state(node_id);
+        }
+    }
+}
