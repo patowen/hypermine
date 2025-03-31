@@ -381,7 +381,8 @@ impl Sim {
             // We need to get a list of nodes from the server, especially on first log-in,
             // since otherwise, we won't be able to know where the local character is with
             // just the NodeId alone.
-            self.graph.ensure_neighbor(node.parent, node.side);
+            let node_id = self.graph.ensure_neighbor(node.parent, node.side);
+            self.graph.ensure_node_state(node_id);
         }
         self.graph.clear_fresh();
         for block_update in msg.block_updates.into_iter() {
