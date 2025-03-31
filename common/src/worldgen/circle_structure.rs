@@ -33,7 +33,7 @@ impl Horosphere {
         let mut count = 1;
         for other in horospheres_to_average_iter {
             count += 1;
-            horosphere.average_with(other, 1.0 / count as f32);
+            horosphere.average_with(graph, other, 1.0 / count as f32);
         }
 
         horosphere.renormalize();
@@ -66,10 +66,14 @@ impl Horosphere {
         }
     }
 
-    pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
+    pub fn average_with(&mut self, graph: &Graph, other: Horosphere, other_weight: f32) {
         // TODO: This assertion can fail. May need fuzz testing.
         if self.owner != other.owner {
-            tracing::error!("average_with failed. {:?} != {:?}", self.owner, other.owner);
+            tracing::error!(
+                "average_with failed.\n{:?}\n!=\n{:?}",
+                graph.node_path(self.owner),
+                graph.node_path(other.owner)
+            );
             panic!("average_with failed");
         }
         self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;

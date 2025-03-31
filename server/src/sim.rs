@@ -66,6 +66,7 @@ impl Sim {
             cfg,
         };
 
+        // TODO: Server fails to spawn character when loading a save.
         result
             .load_all_voxels(save)
             .expect("save file must be of a valid format");

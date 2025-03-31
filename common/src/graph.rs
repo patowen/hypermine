@@ -251,6 +251,18 @@ impl Graph {
         id
     }
 
+    /// For debugging purposes, returns the path to the node, prioritizing the first
+    /// one in shortlex order
+    pub fn node_path(&self, mut node_id: NodeId) -> Vec<Side> {
+        let mut node_path = Vec::new();
+        while let Some(parent_side) = self.parent(node_id) {
+            node_path.push(parent_side);
+            node_id = self.neighbor(node_id, parent_side).unwrap();
+        }
+        node_path.reverse();
+        node_path
+    }
+
     #[inline]
     pub fn hash_of(&self, node: NodeId) -> u128 {
         node.0
