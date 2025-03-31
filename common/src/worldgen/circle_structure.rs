@@ -67,7 +67,11 @@ impl Horosphere {
     }
 
     pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
-        assert!(self.owner == other.owner);
+        // TODO: This assertion can fail. May need fuzz testing.
+        if self.owner != other.owner {
+            tracing::error!("average_with failed. {:?} != {:?}", self.owner, other.owner);
+            panic!("average_with failed");
+        }
         self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;
     }
 

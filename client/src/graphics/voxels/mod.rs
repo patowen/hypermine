@@ -126,6 +126,13 @@ impl Voxels {
 
                 use Chunk::*;
                 for vertex in Vertex::iter() {
+                    if (node_to_view * vertex.chunk_bounding_sphere_center())
+                        .distance(&MPoint::origin())
+                        > sim.cfg.view_distance + dodeca::CHUNK_BOUNDING_SPHERE_RADIUS
+                    {
+                        // Skip chunks beyond the view distance
+                        continue;
+                    }
                     let chunk = ChunkId::new(node, vertex);
                     // Fetch existing chunk, or extract surface of new chunk
                     match sim
