@@ -307,14 +307,6 @@ impl Sim {
                     if pos.node != new_pos.node {
                         self.graph_entities.remove(pos.node, entity);
                         self.graph_entities.insert(new_pos.node, entity);
-                        self.graph.ensure_node_state(new_pos.node);
-                        // TODO: Figure out which node states to ensure. Just
-                        // getting the player's current position is insufficient
-                        // because it surrounding nodes are needed for all the
-                        // environmental factors.
-                        //
-                        // This is likely the right time for the client to start
-                        // calling ensure_nearby.
                     }
                     *pos = *new_pos;
                 }
@@ -457,7 +449,6 @@ impl Sim {
                 }
                 Position(x) => {
                     node = Some(x.node);
-                    self.graph.ensure_node_state(x.node);
                     builder.add(x);
                 }
                 Inventory(x) => {
