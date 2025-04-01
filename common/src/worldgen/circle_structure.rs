@@ -266,6 +266,22 @@ mod test {
         true
     }
 
+    // Like is_shortlex, but without the lex part. Slightly more complicated because it's no longer
+    // sufficient to check for immediate backtracking
+    fn is_shortest_path(last: Side, rest: &[Side]) -> bool {
+        for &side in rest.iter().rev() {
+            if last == side {
+                // Backtracking discovered
+                return false;
+            }
+            if !last.adjacent_to(side) {
+                // Chain of adjacencies has ended, so there's no way to shorten the path.
+                return true;
+            }
+        }
+        true
+    }
+
     // Returns false if we were unable to increment the path because we exhausted all possibilities
     fn increment_path(
         path: &mut [Side],
@@ -329,17 +345,17 @@ mod test {
         // Perhaps, the problem is as simple as follows:
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
-        let depth = 3;
+        let depth = 2;
 
         let mut path = NodeString::new(depth * 2);
         println!("List of depth-{} interference patterns", depth);
         while path.increment(&|last, rest| {
-            if !is_shortlex(last, rest) {
+            if !is_shortest_path(last, rest) {
                 return false;
             }
             if rest.len() >= depth {
                 for &side in &rest[0..depth] {
-                    if !last.adjacent_to(side) {
+                    if !last.adjacent_to(side) && last != side {
                         return false;
                     }
                 }
