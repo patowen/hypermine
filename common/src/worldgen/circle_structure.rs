@@ -345,6 +345,12 @@ mod test {
         // Perhaps, the problem is as simple as follows:
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
+        let mut graph = Graph::new(1);
+        let mut node = NodeId::ROOT;
+        for side in [Side::A, Side::F] {
+            node = graph.ensure_neighbor(node, side);
+        }
+
         let depth = 2;
 
         let mut path = NodeString::new(depth * 2);
@@ -358,6 +364,18 @@ mod test {
                     if !last.adjacent_to(side) && last != side {
                         return false;
                     }
+                }
+            }
+            if rest.len() < depth {
+                let ancestor_node = (rest.iter().chain(Some(last).iter()))
+                    .try_fold(node, |current_node, side| {
+                        graph.neighbor(current_node, *side)
+                    });
+                let Some(ancestor_node) = ancestor_node else {
+                    return false;
+                };
+                if graph.length(ancestor_node) + rest.len() as u32 + 1 != graph.length(node) {
+                    return false;
                 }
             }
             true
