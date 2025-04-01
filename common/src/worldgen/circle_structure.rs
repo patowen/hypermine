@@ -322,6 +322,11 @@ mod test {
         // However, x and y are only worth considering if they don't share a common parent (other than)
         // the root. This is a bit complicated because CG and GC don't share a parent, but BF and FB do (because they commute).
 
+        // Actually, checking for redundancies between BF and CG is tricky, but there's a simpler way to think about it:
+        // These two paths are redundant iff FBCG can be shortened.
+        // Perhaps, the problem is as simple as follows:
+        // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
+
         let mut path0 = NodeString::new(2);
         let mut path1 = NodeString::new(2);
 
