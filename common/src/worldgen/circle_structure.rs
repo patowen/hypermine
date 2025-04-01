@@ -320,7 +320,19 @@ mod test {
         let mut path1 = NodeString::new(2);
 
         while path0.increment(&is_shortlex) {
-            println!("{:?}", path0.path);
+            let mut commutes_with_path0 = [true; Side::VALUES.len()];
+            for &path_side in &path0.path {
+                for commuting_side in Side::iter() {
+                    if path_side != commuting_side && !path_side.adjacent_to(commuting_side) {
+                        commutes_with_path0[commuting_side as usize] = false;
+                    }
+                }
+            }
+            while path1.increment(&|last, rest| {
+                is_shortlex(last, rest) && commutes_with_path0[last as usize]
+            }) {
+                println!("{:?}, {:?}", path0.path, path1.path);
+            }
         }
     }
 
