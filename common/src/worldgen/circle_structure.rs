@@ -347,7 +347,7 @@ mod test {
 
         let mut graph = Graph::new(1);
         let mut node = NodeId::ROOT;
-        for side in [Side::A, Side::F] {
+        for side in [Side::A, Side::B, Side::C, Side::D] {
             node = graph.ensure_neighbor(node, side);
         }
 
@@ -380,7 +380,14 @@ mod test {
             }
             true
         }) {
-            println!("{:?}", path.path);
+            let found_node_id = path.path.iter().fold(node, |current_node, side| {
+                graph.ensure_neighbor(current_node, *side)
+            });
+            if graph.length(found_node_id) != graph.length(node) {
+                continue;
+            }
+
+            println!("{:?}: {:?}", path.path, found_node_id);
         }
         println!("End of list");
     }
