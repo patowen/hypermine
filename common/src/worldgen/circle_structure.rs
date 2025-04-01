@@ -304,7 +304,9 @@ mod test {
         fn increment(&mut self, validity_check: &impl Fn(Side, &[Side]) -> bool) -> bool {
             if !self.initialized {
                 for i in 0..self.path.len() {
-                    increment_path(&mut self.path[0..=i], false, validity_check);
+                    if !increment_path(&mut self.path[0..=i], false, validity_check) {
+                        return false;
+                    }
                 }
                 self.initialized = true;
                 true
@@ -327,32 +329,26 @@ mod test {
         // Perhaps, the problem is as simple as follows:
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
-        let mut path0 = NodeString::new(2);
-        let mut path1 = NodeString::new(2);
+        let depth = 3;
 
-        while path0.increment(&is_shortlex) {
-            let mut commutes_with_path0 = [true; Side::VALUES.len()];
-            let mut path0_first_sides = [false; Side::VALUES.len()]; // All possible initial path elements if the lex part of shortlex is not required
-            let mut accumulating_first_sides = true;
-            for &path_side in &path0.path {
-                if !commutes_with_path0[path_side as usize] {
-                    accumulating_first_sides = false;
-                }
-                if accumulating_first_sides {
-                    path0_first_sides[path_side as usize] = true
-                }
-                for side in Side::iter() {
-                    if path_side != side && !path_side.adjacent_to(side) {
-                        commutes_with_path0[side as usize] = false;
+        let mut path = NodeString::new(depth * 2);
+        println!("List of depth-{} interference patterns", depth);
+        while path.increment(&|last, rest| {
+            if !is_shortlex(last, rest) {
+                return false;
+            }
+            if rest.len() >= depth {
+                for &side in &rest[0..depth] {
+                    if !last.adjacent_to(side) {
+                        return false;
                     }
                 }
             }
-            while path1.increment(&|last, rest| {
-                is_shortlex(last, rest) && commutes_with_path0[last as usize]
-            }) {
-                println!("{:?}, {:?}", path0.path, path1.path);
-            }
+            true
+        }) {
+            println!("{:?}", path.path);
         }
+        println!("End of list");
     }
 
     // BF vs CG
