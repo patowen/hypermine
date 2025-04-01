@@ -288,6 +288,26 @@ mod test {
         true
     }
 
+    struct NodeString {
+        path: Vec<Side>,
+        initialized: bool,
+    }
+
+    impl NodeString {
+        fn new(len: usize) -> Self {
+            NodeString {
+                path: vec![Side::A; len],
+                initialized: false,
+            }
+        }
+
+        fn increment(&mut self, validity_check: &impl Fn(Side, &[Side]) -> bool) -> bool {
+            let could_increment = increment_path(&mut self.path, self.initialized, validity_check);
+            self.initialized = true;
+            could_increment
+        }
+    }
+
     #[test]
     fn enumerate_siblings() {
         // If BF...A.... and CG.... reach the same place, then the CG string must have an A in it.
@@ -296,16 +316,11 @@ mod test {
         // However, x and y are only worth considering if they don't share a common parent (other than)
         // the root. This is a bit complicated because CG and GC don't share a parent, but BF and FB do (because they commute).
 
-        let mut path0 = vec![Side::A, Side::A];
-        increment_path(&mut path0, false, &is_shortlex);
-        let mut path1 = vec![Side::A, Side::A];
-        increment_path(&mut path1, false, &is_shortlex);
+        let mut path0 = NodeString::new(2);
+        let mut path1 = NodeString::new(2);
 
-        loop {
-            println!("{:?}", path0);
-            if !increment_path(&mut path0, true, &is_shortlex) {
-                break;
-            }
+        while path0.increment(&is_shortlex) {
+            println!("{:?}", path0.path);
         }
     }
 
