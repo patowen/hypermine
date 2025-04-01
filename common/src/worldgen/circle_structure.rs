@@ -302,9 +302,15 @@ mod test {
         }
 
         fn increment(&mut self, validity_check: &impl Fn(Side, &[Side]) -> bool) -> bool {
-            let could_increment = increment_path(&mut self.path, self.initialized, validity_check);
-            self.initialized = true;
-            could_increment
+            if !self.initialized {
+                for i in 0..self.path.len() {
+                    increment_path(&mut self.path[0..=i], false, validity_check);
+                }
+                self.initialized = true;
+                true
+            } else {
+                increment_path(&mut self.path, true, validity_check)
+            }
         }
     }
 
@@ -321,10 +327,18 @@ mod test {
 
         while path0.increment(&is_shortlex) {
             let mut commutes_with_path0 = [true; Side::VALUES.len()];
+            let mut path0_first_sides = [false; Side::VALUES.len()]; // All possible initial path elements if the lex part of shortlex is not required
+            let mut accumulating_first_sides = true;
             for &path_side in &path0.path {
-                for commuting_side in Side::iter() {
-                    if path_side != commuting_side && !path_side.adjacent_to(commuting_side) {
-                        commutes_with_path0[commuting_side as usize] = false;
+                if !commutes_with_path0[path_side as usize] {
+                    accumulating_first_sides = false;
+                }
+                if accumulating_first_sides {
+                    path0_first_sides[path_side as usize] = true
+                }
+                for side in Side::iter() {
+                    if path_side != side && !path_side.adjacent_to(side) {
+                        commutes_with_path0[side as usize] = false;
                     }
                 }
             }
