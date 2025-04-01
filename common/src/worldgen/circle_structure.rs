@@ -206,6 +206,7 @@ mod test {
     use super::*;
     use crate::{dodeca::Side, math::MIsometry, proto::Position, traversal::ensure_nearby};
     use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
+    use fxhash::FxHashSet;
 
     #[test]
     #[rustfmt::skip]
@@ -377,29 +378,41 @@ mod test {
         // Perhaps, the problem is as simple as follows:
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
+        let mut max_sibling_nodes = 0;
+
         let mut graph = Graph::new(1);
-        let mut base_node = NodeId::ROOT;
-        for side in [Side::A, Side::B, Side::C, Side::D] {
-            base_node = graph.ensure_neighbor(base_node, side);
-        }
+        ensure_nearby(&mut graph, &Position::origin(), 7.0);
+        let base_nodes = graph.fresh().to_vec();
+        for base_node in base_nodes {
+            /*let mut base_node = NodeId::ROOT;
+            for side in [Side::A, Side::B, Side::C, Side::D] {
+                base_node = graph.ensure_neighbor(base_node, side);
+            }*/
 
-        let depth = 2;
+            let depth = 2;
 
-        let mut path = NodeString::new(depth * 2);
-        println!("List of depth-{} interference patterns", depth);
-        while path
-            .increment(&|last, rest| is_interfering_path(last, rest, depth, &graph, base_node))
-        {
-            let found_node_id = path.path.iter().fold(base_node, |current_node, side| {
-                graph.ensure_neighbor(current_node, *side)
-            });
-            if graph.length(found_node_id) != graph.length(base_node) {
-                continue;
+            let mut path = NodeString::new(depth * 2);
+            let mut sibling_nodes = FxHashSet::default();
+            //println!("List of depth-{} interference patterns", depth);
+            while path
+                .increment(&|last, rest| is_interfering_path(last, rest, depth, &graph, base_node))
+            {
+                let found_node_id = path.path.iter().fold(base_node, |current_node, side| {
+                    graph.ensure_neighbor(current_node, *side)
+                });
+                if graph.length(found_node_id) != graph.length(base_node) {
+                    continue;
+                }
+                if sibling_nodes.insert(found_node_id) {
+                    //println!("{:?}: {:?}", path.path, found_node_id);
+                }
             }
-
-            println!("{:?}: {:?}", path.path, found_node_id);
+            //println!("End of list");
+            //println!("{:?}: {}", base_node, sibling_nodes.len());
+            max_sibling_nodes = max_sibling_nodes.max(sibling_nodes.len());
         }
-        println!("End of list");
+
+        println!("Max sibling nodes: {}", max_sibling_nodes);
     }
 
     // BF vs CG
