@@ -208,6 +208,7 @@ mod test {
     use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
 
     #[test]
+    #[rustfmt::skip]
     fn average_with_test() {
         /*
         [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C]
@@ -248,4 +249,71 @@ mod test {
             graph.ensure_node_state(node_id);
         }
     }
+
+    // Returns true if we looped back to the beginning
+    fn increment_shortlex_path(path: &mut [Side]) -> bool {
+        if path.is_empty() {
+            return true;
+        }
+        let mut looped = false;
+        let (last, rest) = path.split_last_mut().unwrap();
+        loop {
+            // Keep incrementing until valid
+            *last = Side::VALUES[(*last as usize + 1) % Side::VALUES.len()];
+            if *last == Side::A && increment_shortlex_path(rest) {
+                looped = true;
+            }
+            // Check validity
+            if let Some(second_last) = rest.last() {
+                if *last == *second_last {
+                    // Backtracking is not valid (short part of shortlex)
+                    continue;
+                }
+                if last.adjacent_to(*second_last) && (*last as usize) < (*second_last as usize) {
+                    // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
+                    continue;
+                }
+                break;
+            } else {
+                // We're at the head of the path. All letters are valid there.
+                break;
+            }
+        }
+        looped
+    }
+
+    struct ShortlexPathIterator<'a> {
+        path: &'a mut [Side],
+    }
+
+    impl<'a> Iterator for ShortlexPathIterator<'a> {
+        type Item = &'a [Side];
+
+        fn next(&mut self) -> Option<Self::Item> {
+            todo!()
+        }
+    }
+
+    #[test]
+    fn enumerate_siblings() {
+        // If BF...A.... and CG.... reach the same place, then the CG string must have an A in it.
+        // Transforming one path to the other will still require transferring B and F past C and G
+        // So, strings x and y can interfere iff everything in x commutes with everything in y.
+        // However, x and y are only worth considering if they don't share a common parent (other than)
+        // the root. This is a bit complicated because CG and GC don't share a parent, but BF and FB do (because they commute).
+
+        let mut path0 = vec![Side::L, Side::L];
+        increment_shortlex_path(&mut path0);
+        let mut path1 = vec![Side::L, Side::L];
+        increment_shortlex_path(&mut path1);
+
+        loop {
+            println!("{:?}", path0);
+            if increment_shortlex_path(&mut path0) {
+                break;
+            }
+        }
+    }
+
+    // BF vs CG
 }
