@@ -250,48 +250,42 @@ mod test {
         }
     }
 
-    // Returns true if we looped back to the beginning
-    fn increment_shortlex_path(path: &mut [Side]) -> bool {
-        if path.is_empty() {
+    fn is_shortlex(last: Side, rest: &[Side]) -> bool {
+        let Some(second_last) = rest.last() else {
+            // One-element node strings are always shortlex.
             return true;
+        };
+        if last == *second_last {
+            // Backtracking is not valid (short part of shortlex)
+            return false;
         }
-        let mut looped = false;
+        if last.adjacent_to(*second_last) && (last as usize) < (*second_last as usize) {
+            // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
+            return false;
+        }
+        true
+    }
+
+    // Returns false if we were unable to increment the path because we exhausted all possibilities
+    fn increment_path(
+        path: &mut [Side],
+        mut always_increment: bool,
+        validity_check: &impl Fn(Side, &[Side]) -> bool,
+    ) -> bool {
+        if path.is_empty() {
+            // Empty paths always pass validity checks, so looping is only necessary
+            // if incrementing was requested.
+            return !always_increment;
+        }
         let (last, rest) = path.split_last_mut().unwrap();
-        loop {
-            // Keep incrementing until valid
+        while !validity_check(*last, rest) || always_increment {
+            always_increment = false;
             *last = Side::VALUES[(*last as usize + 1) % Side::VALUES.len()];
-            if *last == Side::A && increment_shortlex_path(rest) {
-                looped = true;
-            }
-            // Check validity
-            if let Some(second_last) = rest.last() {
-                if *last == *second_last {
-                    // Backtracking is not valid (short part of shortlex)
-                    continue;
-                }
-                if last.adjacent_to(*second_last) && (*last as usize) < (*second_last as usize) {
-                    // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
-                    continue;
-                }
-                break;
-            } else {
-                // We're at the head of the path. All letters are valid there.
-                break;
+            if *last == Side::A && !increment_path(rest, true, validity_check) {
+                return false;
             }
         }
-        looped
-    }
-
-    struct ShortlexPathIterator<'a> {
-        path: &'a mut [Side],
-    }
-
-    impl<'a> Iterator for ShortlexPathIterator<'a> {
-        type Item = &'a [Side];
-
-        fn next(&mut self) -> Option<Self::Item> {
-            todo!()
-        }
+        true
     }
 
     #[test]
@@ -302,14 +296,14 @@ mod test {
         // However, x and y are only worth considering if they don't share a common parent (other than)
         // the root. This is a bit complicated because CG and GC don't share a parent, but BF and FB do (because they commute).
 
-        let mut path0 = vec![Side::L, Side::L];
-        increment_shortlex_path(&mut path0);
-        let mut path1 = vec![Side::L, Side::L];
-        increment_shortlex_path(&mut path1);
+        let mut path0 = vec![Side::A, Side::A];
+        increment_path(&mut path0, false, &is_shortlex);
+        let mut path1 = vec![Side::A, Side::A];
+        increment_path(&mut path1, false, &is_shortlex);
 
         loop {
             println!("{:?}", path0);
-            if increment_shortlex_path(&mut path0) {
+            if !increment_path(&mut path0, true, &is_shortlex) {
                 break;
             }
         }
