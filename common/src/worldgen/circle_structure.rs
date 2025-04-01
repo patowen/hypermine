@@ -282,6 +282,38 @@ mod test {
         true
     }
 
+    fn is_interfering_path(
+        last: Side,
+        rest: &[Side],
+        depth: usize,
+        graph: &Graph,
+        node: NodeId,
+    ) -> bool {
+        if !is_shortest_path(last, rest) {
+            return false;
+        }
+        if rest.len() >= depth {
+            for &side in &rest[0..depth] {
+                if !last.adjacent_to(side) && last != side {
+                    return false;
+                }
+            }
+        }
+        if rest.len() < depth {
+            let ancestor_node = (rest.iter().chain(Some(last).iter()))
+                .try_fold(node, |current_node, side| {
+                    graph.neighbor(current_node, *side)
+                });
+            let Some(ancestor_node) = ancestor_node else {
+                return false;
+            };
+            if graph.length(ancestor_node) + rest.len() as u32 + 1 != graph.length(node) {
+                return false;
+            }
+        }
+        true
+    }
+
     // Returns false if we were unable to increment the path because we exhausted all possibilities
     fn increment_path(
         path: &mut [Side],
@@ -346,44 +378,22 @@ mod test {
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
         let mut graph = Graph::new(1);
-        let mut node = NodeId::ROOT;
+        let mut base_node = NodeId::ROOT;
         for side in [Side::A, Side::B, Side::C, Side::D] {
-            node = graph.ensure_neighbor(node, side);
+            base_node = graph.ensure_neighbor(base_node, side);
         }
 
         let depth = 2;
 
         let mut path = NodeString::new(depth * 2);
         println!("List of depth-{} interference patterns", depth);
-        while path.increment(&|last, rest| {
-            if !is_shortest_path(last, rest) {
-                return false;
-            }
-            if rest.len() >= depth {
-                for &side in &rest[0..depth] {
-                    if !last.adjacent_to(side) && last != side {
-                        return false;
-                    }
-                }
-            }
-            if rest.len() < depth {
-                let ancestor_node = (rest.iter().chain(Some(last).iter()))
-                    .try_fold(node, |current_node, side| {
-                        graph.neighbor(current_node, *side)
-                    });
-                let Some(ancestor_node) = ancestor_node else {
-                    return false;
-                };
-                if graph.length(ancestor_node) + rest.len() as u32 + 1 != graph.length(node) {
-                    return false;
-                }
-            }
-            true
-        }) {
-            let found_node_id = path.path.iter().fold(node, |current_node, side| {
+        while path
+            .increment(&|last, rest| is_interfering_path(last, rest, depth, &graph, base_node))
+        {
+            let found_node_id = path.path.iter().fold(base_node, |current_node, side| {
                 graph.ensure_neighbor(current_node, *side)
             });
-            if graph.length(found_node_id) != graph.length(node) {
+            if graph.length(found_node_id) != graph.length(base_node) {
                 continue;
             }
 
