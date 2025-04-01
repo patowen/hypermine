@@ -203,10 +203,12 @@ impl HorosphereChunk {
 #[cfg(test)]
 #[allow(unused)]
 mod test {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::{dodeca::Side, math::MIsometry, proto::Position, traversal::ensure_nearby};
     use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
-    use fxhash::FxHashSet;
+    use fxhash::{FxHashMap, FxHashSet};
 
     #[test]
     #[rustfmt::skip]
@@ -378,7 +380,7 @@ mod test {
         // Perhaps, the problem is as simple as follows:
         // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
 
-        let mut max_sibling_nodes = 0;
+        let mut num_sibling_nodes: BTreeMap<usize, u32> = BTreeMap::new();
 
         let mut graph = Graph::new(1);
         ensure_nearby(&mut graph, &Position::origin(), 7.0);
@@ -389,7 +391,7 @@ mod test {
                 base_node = graph.ensure_neighbor(base_node, side);
             }*/
 
-            let depth = 2;
+            let depth = 1;
 
             let mut path = NodeString::new(depth * 2);
             let mut sibling_nodes = FxHashSet::default();
@@ -409,10 +411,10 @@ mod test {
             }
             //println!("End of list");
             //println!("{:?}: {}", base_node, sibling_nodes.len());
-            max_sibling_nodes = max_sibling_nodes.max(sibling_nodes.len());
+            *num_sibling_nodes.entry(sibling_nodes.len()).or_default() += 1;
         }
 
-        println!("Max sibling nodes: {}", max_sibling_nodes);
+        println!("Sibling node count histogram: {:?}", num_sibling_nodes);
     }
 
     // BF vs CG
