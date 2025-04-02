@@ -281,8 +281,10 @@ impl PeerTraverser {
                     self.parent_path_nodes[depth - 1],
                     self.parent_path[depth - 1],
                 ) {
-                    self.parent_path_nodes[depth] = node;
-                    return true;
+                    if graph.length(self.parent_path_nodes[depth - 1]) == graph.length(node) + 1 {
+                        self.parent_path_nodes[depth] = node;
+                        return true;
+                    }
                 }
             }
 
@@ -306,8 +308,7 @@ impl PeerTraverser {
             self.current_depth = 1;
             self.parent_path = [Side::A; 2];
             return self.increment_parent_path_for_depth(graph, 1, true);
-        }
-        else if self.current_depth == 1 {
+        } else if self.current_depth == 1 {
             if self.increment_parent_path_for_depth(graph, 1, false) {
                 return true;
             }
@@ -315,15 +316,16 @@ impl PeerTraverser {
             self.parent_path = [Side::A; 2];
             return self.increment_parent_path_for_depth(graph, 1, true)
                 && self.increment_parent_path_for_depth(graph, 2, true);
-        }
-        else if self.current_depth == 2 {
+        } else if self.current_depth == 2 {
             return self.increment_parent_path_for_depth(graph, 2, false);
         }
         false
     }
 
     pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
-        while self.increment_parent_path(graph) {}
+        while self.increment_parent_path(graph) {
+            println!("{:?}, {:?}", self.parent_path, self.parent_path_nodes);
+        }
         None
     }
 }
@@ -348,5 +350,16 @@ mod tests {
 
         let nodes = nearby_nodes(&graph, &Position::origin(), 6.0);
         assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
+    }
+
+    #[test]
+    fn peer_traverser_example() {
+        let mut graph = Graph::new(1);
+        ensure_nearby(&mut graph, &Position::origin(), 6.0);
+        let mut node = NodeId::ROOT;
+        for side in [Side::A, Side::B, Side::C, Side::D] {
+            node = graph.neighbor(node, side).unwrap();
+        }
+        PeerTraverser::new(&graph, node).next(&graph);
     }
 }
