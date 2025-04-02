@@ -7,7 +7,7 @@ use crate::{
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},
     math::{MIsometry, MPoint},
-    node::ChunkId,
+    node::{ChunkId, Node},
     proto::Position,
 };
 
@@ -220,6 +220,62 @@ impl<'a> RayTraverser<'a> {
             }
         }
     }
+}
+
+pub struct PeerTraverser {
+    current_depth: u8,
+    parent_path: [(Side, NodeId); 2],
+    child_path: [(Side, NodeId); 2],
+    base_node: NodeId,
+    base_node_length: u32,
+}
+
+impl PeerTraverser {
+    pub fn new(graph: &Graph, base_node: NodeId) -> Self {
+        PeerTraverser {
+            current_depth: 0,
+            parent_path: [(Side::A, NodeId::ROOT); 2],
+            child_path: [(Side::A, NodeId::ROOT); 2],
+            base_node,
+            base_node_length: graph.length(base_node),
+        }
+    }
+
+    fn increment_parent_path(&mut self, graph: &Graph) -> bool {
+        if self.current_depth == 0 {
+            self.current_depth = 1;
+            for side in Side::iter() {
+                if let Some(node) = graph.neighbor(self.base_node, side) {
+                    if graph.length(node) + 1 == self.base_node_length {
+                        self.parent_path[0] = (side, node);
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+        if self.current_depth == 1 {
+            for side in Side::VALUES[(self.parent_path[0].0 as usize + 1)..].iter().copied() {
+                if let Some(node) = graph.neighbor(self.base_node, side) {
+                    if graph.length(node) + 1 == self.base_node_length {
+                        self.parent_path[0] = (side, node);
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
+        while self.increment_parent_path(graph) {
+        }
+        None
+    }
+}
+
+pub trait PeerTraverserTrait {
+    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)>;
 }
 
 #[cfg(test)]
