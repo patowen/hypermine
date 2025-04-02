@@ -224,52 +224,106 @@ impl<'a> RayTraverser<'a> {
 
 pub struct PeerTraverser {
     current_depth: u8,
-    parent_path: [(Side, NodeId); 2],
+    parent_path: [Side; 2],
+    parent_path_nodes: [NodeId; 3],
     child_path: [(Side, NodeId); 2],
-    base_node: NodeId,
-    base_node_length: u32,
 }
 
 impl PeerTraverser {
     pub fn new(graph: &Graph, base_node: NodeId) -> Self {
         PeerTraverser {
             current_depth: 0,
-            parent_path: [(Side::A, NodeId::ROOT); 2],
+            parent_path: [Side::A; 2],
+            parent_path_nodes: [base_node; 3],
             child_path: [(Side::A, NodeId::ROOT); 2],
-            base_node,
-            base_node_length: graph.length(base_node),
         }
     }
 
+    /// Assuming `parent_path` obeys shortlex rules up to right before the last
+    /// element for a given depth,
+    fn parent_path_end_is_shortlex(&self, depth: usize) -> bool {
+        if depth <= 1 {
+            // One-element node strings are always shortlex.
+            return true;
+        };
+        let last = self.parent_path[depth - 1];
+        let second_last = self.parent_path[depth - 2];
+        if last == second_last {
+            // Backtracking is not valid (short part of shortlex)
+            return false;
+        }
+        if last.adjacent_to(second_last) && (last as usize) < (second_last as usize) {
+            // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
+            return false;
+        }
+        true
+    }
+
+    /// Assuming `parent_path` and `parent_path_nodes` is already valid apart from possibly the last node,
+    /// iterates to the next valid path for the given depth.
+    /// Returns `false` if this is not possible.
+    /// If `allow_unchanged_path` is true, the `parent_path` will not be incremented if it is already valid, but
+    /// the `parent_path_nodes` still will.
+    #[must_use]
+    fn increment_parent_path_for_depth(
+        &mut self,
+        graph: &Graph,
+        depth: usize,
+        mut allow_unchanged_path: bool,
+    ) -> bool {
+        if depth == 0 {
+            // Empty paths are always valid, but they cannot be incremented.
+            return allow_unchanged_path;
+        }
+        loop {
+            if allow_unchanged_path && self.parent_path_end_is_shortlex(depth) {
+                if let Some(node) = graph.neighbor(
+                    self.parent_path_nodes[depth - 1],
+                    self.parent_path[depth - 1],
+                ) {
+                    self.parent_path_nodes[depth] = node;
+                    return true;
+                }
+            }
+
+            let mut current_side = self.parent_path[depth - 1];
+            current_side = Side::VALUES[(current_side as usize + 1) % Side::VALUES.len()]; // Cycle the current side
+            if current_side == Side::A {
+                // We looped, so make sure to increment an earlier part of the path.
+                if !self.increment_parent_path_for_depth(graph, depth - 1, false) {
+                    return false;
+                }
+            }
+            self.parent_path[depth - 1] = current_side;
+
+            allow_unchanged_path = true; // The path has changed, so it won't necessarily need to be changed again.
+        }
+    }
+
+    #[must_use]
     fn increment_parent_path(&mut self, graph: &Graph) -> bool {
         if self.current_depth == 0 {
             self.current_depth = 1;
-            for side in Side::iter() {
-                if let Some(node) = graph.neighbor(self.base_node, side) {
-                    if graph.length(node) + 1 == self.base_node_length {
-                        self.parent_path[0] = (side, node);
-                        return true;
-                    }
-                }
-            }
-            return false;
+            self.parent_path = [Side::A; 2];
+            return self.increment_parent_path_for_depth(graph, 1, true);
         }
-        if self.current_depth == 1 {
-            for side in Side::VALUES[(self.parent_path[0].0 as usize + 1)..].iter().copied() {
-                if let Some(node) = graph.neighbor(self.base_node, side) {
-                    if graph.length(node) + 1 == self.base_node_length {
-                        self.parent_path[0] = (side, node);
-                        return true;
-                    }
-                }
+        else if self.current_depth == 1 {
+            if self.increment_parent_path_for_depth(graph, 1, false) {
+                return true;
             }
+            self.current_depth = 2;
+            self.parent_path = [Side::A; 2];
+            return self.increment_parent_path_for_depth(graph, 1, true)
+                && self.increment_parent_path_for_depth(graph, 2, true);
+        }
+        else if self.current_depth == 2 {
+            return self.increment_parent_path_for_depth(graph, 2, false);
         }
         false
     }
 
     pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
-        while self.increment_parent_path(graph) {
-        }
+        while self.increment_parent_path(graph) {}
         None
     }
 }
