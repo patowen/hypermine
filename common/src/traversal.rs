@@ -413,7 +413,7 @@ static DEPTH2_CHILD_PATHS: LazyLock<
                 return path_list;
             }
             for child_side0 in Side::iter() {
-                if !child_side0.adjacent_to(parent_side0) || child_side0.adjacent_to(parent_side1) {
+                if !child_side0.adjacent_to(parent_side0) || !child_side0.adjacent_to(parent_side1) {
                     // Child paths need to have both parts adjacent to parent paths.
                     continue;
                 }
@@ -429,7 +429,7 @@ static DEPTH2_CHILD_PATHS: LazyLock<
                         continue;
                     }
                     if !child_side1.adjacent_to(parent_side0)
-                        || child_side1.adjacent_to(parent_side1)
+                        || !child_side1.adjacent_to(parent_side1)
                     {
                         // Child paths need to have both parts adjacent to parent paths.
                         continue;
@@ -506,7 +506,8 @@ mod tests {
             node = graph.neighbor(node, side).unwrap();
         }
         let mut iterations = 0;
-        while PeerTraverser::new(&graph, node).next(&graph).is_some() && iterations < 20 {
+        let mut traverser = PeerTraverser::new(&graph, node);
+        while traverser.next(&graph).is_some() && iterations < 20 {
             iterations += 1;
         }
     }
