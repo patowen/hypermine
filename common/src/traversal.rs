@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::LazyLock};
 
 use fxhash::FxHashSet;
 
@@ -330,8 +330,85 @@ impl PeerTraverser {
     }
 }
 
-pub trait PeerTraverserTrait {
-    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)>;
+type Depth2PathList = [Option<[Side; 2]>; 2];
+
+static DEPTH2_CHILD_PATHS: LazyLock<[[Depth2PathList; Side::VALUES.len()]; Side::VALUES.len()]> =
+    LazyLock::new(|| {
+        Side::VALUES.map(|parent_side0| {
+            Side::VALUES.map(|parent_side1| {
+                if parent_side0 == parent_side1 {
+                    return Default::default();
+                }
+                let mut path_list: Vec<[Side; 2]> = Vec::new();
+                for child_side0 in Side::iter() {
+                    if !child_side0.adjacent_to(parent_side0)
+                        || child_side0.adjacent_to(parent_side1)
+                    {
+                        // Child paths need to have both parts adjacent to parent paths.
+                        continue;
+                    }
+                    for child_side1 in Side::iter() {
+                        if child_side0 == child_side1 {
+                            // Only look at child paths that obey shortlex rules
+                            continue;
+                        }
+                        if child_side0.adjacent_to(child_side1)
+                            && (child_side0 as usize) > (child_side1 as usize)
+                        {
+                            // Only look at child paths that obey shortlex rules
+                            continue;
+                        }
+                        if !child_side1.adjacent_to(parent_side0)
+                            || child_side1.adjacent_to(parent_side1)
+                        {
+                            // Child paths need to have both parts adjacent to parent paths.
+                            continue;
+                        }
+                        path_list.push([child_side0, child_side1]);
+                    }
+                }
+                assert!(path_list.len() <= 2);
+                let mut path_list_iter = path_list.into_iter().fuse();
+                [path_list_iter.next(), path_list_iter.next()]
+            })
+        })
+    });
+
+trait GraphRef {
+    fn length(&self, node: NodeId) -> u32;
+    fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
+}
+
+struct ImmutableGraphRef<'a> {
+    graph: &'a Graph,
+}
+
+impl GraphRef for ImmutableGraphRef<'_> {
+    #[inline]
+    fn length(&self, node: NodeId) -> u32 {
+        self.graph.length(node)
+    }
+
+    #[inline]
+    fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
+        self.graph.neighbor(node, side).unwrap()
+    }
+}
+
+struct MutableGraphRef<'a> {
+    graph: &'a mut Graph,
+}
+
+impl GraphRef for MutableGraphRef<'_> {
+    #[inline]
+    fn length(&self, node: NodeId) -> u32 {
+        self.graph.length(node)
+    }
+
+    #[inline]
+    fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
+        self.graph.ensure_neighbor(node, side)
+    }
 }
 
 #[cfg(test)]
