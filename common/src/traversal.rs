@@ -461,6 +461,7 @@ struct ImmutableGraphRef<'a> {
 }
 
 impl AsRef<Graph> for ImmutableGraphRef<'_> {
+    #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
     }
@@ -495,6 +496,7 @@ impl GraphRef for MutableGraphRef<'_> {
 }
 
 impl AsRef<Graph> for MutableGraphRef<'_> {
+    #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
     }
@@ -521,13 +523,13 @@ mod tests {
     #[test]
     fn peer_traverser_example() {
         let mut graph = Graph::new(1);
-        ensure_nearby(&mut graph, &Position::origin(), 6.0);
+        //ensure_nearby(&mut graph, &Position::origin(), 6.0);
         let mut node = NodeId::ROOT;
         for side in [Side::A, Side::B, Side::C, Side::D] {
-            node = graph.neighbor(node, side).unwrap();
+            node = graph.ensure_neighbor(node, side);
         }
         let mut traverser = PeerTraverser::new(&graph, node);
-        while let Some(node) = traverser.next(&graph) {
+        while let Some(node) = traverser.ensure_next(&mut graph) {
             println!("{:?}", node);
         }
     }
