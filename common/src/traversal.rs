@@ -324,19 +324,23 @@ impl PeerTraverser {
     }
 
     #[must_use]
-    fn increment_child_path(&mut self, graph: &Graph, mut allow_unchanged_path: bool) -> bool {
+    fn increment_child_path(
+        &mut self,
+        graph: &Graph,
+        mut allow_unchanged_path: bool,
+    ) -> Option<NodeId> {
         if self.current_depth == 1 {
             let child_paths = &DEPTH1_CHILD_PATHS[self.parent_path[0] as usize];
             loop {
                 if allow_unchanged_path {
                     if self.child_path_index >= child_paths.len() {
-                        return false;
+                        return None;
                     }
                     let child_side = child_paths[self.child_path_index];
-                    let mut current_node = self.parent_path_nodes[2];
+                    let mut current_node = self.parent_path_nodes[1];
                     current_node = graph.neighbor(current_node, child_side).unwrap();
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        return true;
+                        return Some(current_node);
                     }
                 }
                 self.child_path_index += 1;
@@ -348,7 +352,7 @@ impl PeerTraverser {
             loop {
                 if allow_unchanged_path {
                     if self.child_path_index >= child_paths.len() {
-                        return false;
+                        return None;
                     }
                     let child_path = &child_paths[self.child_path_index];
                     let mut current_node = self.parent_path_nodes[2];
@@ -356,21 +360,32 @@ impl PeerTraverser {
                         current_node = graph.neighbor(current_node, side).unwrap(); // TODO
                     }
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        return true;
+                        return Some(current_node);
                     }
                 }
                 self.child_path_index += 1;
                 allow_unchanged_path = true;
             }
         }
-        false
+        None
     }
 
     pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
-        while self.increment_parent_path(graph) {
-            println!("{:?}, {:?}", self.parent_path, self.parent_path_nodes);
+        let mut allow_unchanged_path = false;
+        loop {
+            if let Some(node) = self.increment_child_path(graph, allow_unchanged_path) {
+                println!(
+                    "{:?}, {}, {}",
+                    self.parent_path, self.current_depth, self.child_path_index
+                );
+                return Some(node);
+            }
+            if !self.increment_parent_path(graph) {
+                return None;
+            }
+            allow_unchanged_path = true;
+            self.child_path_index = 0;
         }
-        None
     }
 }
 
@@ -490,6 +505,9 @@ mod tests {
         for side in [Side::A, Side::B, Side::C, Side::D] {
             node = graph.neighbor(node, side).unwrap();
         }
-        PeerTraverser::new(&graph, node).next(&graph);
+        let mut iterations = 0;
+        while PeerTraverser::new(&graph, node).next(&graph).is_some() && iterations < 20 {
+            iterations += 1;
+        }
     }
 }
