@@ -324,13 +324,8 @@ impl PeerTraverser {
     }
 
     #[must_use]
-    fn increment_child_path_for_depth(
-        &mut self,
-        graph: &Graph,
-        depth: usize,
-        mut allow_unchanged_path: bool,
-    ) -> bool {
-        if depth == 1 {
+    fn increment_child_path(&mut self, graph: &Graph, mut allow_unchanged_path: bool) -> bool {
+        if self.current_depth == 1 {
             let child_paths = &DEPTH1_CHILD_PATHS[self.parent_path[0] as usize];
             loop {
                 if allow_unchanged_path {
@@ -347,7 +342,7 @@ impl PeerTraverser {
                 self.child_path_index += 1;
                 allow_unchanged_path = true;
             }
-        } else if depth == 2 {
+        } else if self.current_depth == 2 {
             let child_paths =
                 &DEPTH2_CHILD_PATHS[self.parent_path[0] as usize][self.parent_path[1] as usize];
             loop {
