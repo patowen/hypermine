@@ -226,7 +226,7 @@ pub struct PeerTraverser {
     current_depth: u8,
     parent_path: [Side; 2],
     parent_path_nodes: [NodeId; 3],
-    child_path: [(Side, NodeId); 2],
+    child_path_index: usize,
 }
 
 impl PeerTraverser {
@@ -235,7 +235,7 @@ impl PeerTraverser {
             current_depth: 0,
             parent_path: [Side::A; 2],
             parent_path_nodes: [base_node; 3],
-            child_path: [(Side::A, NodeId::ROOT); 2],
+            child_path_index: 0,
         }
     }
 
@@ -322,6 +322,37 @@ impl PeerTraverser {
         false
     }
 
+    #[must_use]
+    fn increment_child_path_for_depth(
+        &mut self,
+        graph: &Graph,
+        depth: usize,
+        mut allow_unchanged_path: bool,
+    ) -> bool {
+        if depth == 2 {
+            let child_paths =
+                &DEPTH2_CHILD_PATHS[self.parent_path[0] as usize][self.parent_path[1] as usize];
+            loop {
+                if allow_unchanged_path {
+                    if self.child_path_index >= child_paths.1 {
+                        return false;
+                    }
+                    let child_path = &child_paths.0[self.child_path_index];
+                    let mut current_node = self.parent_path_nodes[2];
+                    for &side in child_path {
+                        current_node = graph.neighbor(current_node, side).unwrap(); // TODO
+                    }
+                    if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
+                        return true;
+                    }
+                }
+                self.child_path_index += 1;
+                allow_unchanged_path = true;
+            }
+        }
+        false
+    }
+
     pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
         while self.increment_parent_path(graph) {
             println!("{:?}, {:?}", self.parent_path, self.parent_path_nodes);
@@ -330,16 +361,16 @@ impl PeerTraverser {
     }
 }
 
-type Depth2PathList = [Option<[Side; 2]>; 2];
+type Depth2PathList = ([[Side; 2]; 2], usize);
 
 static DEPTH2_CHILD_PATHS: LazyLock<[[Depth2PathList; Side::VALUES.len()]; Side::VALUES.len()]> =
     LazyLock::new(|| {
         Side::VALUES.map(|parent_side0| {
             Side::VALUES.map(|parent_side1| {
+                let mut path_list: Depth2PathList = ([[Side::A; 2]; 2], 0);
                 if parent_side0 == parent_side1 {
-                    return Default::default();
+                    return path_list;
                 }
-                let mut path_list: Vec<[Side; 2]> = Vec::new();
                 for child_side0 in Side::iter() {
                     if !child_side0.adjacent_to(parent_side0)
                         || child_side0.adjacent_to(parent_side1)
@@ -364,12 +395,11 @@ static DEPTH2_CHILD_PATHS: LazyLock<[[Depth2PathList; Side::VALUES.len()]; Side:
                             // Child paths need to have both parts adjacent to parent paths.
                             continue;
                         }
-                        path_list.push([child_side0, child_side1]);
+                        path_list.0[path_list.1] = [child_side0, child_side1];
+                        path_list.1 += 1;
                     }
                 }
-                assert!(path_list.len() <= 2);
-                let mut path_list_iter = path_list.into_iter().fuse();
-                [path_list_iter.next(), path_list_iter.next()]
+                path_list
             })
         })
     });
