@@ -326,7 +326,7 @@ impl PeerTraverser {
     #[must_use]
     fn increment_child_path(
         &mut self,
-        graph: &Graph,
+        graph: &mut impl GraphRef,
         mut allow_unchanged_path: bool,
     ) -> Option<NodeId> {
         if self.current_depth == 1 {
@@ -338,7 +338,7 @@ impl PeerTraverser {
                     }
                     let child_side = child_paths[self.child_path_index];
                     let mut current_node = self.parent_path_nodes[1];
-                    current_node = graph.neighbor(current_node, child_side).unwrap();
+                    current_node = graph.neighbor(current_node, child_side);
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
                         return Some(current_node);
                     }
@@ -357,7 +357,7 @@ impl PeerTraverser {
                     let child_path = &child_paths[self.child_path_index];
                     let mut current_node = self.parent_path_nodes[2];
                     for &side in child_path {
-                        current_node = graph.neighbor(current_node, side).unwrap(); // TODO
+                        current_node = graph.neighbor(current_node, side); // TODO
                     }
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
                         return Some(current_node);
@@ -370,22 +370,30 @@ impl PeerTraverser {
         None
     }
 
-    pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
+    fn next_impl(&mut self, mut graph: impl GraphRef) -> Option<NodeId> {
         let mut allow_unchanged_path = false;
         loop {
-            if let Some(node) = self.increment_child_path(graph, allow_unchanged_path) {
+            if let Some(node) = self.increment_child_path(&mut graph, allow_unchanged_path) {
                 println!(
                     "{:?}, {}, {}",
                     self.parent_path, self.current_depth, self.child_path_index
                 );
                 return Some(node);
             }
-            if !self.increment_parent_path(graph) {
+            if !self.increment_parent_path(graph.as_ref()) {
                 return None;
             }
             allow_unchanged_path = true;
             self.child_path_index = 0;
         }
+    }
+
+    pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
+        self.next_impl(ImmutableGraphRef { graph })
+    }
+
+    pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<NodeId> {
+        self.next_impl(MutableGraphRef { graph })
     }
 }
 
@@ -413,7 +421,8 @@ static DEPTH2_CHILD_PATHS: LazyLock<
                 return path_list;
             }
             for child_side0 in Side::iter() {
-                if !child_side0.adjacent_to(parent_side0) || !child_side0.adjacent_to(parent_side1) {
+                if !child_side0.adjacent_to(parent_side0) || !child_side0.adjacent_to(parent_side1)
+                {
                     // Child paths need to have both parts adjacent to parent paths.
                     continue;
                 }
@@ -442,13 +451,19 @@ static DEPTH2_CHILD_PATHS: LazyLock<
     })
 });
 
-trait GraphRef {
+trait GraphRef: AsRef<Graph> {
     fn length(&self, node: NodeId) -> u32;
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
 }
 
 struct ImmutableGraphRef<'a> {
     graph: &'a Graph,
+}
+
+impl AsRef<Graph> for ImmutableGraphRef<'_> {
+    fn as_ref(&self) -> &Graph {
+        self.graph
+    }
 }
 
 impl GraphRef for ImmutableGraphRef<'_> {
@@ -479,6 +494,12 @@ impl GraphRef for MutableGraphRef<'_> {
     }
 }
 
+impl AsRef<Graph> for MutableGraphRef<'_> {
+    fn as_ref(&self) -> &Graph {
+        self.graph
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use approx::assert_abs_diff_eq;
@@ -505,10 +526,9 @@ mod tests {
         for side in [Side::A, Side::B, Side::C, Side::D] {
             node = graph.neighbor(node, side).unwrap();
         }
-        let mut iterations = 0;
         let mut traverser = PeerTraverser::new(&graph, node);
-        while traverser.next(&graph).is_some() && iterations < 20 {
-            iterations += 1;
+        while let Some(node) = traverser.next(&graph) {
+            println!("{:?}", node);
         }
     }
 }
