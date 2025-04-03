@@ -3,6 +3,7 @@ use std::{collections::VecDeque, sync::LazyLock};
 use fxhash::FxHashSet;
 
 use crate::{
+    array_vec::ArrayVec,
     collision_math::Ray,
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},
@@ -329,15 +330,32 @@ impl PeerTraverser {
         depth: usize,
         mut allow_unchanged_path: bool,
     ) -> bool {
-        if depth == 2 {
+        if depth == 1 {
+            let child_paths = &DEPTH1_CHILD_PATHS[self.parent_path[0] as usize];
+            loop {
+                if allow_unchanged_path {
+                    if self.child_path_index >= child_paths.len() {
+                        return false;
+                    }
+                    let child_side = child_paths[self.child_path_index];
+                    let mut current_node = self.parent_path_nodes[2];
+                    current_node = graph.neighbor(current_node, child_side).unwrap();
+                    if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
+                        return true;
+                    }
+                }
+                self.child_path_index += 1;
+                allow_unchanged_path = true;
+            }
+        } else if depth == 2 {
             let child_paths =
                 &DEPTH2_CHILD_PATHS[self.parent_path[0] as usize][self.parent_path[1] as usize];
             loop {
                 if allow_unchanged_path {
-                    if self.child_path_index >= child_paths.1 {
+                    if self.child_path_index >= child_paths.len() {
                         return false;
                     }
-                    let child_path = &child_paths.0[self.child_path_index];
+                    let child_path = &child_paths[self.child_path_index];
                     let mut current_node = self.parent_path_nodes[2];
                     for &side in child_path {
                         current_node = graph.neighbor(current_node, side).unwrap(); // TODO
@@ -361,48 +379,58 @@ impl PeerTraverser {
     }
 }
 
-type Depth2PathList = ([[Side; 2]; 2], usize);
-
-static DEPTH2_CHILD_PATHS: LazyLock<[[Depth2PathList; Side::VALUES.len()]; Side::VALUES.len()]> =
+static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
     LazyLock::new(|| {
-        Side::VALUES.map(|parent_side0| {
-            Side::VALUES.map(|parent_side1| {
-                let mut path_list: Depth2PathList = ([[Side::A; 2]; 2], 0);
-                if parent_side0 == parent_side1 {
-                    return path_list;
+        Side::VALUES.map(|parent_side| {
+            let mut path_list: ArrayVec<Side, 5> = ArrayVec::new_with_default(Side::A);
+            for child_side in Side::iter() {
+                if !child_side.adjacent_to(parent_side) {
+                    continue;
                 }
-                for child_side0 in Side::iter() {
-                    if !child_side0.adjacent_to(parent_side0)
-                        || child_side0.adjacent_to(parent_side1)
+                path_list.push(child_side);
+            }
+            path_list
+        })
+    });
+
+static DEPTH2_CHILD_PATHS: LazyLock<
+    [[ArrayVec<[Side; 2], 2>; Side::VALUES.len()]; Side::VALUES.len()],
+> = LazyLock::new(|| {
+    Side::VALUES.map(|parent_side0| {
+        Side::VALUES.map(|parent_side1| {
+            let mut path_list: ArrayVec<[Side; 2], 2> = ArrayVec::new_with_default([Side::A; 2]);
+            if parent_side0 == parent_side1 {
+                return path_list;
+            }
+            for child_side0 in Side::iter() {
+                if !child_side0.adjacent_to(parent_side0) || child_side0.adjacent_to(parent_side1) {
+                    // Child paths need to have both parts adjacent to parent paths.
+                    continue;
+                }
+                for child_side1 in Side::iter() {
+                    if child_side0 == child_side1 {
+                        // Only look at child paths that obey shortlex rules
+                        continue;
+                    }
+                    if child_side0.adjacent_to(child_side1)
+                        && (child_side0 as usize) > (child_side1 as usize)
+                    {
+                        // Only look at child paths that obey shortlex rules
+                        continue;
+                    }
+                    if !child_side1.adjacent_to(parent_side0)
+                        || child_side1.adjacent_to(parent_side1)
                     {
                         // Child paths need to have both parts adjacent to parent paths.
                         continue;
                     }
-                    for child_side1 in Side::iter() {
-                        if child_side0 == child_side1 {
-                            // Only look at child paths that obey shortlex rules
-                            continue;
-                        }
-                        if child_side0.adjacent_to(child_side1)
-                            && (child_side0 as usize) > (child_side1 as usize)
-                        {
-                            // Only look at child paths that obey shortlex rules
-                            continue;
-                        }
-                        if !child_side1.adjacent_to(parent_side0)
-                            || child_side1.adjacent_to(parent_side1)
-                        {
-                            // Child paths need to have both parts adjacent to parent paths.
-                            continue;
-                        }
-                        path_list.0[path_list.1] = [child_side0, child_side1];
-                        path_list.1 += 1;
-                    }
+                    path_list.push([child_side0, child_side1]);
                 }
-                path_list
-            })
+            }
+            path_list
         })
-    });
+    })
+});
 
 trait GraphRef {
     fn length(&self, node: NodeId) -> u32;
