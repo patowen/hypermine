@@ -8,7 +8,6 @@ use crate::{
     graph::{Graph, NodeId},
     math::MVector,
     node::VoxelData,
-    traversal::PeerTraverser,
     voxel_math::Coords,
     world::Material,
 };
@@ -112,8 +111,8 @@ impl Horosphere {
             return true;
         }
 
-        let mut peers = PeerTraverser::new(node_id);
-        /*while let Some(peer) = peers.next(graph) {
+        /*let mut peers = PeerTraverser::new(node_id);
+        while let Some(peer) = peers.next(graph) {
             let Some(peer_horosphere) =
                 graph.partial_node_state(peer).candidate_horosphere.as_ref()
             else {

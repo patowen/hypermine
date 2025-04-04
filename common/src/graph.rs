@@ -7,7 +7,11 @@ use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    dodeca::Side, math::{MIsometry, MPoint}, node::{ChunkId, ChunkLayout, Node}, traversal::PeerTraverser, worldgen::{NodeState, PartialNodeState}
+    dodeca::Side,
+    math::{MIsometry, MPoint},
+    node::{ChunkId, ChunkLayout, Node},
+    peer_traverser::PeerTraverser,
+    worldgen::{NodeState, PartialNodeState},
 };
 
 /// Graph of the right dodecahedral tiling of H^3
