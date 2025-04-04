@@ -1,4 +1,7 @@
-use std::ops::Index;
+use std::{
+    fmt::Debug,
+    ops::{Index, IndexMut},
+};
 
 /// Like a `Vec` but with a fixed capacity
 pub struct ArrayVec<T, const CAPACITY: usize> {
@@ -41,6 +44,14 @@ impl<T, const CAPACITY: usize> ArrayVec<T, CAPACITY> {
     pub fn len(&self) -> usize {
         self.len
     }
+
+    #[inline]
+    pub fn fill(&mut self, value: T)
+    where
+        T: Clone,
+    {
+        self.contents.fill(value);
+    }
 }
 
 impl<T, const CAPACITY: usize> Index<usize> for ArrayVec<T, CAPACITY> {
@@ -50,5 +61,18 @@ impl<T, const CAPACITY: usize> Index<usize> for ArrayVec<T, CAPACITY> {
     fn index(&self, index: usize) -> &Self::Output {
         assert!(index < self.len);
         self.contents.index(index)
+    }
+}
+
+impl<T, const CAPACITY: usize> IndexMut<usize> for ArrayVec<T, CAPACITY> {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        assert!(index < self.len);
+        self.contents.index_mut(index)
+    }
+}
+
+impl<T: Debug, const CAPACITY: usize> Debug for ArrayVec<T, CAPACITY> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list().entries(self.iter()).finish()
     }
 }

@@ -13,18 +13,18 @@ pub struct PeerNode {
 }
 
 pub struct PeerTraverser {
-    current_depth: u8,
-    parent_path: [Side; 2],
-    parent_path_nodes: [NodeId; 3],
+    parent_path: ArrayVec<Side, 2>,
+    parent_path_nodes: ArrayVec<NodeId, 3>,
     child_path_index: usize,
 }
 
 impl PeerTraverser {
     pub fn new(base_node: NodeId) -> Self {
+        let mut parent_path_nodes = ArrayVec::new_with_default(NodeId::ROOT);
+        parent_path_nodes.push(base_node);
         PeerTraverser {
-            current_depth: 0,
-            parent_path: [Side::A; 2],
-            parent_path_nodes: [base_node; 3],
+            parent_path: ArrayVec::new_with_default(Side::A),
+            parent_path_nodes,
             child_path_index: 0,
         }
     }
@@ -94,19 +94,20 @@ impl PeerTraverser {
 
     #[must_use]
     fn increment_parent_path(&mut self, graph: &Graph) -> bool {
-        if self.current_depth == 0 {
-            self.current_depth = 1;
-            self.parent_path = [Side::A; 2];
+        if self.parent_path.len() == 0 {
+            self.parent_path.push(Side::A);
+            self.parent_path_nodes.push(NodeId::ROOT);
             return self.increment_parent_path_for_depth(graph, 1, true);
-        } else if self.current_depth == 1 {
+        } else if self.parent_path.len() == 1 {
             if self.increment_parent_path_for_depth(graph, 1, false) {
                 return true;
             }
-            self.current_depth = 2;
-            self.parent_path = [Side::A; 2];
+            self.parent_path.fill(Side::A);
+            self.parent_path.push(Side::A);
+            self.parent_path_nodes.push(NodeId::ROOT);
             return self.increment_parent_path_for_depth(graph, 1, true)
                 && self.increment_parent_path_for_depth(graph, 2, true);
-        } else if self.current_depth == 2 {
+        } else if self.parent_path.len() == 2 {
             return self.increment_parent_path_for_depth(graph, 2, false);
         }
         false
@@ -118,7 +119,7 @@ impl PeerTraverser {
         graph: &mut impl GraphRef,
         mut allow_unchanged_path: bool,
     ) -> Option<NodeId> {
-        if self.current_depth == 1 {
+        if self.parent_path.len() == 1 {
             let child_paths = &DEPTH1_CHILD_PATHS[self.parent_path[0] as usize];
             loop {
                 if allow_unchanged_path {
@@ -135,7 +136,7 @@ impl PeerTraverser {
                 self.child_path_index += 1;
                 allow_unchanged_path = true;
             }
-        } else if self.current_depth == 2 {
+        } else if self.parent_path.len() == 2 {
             let child_paths =
                 &DEPTH2_CHILD_PATHS[self.parent_path[0] as usize][self.parent_path[1] as usize];
             loop {
