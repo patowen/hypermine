@@ -1,9 +1,8 @@
-use std::{collections::VecDeque, sync::LazyLock};
+use std::collections::VecDeque;
 
 use fxhash::FxHashSet;
 
 use crate::{
-    array_vec::ArrayVec,
     collision_math::Ray,
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},

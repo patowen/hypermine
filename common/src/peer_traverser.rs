@@ -19,12 +19,12 @@ impl PeerNode {
     }
 
     #[inline]
-    pub fn path_from_peer(&self) -> impl Iterator<Item = Side> + use<> {
+    pub fn path_from_peer(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
         self.parent_path.into_iter().rev()
     }
 
     #[inline]
-    pub fn path_from_base(&self) -> impl Iterator<Item = Side> + use<> {
+    pub fn path_from_base(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
         self.child_path.into_iter()
     }
 }

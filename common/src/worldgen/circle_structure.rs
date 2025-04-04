@@ -8,6 +8,7 @@ use crate::{
     graph::{Graph, NodeId},
     math::MVector,
     node::VoxelData,
+    peer_traverser::PeerTraverser,
     voxel_math::Coords,
     world::Material,
 };
@@ -111,48 +112,36 @@ impl Horosphere {
             return true;
         }
 
-        /*let mut peers = PeerTraverser::new(node_id);
+        let mut peers = PeerTraverser::new(node_id);
         while let Some(peer) = peers.next(graph) {
-            let Some(peer_horosphere) =
-                graph.partial_node_state(peer).candidate_horosphere.as_ref()
+            let Some(peer_horosphere) = graph
+                .partial_node_state(peer.node())
+                .candidate_horosphere
+                .as_ref()
             else {
                 continue;
             };
-            if self.has_priority(peer_horosphere, node_id) {
-                continue;
-            }
-
             if !self.has_priority(peer_horosphere, node_id)
                 // Check that these structures can interfere by seeing if they share a node in common.
-                && peer_horosphere.should_propagate(parent_side)
-                && self.should_propagate(sibling_side)
+                && peer_horosphere.should_propagate_through_path(peer.path_from_peer())
+                && self.should_propagate_through_path(peer.path_from_base())
             {
                 return false;
             }
-        }*/
+        }
+        true
+    }
 
-        let length = graph.length(node_id);
-        for (parent_side, parent_id) in graph.descenders(node_id) {
-            for sibling_side in Side::iter().filter(|s| s.adjacent_to(parent_side)) {
-                let sibling_id = graph.neighbor(parent_id, sibling_side).unwrap();
-                if graph.length(sibling_id) != length {
-                    continue;
-                }
-                let Some(sibling_horosphere) = graph
-                    .partial_node_state(sibling_id)
-                    .candidate_horosphere
-                    .as_ref()
-                else {
-                    continue;
-                };
-                if !self.has_priority(sibling_horosphere, node_id)
-                    // Check that these structures can interfere by seeing if they share a node in common.
-                    && sibling_horosphere.should_propagate(parent_side)
-                    && self.should_propagate(sibling_side)
-                {
-                    return false;
-                }
+    fn should_propagate_through_path(&self, mut path: impl ExactSizeIterator<Item = Side>) -> bool {
+        let mut current_horosphere = self.clone();
+        while let Some(side) = path.next() {
+            if !current_horosphere.should_propagate(side) {
+                return false;
             }
+            if path.len() == 0 {
+                return true;
+            }
+            current_horosphere = current_horosphere.propagate(side);
         }
         true
     }
