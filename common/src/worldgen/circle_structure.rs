@@ -8,6 +8,7 @@ use crate::{
     graph::{Graph, NodeId},
     math::MVector,
     node::VoxelData,
+    traversal::PeerTraverser,
     voxel_math::Coords,
     world::Material,
 };
@@ -110,6 +111,26 @@ impl Horosphere {
             // The horosphere is propagated and so is already proven to exist.
             return true;
         }
+
+        let mut peers = PeerTraverser::new(node_id);
+        /*while let Some(peer) = peers.next(graph) {
+            let Some(peer_horosphere) =
+                graph.partial_node_state(peer).candidate_horosphere.as_ref()
+            else {
+                continue;
+            };
+            if self.has_priority(peer_horosphere, node_id) {
+                continue;
+            }
+
+            if !self.has_priority(peer_horosphere, node_id)
+                // Check that these structures can interfere by seeing if they share a node in common.
+                && peer_horosphere.should_propagate(parent_side)
+                && self.should_propagate(sibling_side)
+            {
+                return false;
+            }
+        }*/
 
         let length = graph.length(node_id);
         for (parent_side, parent_id) in graph.descenders(node_id) {

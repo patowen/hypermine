@@ -7,10 +7,7 @@ use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    dodeca::Side,
-    math::{MIsometry, MPoint},
-    node::{ChunkId, ChunkLayout, Node},
-    worldgen::{NodeState, PartialNodeState},
+    dodeca::Side, math::{MIsometry, MPoint}, node::{ChunkId, ChunkLayout, Node}, traversal::PeerTraverser, worldgen::{NodeState, PartialNodeState}
 };
 
 /// Graph of the right dodecahedral tiling of H^3
@@ -153,11 +150,9 @@ impl Graph {
         }
 
         self.ensure_partial_node_state(node_id);
-        for (side, parent) in self.descenders(node_id) {
-            for sibling_side in Side::iter().filter(|s| s.adjacent_to(side)) {
-                let sibling = self.ensure_neighbor(parent, sibling_side);
-                self.ensure_partial_node_state(sibling);
-            }
+        let mut peers = PeerTraverser::new(node_id);
+        while let Some(peer) = peers.ensure_next(self) {
+            self.ensure_partial_node_state(peer);
         }
 
         let node_state = NodeState::new(self, node_id);

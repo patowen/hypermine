@@ -8,7 +8,7 @@ use crate::{
     dodeca::{self, Side, Vertex},
     graph::{Graph, NodeId},
     math::{MIsometry, MPoint},
-    node::{ChunkId, Node},
+    node::ChunkId,
     proto::Position,
 };
 
@@ -223,6 +223,12 @@ impl<'a> RayTraverser<'a> {
     }
 }
 
+pub struct PeerNode {
+    node_id: NodeId,
+    path_from_peer: ArrayVec<Side, 2>,
+    path_from_base: ArrayVec<Side, 2>,
+}
+
 pub struct PeerTraverser {
     current_depth: u8,
     parent_path: [Side; 2],
@@ -231,7 +237,7 @@ pub struct PeerTraverser {
 }
 
 impl PeerTraverser {
-    pub fn new(graph: &Graph, base_node: NodeId) -> Self {
+    pub fn new(base_node: NodeId) -> Self {
         PeerTraverser {
             current_depth: 0,
             parent_path: [Side::A; 2],
@@ -374,10 +380,6 @@ impl PeerTraverser {
         let mut allow_unchanged_path = false;
         loop {
             if let Some(node) = self.increment_child_path(&mut graph, allow_unchanged_path) {
-                println!(
-                    "{:?}, {}, {}",
-                    self.parent_path, self.current_depth, self.child_path_index
-                );
                 return Some(node);
             }
             if !self.increment_parent_path(graph.as_ref()) {
@@ -525,12 +527,12 @@ mod tests {
         let mut graph = Graph::new(1);
         //ensure_nearby(&mut graph, &Position::origin(), 6.0);
         let mut node = NodeId::ROOT;
-        for side in [Side::A, Side::B, Side::C, Side::D] {
+        for side in [Side::B, Side::D, Side::C, Side::A] {
             node = graph.ensure_neighbor(node, side);
         }
-        let mut traverser = PeerTraverser::new(&graph, node);
+        let mut traverser = PeerTraverser::new(node);
         while let Some(node) = traverser.ensure_next(&mut graph) {
-            println!("{:?}", node);
+            println!("Location: {:?}", graph.node_path(node));
         }
     }
 }
