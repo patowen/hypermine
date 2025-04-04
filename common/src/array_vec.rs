@@ -4,6 +4,7 @@ use std::{
 };
 
 /// Like a `Vec` but with a fixed capacity
+#[derive(Clone, Copy)]
 pub struct ArrayVec<T, const CAPACITY: usize> {
     contents: [T; CAPACITY],
     len: usize,
@@ -51,6 +52,16 @@ impl<T, const CAPACITY: usize> ArrayVec<T, CAPACITY> {
         T: Clone,
     {
         self.contents.fill(value);
+    }
+}
+
+impl<T, const CAPACITY: usize> IntoIterator for ArrayVec<T, CAPACITY> {
+    type Item = T;
+
+    type IntoIter = std::iter::Take<std::array::IntoIter<T, CAPACITY>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.contents.into_iter().take(self.len)
     }
 }
 

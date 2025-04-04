@@ -8,8 +8,25 @@ use crate::{
 
 pub struct PeerNode {
     node_id: NodeId,
-    path_from_peer: ArrayVec<Side, 2>,
-    path_from_base: ArrayVec<Side, 2>,
+    parent_path: ArrayVec<Side, 2>,
+    child_path: ArrayVec<Side, 2>,
+}
+
+impl PeerNode {
+    #[inline]
+    pub fn node(&self) -> NodeId {
+        self.node_id
+    }
+
+    #[inline]
+    pub fn path_from_peer(&self) -> impl Iterator<Item = Side> + use<> {
+        self.parent_path.into_iter().rev()
+    }
+
+    #[inline]
+    pub fn path_from_base(&self) -> impl Iterator<Item = Side> + use<> {
+        self.child_path.into_iter()
+    }
 }
 
 pub struct PeerTraverser {
@@ -118,7 +135,7 @@ impl PeerTraverser {
         &mut self,
         graph: &mut impl GraphRef,
         mut allow_unchanged_path: bool,
-    ) -> Option<NodeId> {
+    ) -> Option<PeerNode> {
         if self.parent_path.len() == 1 {
             let child_paths = &DEPTH1_CHILD_PATHS[self.parent_path[0] as usize];
             loop {
@@ -130,7 +147,13 @@ impl PeerTraverser {
                     let mut current_node = self.parent_path_nodes[1];
                     current_node = graph.neighbor(current_node, child_side);
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        return Some(current_node);
+                        let mut result_child_path = ArrayVec::new_with_default(Side::A);
+                        result_child_path.push(child_side);
+                        return Some(PeerNode {
+                            node_id: current_node,
+                            parent_path: self.parent_path,
+                            child_path: result_child_path,
+                        });
                     }
                 }
                 self.child_path_index += 1;
@@ -150,7 +173,14 @@ impl PeerTraverser {
                         current_node = graph.neighbor(current_node, side); // TODO
                     }
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        return Some(current_node);
+                        let mut result_child_path = ArrayVec::new_with_default(Side::A);
+                        result_child_path.push(child_path[0]);
+                        result_child_path.push(child_path[1]);
+                        return Some(PeerNode {
+                            node_id: current_node,
+                            parent_path: self.parent_path,
+                            child_path: result_child_path,
+                        });
                     }
                 }
                 self.child_path_index += 1;
@@ -160,7 +190,7 @@ impl PeerTraverser {
         None
     }
 
-    fn next_impl(&mut self, mut graph: impl GraphRef) -> Option<NodeId> {
+    fn next_impl(&mut self, mut graph: impl GraphRef) -> Option<PeerNode> {
         let mut allow_unchanged_path = false;
         loop {
             if let Some(node) = self.increment_child_path(&mut graph, allow_unchanged_path) {
@@ -174,11 +204,11 @@ impl PeerTraverser {
         }
     }
 
-    pub fn next(&mut self, graph: &Graph) -> Option<NodeId> {
+    pub fn next(&mut self, graph: &Graph) -> Option<PeerNode> {
         self.next_impl(ImmutableGraphRef { graph })
     }
 
-    pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<NodeId> {
+    pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<PeerNode> {
         self.next_impl(MutableGraphRef { graph })
     }
 }
@@ -301,8 +331,16 @@ mod tests {
             node = graph.ensure_neighbor(node, side);
         }
         let mut traverser = PeerTraverser::new(node);
-        while let Some(node) = traverser.ensure_next(&mut graph) {
-            println!("Location: {:?}", graph.node_path(node));
+        while let Some(peer) = traverser.ensure_next(&mut graph) {
+            println!(
+                "Location: {:?}, {:?}, {:?}",
+                graph.node_path(peer.node()),
+                peer.path_from_base().collect::<Vec<_>>(),
+                peer.path_from_peer().collect::<Vec<_>>()
+            );
         }
+
+        // TODO: Add a test that shows that path_from_base and path_from_peer
+        // take you to the same node
     }
 }

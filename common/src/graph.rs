@@ -156,7 +156,7 @@ impl Graph {
         self.ensure_partial_node_state(node_id);
         let mut peers = PeerTraverser::new(node_id);
         while let Some(peer) = peers.ensure_next(self) {
-            self.ensure_partial_node_state(peer);
+            self.ensure_partial_node_state(peer.node());
         }
 
         let node_state = NodeState::new(self, node_id);
