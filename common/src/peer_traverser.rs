@@ -1,7 +1,8 @@
 use std::sync::LazyLock;
 
+use arrayvec::ArrayVec;
+
 use crate::{
-    array_vec::ArrayVec,
     dodeca::Side,
     graph::{Graph, NodeId},
 };
@@ -20,12 +21,12 @@ impl PeerNode {
 
     #[inline]
     pub fn path_from_peer(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
-        self.parent_path.into_iter().rev()
+        self.parent_path.clone().into_iter().rev()
     }
 
     #[inline]
     pub fn path_from_base(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
-        self.child_path.into_iter()
+        self.child_path.clone().into_iter()
     }
 }
 
@@ -37,11 +38,9 @@ pub struct PeerTraverser {
 
 impl PeerTraverser {
     pub fn new(base_node: NodeId) -> Self {
-        let mut parent_path_nodes = ArrayVec::new_with_default(NodeId::ROOT);
-        parent_path_nodes.push(base_node);
         PeerTraverser {
-            parent_path: ArrayVec::new_with_default(Side::A),
-            parent_path_nodes,
+            parent_path: ArrayVec::new(),
+            parent_path_nodes: ArrayVec::from_iter([base_node]),
             child_path_index: 0,
         }
     }
@@ -111,11 +110,12 @@ impl PeerTraverser {
 
     #[must_use]
     fn increment_parent_path(&mut self, graph: &Graph) -> bool {
-        if self.parent_path.len() == 0 {
+        let depth = self.parent_path.len();
+        if depth == 0 {
             self.parent_path.push(Side::A);
             self.parent_path_nodes.push(NodeId::ROOT);
             return self.increment_parent_path_for_depth(graph, 1, true);
-        } else if self.parent_path.len() == 1 {
+        } else if depth == 1 {
             if self.increment_parent_path_for_depth(graph, 1, false) {
                 return true;
             }
@@ -124,7 +124,7 @@ impl PeerTraverser {
             self.parent_path_nodes.push(NodeId::ROOT);
             return self.increment_parent_path_for_depth(graph, 1, true)
                 && self.increment_parent_path_for_depth(graph, 2, true);
-        } else if self.parent_path.len() == 2 {
+        } else if depth == 2 {
             return self.increment_parent_path_for_depth(graph, 2, false);
         }
         false
@@ -147,12 +147,10 @@ impl PeerTraverser {
                     let mut current_node = self.parent_path_nodes[1];
                     current_node = graph.neighbor(current_node, child_side);
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        let mut result_child_path = ArrayVec::new_with_default(Side::A);
-                        result_child_path.push(child_side);
                         return Some(PeerNode {
                             node_id: current_node,
-                            parent_path: self.parent_path,
-                            child_path: result_child_path,
+                            parent_path: self.parent_path.clone(),
+                            child_path: ArrayVec::from_iter([child_side]),
                         });
                     }
                 }
@@ -173,12 +171,12 @@ impl PeerTraverser {
                         current_node = graph.neighbor(current_node, side); // TODO
                     }
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
-                        let mut result_child_path = ArrayVec::new_with_default(Side::A);
+                        let mut result_child_path = ArrayVec::new();
                         result_child_path.push(child_path[0]);
                         result_child_path.push(child_path[1]);
                         return Some(PeerNode {
                             node_id: current_node,
-                            parent_path: self.parent_path,
+                            parent_path: self.parent_path.clone(),
                             child_path: result_child_path,
                         });
                     }
@@ -216,7 +214,7 @@ impl PeerTraverser {
 static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
     LazyLock::new(|| {
         Side::VALUES.map(|parent_side| {
-            let mut path_list: ArrayVec<Side, 5> = ArrayVec::new_with_default(Side::A);
+            let mut path_list: ArrayVec<Side, 5> = ArrayVec::new();
             for child_side in Side::iter() {
                 if !child_side.adjacent_to(parent_side) {
                     continue;
@@ -232,7 +230,7 @@ static DEPTH2_CHILD_PATHS: LazyLock<
 > = LazyLock::new(|| {
     Side::VALUES.map(|parent_side0| {
         Side::VALUES.map(|parent_side1| {
-            let mut path_list: ArrayVec<[Side; 2], 2> = ArrayVec::new_with_default([Side::A; 2]);
+            let mut path_list: ArrayVec<[Side; 2], 2> = ArrayVec::new();
             if parent_side0 == parent_side1 {
                 return path_list;
             }

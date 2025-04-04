@@ -34,7 +34,7 @@ impl Horosphere {
         let mut count = 1;
         for other in horospheres_to_average_iter {
             count += 1;
-            horosphere.average_with(graph, other, 1.0 / count as f32);
+            horosphere.average_with(other, 1.0 / count as f32);
         }
 
         horosphere.renormalize();
@@ -57,6 +57,8 @@ impl Horosphere {
     }
 
     pub fn should_propagate(&self, side: Side) -> bool {
+        // TODO: Consider adding epsilon to ensure floating point precision
+        // doesn't cause `average_with` to fail
         self.vector.mip(side.normal()) > -1.0
     }
 
@@ -67,20 +69,9 @@ impl Horosphere {
         }
     }
 
-    pub fn average_with(&mut self, graph: &Graph, other: Horosphere, other_weight: f32) {
-        // TODO: This assertion can fail. May need fuzz testing.
+    pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
         if self.owner != other.owner {
-            /*
-            [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C]
-            !=
-            [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
-             */
-            tracing::error!(
-                "average_with failed.\n{:?}\n!=\n{:?}",
-                graph.node_path(self.owner),
-                graph.node_path(other.owner)
-            );
-            panic!("average_with failed");
+            panic!("Tried to average two unrelated structures");
         }
         self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;
     }
