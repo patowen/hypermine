@@ -488,7 +488,7 @@ impl Sim {
 
         // Extend graph structure
         for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
-            ensure_nearby(&mut self.graph, position, self.cfg.view_distance * 0.5);
+            ensure_nearby(&mut self.graph, position, self.cfg.view_distance * 0.5); // TODO: Remove this hack
         }
 
         self.populate_fresh_graph_nodes();

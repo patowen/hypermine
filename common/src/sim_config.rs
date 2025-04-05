@@ -12,6 +12,10 @@ pub struct SimConfigRaw {
     pub rate: Option<u16>,
     /// Maximum distance at which anything can be seen in meters
     pub view_distance: Option<f32>,
+    /// Maximum distance at which new chunks will be generated in meters (defaults to view_distance)
+    pub chunk_generation_distance: Option<f32>,
+    /// Maximum distance at which fog becomes completely opaque in meters (defaults to view_distance)
+    pub fog_distance: Option<f32>,
     pub input_queue_size_ms: Option<u16>,
     /// Whether gameplay-like restrictions exist, such as limited inventory
     pub gameplay_enabled: Option<bool>,
@@ -38,6 +42,10 @@ pub struct SimConfig {
     pub step_interval: Duration,
     /// Maximum distance at which anything can be seen in absolute units
     pub view_distance: f32,
+    /// Maximum distance at which new chunks will be generate in absolute units
+    pub chunk_generation_distance: f32,
+    /// Maximum distance at which fog becomes completely opaque in absolute units
+    pub fog_distance: f32,
     pub input_queue_size: Duration,
     /// Whether gameplay-like restrictions exist, such as limited inventory
     pub gameplay_enabled: bool,
@@ -54,9 +62,16 @@ impl SimConfig {
         let chunk_size = x.chunk_size.unwrap_or(12);
         let voxel_size = x.voxel_size.unwrap_or(1.0);
         let meters_to_absolute = meters_to_absolute(chunk_size, voxel_size);
+        let view_distance = x.view_distance.unwrap_or(90.0) * meters_to_absolute;
         SimConfig {
             step_interval: Duration::from_secs(1) / x.rate.unwrap_or(30) as u32,
-            view_distance: x.view_distance.unwrap_or(90.0) * meters_to_absolute,
+            view_distance,
+            chunk_generation_distance: x
+                .chunk_generation_distance
+                .map_or(view_distance, |d| d * meters_to_absolute),
+            fog_distance: x
+                .fog_distance
+                .map_or(view_distance, |d| d * meters_to_absolute),
             input_queue_size: Duration::from_millis(x.input_queue_size_ms.unwrap_or(50).into()),
             gameplay_enabled: x.gameplay_enabled.unwrap_or(false),
             chunk_size,

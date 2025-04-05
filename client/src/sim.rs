@@ -223,7 +223,7 @@ impl Sim {
         traversal::ensure_nearby(
             &mut self.graph,
             &self.local_character_controller.oriented_position(),
-            self.cfg.view_distance,
+            self.cfg.chunk_generation_distance,
         );
 
         let step_interval = self.cfg.step_interval;
