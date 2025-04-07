@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::vk;
-use common::{dodeca, traversal};
+use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
 
@@ -397,11 +397,7 @@ impl Draw {
 
             let nearby_nodes_started = Instant::now();
             let nearby_nodes = if let Some(sim) = sim.as_deref() {
-                traversal::nearby_nodes(
-                    &sim.graph,
-                    &view,
-                    self.cfg.local_simulation.view_distance + dodeca::BOUNDING_SPHERE_RADIUS,
-                )
+                traversal::nearby_nodes(&sim.graph, &view, self.cfg.local_simulation.view_distance)
             } else {
                 vec![]
             };
