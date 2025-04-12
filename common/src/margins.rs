@@ -373,7 +373,7 @@ mod tests {
 
         // Populate relevant chunks
         for chunk in [current_chunk, node_neighbor_chunk, vertex_neighbor_chunk] {
-            *graph.get_chunk_mut(chunk).unwrap() = Chunk::Populated {
+            graph[chunk] = Chunk::Populated {
                 voxels: VoxelData::Solid(Material::Void),
                 surface: None,
                 old_surface: None,
@@ -382,8 +382,7 @@ mod tests {
 
         // Fill current chunk with appropriate materials
         {
-            let Chunk::Populated { voxels, .. } = graph.get_chunk_mut(current_chunk).unwrap()
-            else {
+            let Chunk::Populated { voxels, .. } = &mut graph[current_chunk] else {
                 unreachable!()
             };
             voxels.data_mut(12)[Coords([0, 7, 9]).to_index(12)] = Material::WoodPlanks;
@@ -392,9 +391,7 @@ mod tests {
 
         // Fill vertex_neighbor chunk with appropriate material
         {
-            let Chunk::Populated { voxels, .. } =
-                graph.get_chunk_mut(vertex_neighbor_chunk).unwrap()
-            else {
+            let Chunk::Populated { voxels, .. } = &mut graph[vertex_neighbor_chunk] else {
                 unreachable!()
             };
             voxels.data_mut(12)[Coords([5, 9, 11]).to_index(12)] = Material::Slate;
@@ -418,7 +415,7 @@ mod tests {
         let Chunk::Populated {
             voxels: current_voxels,
             ..
-        } = graph.get_chunk(current_chunk).unwrap()
+        } = &graph[current_chunk]
         else {
             unreachable!("node_neighbor_chunk should have been populated by this test");
         };
@@ -431,7 +428,7 @@ mod tests {
         let Chunk::Populated {
             voxels: node_neighbor_voxels,
             ..
-        } = graph.get_chunk(node_neighbor_chunk).unwrap()
+        } = &graph[node_neighbor_chunk]
         else {
             unreachable!("node_neighbor_chunk should have been populated by this test");
         };
@@ -444,7 +441,7 @@ mod tests {
         let Chunk::Populated {
             voxels: vertex_neighbor_voxels,
             ..
-        } = graph.get_chunk(vertex_neighbor_chunk).unwrap()
+        } = &graph[vertex_neighbor_chunk]
         else {
             unreachable!("vertex_neighbor_chunk should have been populated by this test");
         };

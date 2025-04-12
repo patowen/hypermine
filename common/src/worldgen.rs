@@ -739,7 +739,7 @@ mod test {
             let new_node = path.fold(NodeId::ROOT, |node, side| g.ensure_neighbor(node, side));
 
             // assigning state
-            *g.get_mut(new_node) = Node {
+            g[new_node] = Node {
                 partial_state: None,
                 state: {
                     let mut state = NodeState::new(&g, NodeId::ROOT);

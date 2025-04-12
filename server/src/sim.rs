@@ -318,7 +318,7 @@ impl Sim {
 
     fn snapshot_voxel_node(&self, node: NodeId) -> save::VoxelNode {
         let mut chunks = vec![];
-        let node_data = self.graph.get(node);
+        let node_data = &self.graph[node];
         for vertex in Vertex::iter() {
             if !self.modified_chunks.contains(&ChunkId::new(node, vertex)) {
                 continue;
@@ -469,7 +469,7 @@ impl Sim {
             spawns.spawns.push((id, dump_entity(&self.world, entity)));
         }
         for &chunk_id in self.modified_chunks.iter() {
-            let voxels = match self.graph.get(chunk_id.node).chunks[chunk_id.vertex] {
+            let voxels = match self.graph[chunk_id] {
                 Chunk::Populated { ref voxels, .. } => voxels,
                 _ => panic!("ungenerated chunk is marked as modified"),
             };
@@ -508,11 +508,7 @@ impl Sim {
             for &(node, _) in &nodes {
                 for vertex in dodeca::Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
-                    if let Chunk::Fresh = self
-                        .graph
-                        .get_chunk(chunk)
-                        .expect("all nodes must be populated before loading their chunks")
-                    {
+                    if let Chunk::Fresh = &self.graph[chunk] {
                         let params = ChunkParams::new(self.cfg.chunk_size, &mut self.graph, chunk);
                         self.graph.populate_chunk(chunk, params.generate_voxels());
                     }

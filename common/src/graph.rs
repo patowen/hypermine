@@ -105,16 +105,6 @@ impl Graph {
     }
 
     #[inline]
-    pub fn get(&self, node: NodeId) -> &Node {
-        &self.nodes[&node].value
-    }
-
-    #[inline]
-    pub fn get_mut(&mut self, node: NodeId) -> &mut Node {
-        &mut self.nodes.get_mut(&node).unwrap().value
-    }
-
-    #[inline]
     pub fn neighbor(&self, node: NodeId, which: Side) -> Option<NodeId> {
         self.nodes[&node].neighbors[which as usize]
     }
@@ -323,6 +313,22 @@ impl Graph {
         );
         self.nodes.get_mut(&a).unwrap().neighbors[side as usize] = Some(b);
         self.nodes.get_mut(&b).unwrap().neighbors[side as usize] = Some(a);
+    }
+}
+
+impl std::ops::Index<NodeId> for Graph {
+    type Output = Node;
+
+    #[inline]
+    fn index(&self, node_id: NodeId) -> &Node {
+        &self.nodes[&node_id].value
+    }
+}
+
+impl std::ops::IndexMut<NodeId> for Graph {
+    #[inline]
+    fn index_mut(&mut self, node_id: NodeId) -> &mut Node {
+        &mut self.nodes.get_mut(&node_id).unwrap().value
     }
 }
 
