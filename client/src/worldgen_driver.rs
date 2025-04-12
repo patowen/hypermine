@@ -44,6 +44,7 @@ impl WorldgenDriver {
         }
         let local_to_view = view.local.inverse();
 
+        traversal::ensure_nearby(graph, &view, chunk_generation_distance);
         let nearby_nodes = traversal::nearby_nodes(graph, &view, chunk_generation_distance);
 
         'nearby_nodes: for &(node, ref node_transform) in &nearby_nodes {

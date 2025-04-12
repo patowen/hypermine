@@ -222,11 +222,6 @@ impl Sim {
 
     pub fn step(&mut self, dt: Duration, net: &mut server::Handle) {
         self.local_character_controller.renormalize_orientation();
-        traversal::ensure_nearby(
-            &mut self.graph,
-            &self.local_character_controller.oriented_position(),
-            self.cfg.chunk_generation_distance,
-        );
         self.worldgen_driver.drive(
             self.view(),
             self.cfg.chunk_generation_distance,
