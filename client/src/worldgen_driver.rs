@@ -49,15 +49,6 @@ impl WorldgenDriver {
 
         'nearby_nodes: for &(node, ref node_transform) in &nearby_nodes {
             let node_to_view = local_to_view * node_transform;
-            let origin = node_to_view * MPoint::origin();
-
-            // Skip nodes beyond the chunk generation distance
-            if origin.distance(&MPoint::origin())
-                > chunk_generation_distance + dodeca::BOUNDING_SPHERE_RADIUS
-            {
-                continue;
-            }
-
             for vertex in Vertex::iter() {
                 let chunk_id = ChunkId::new(node, vertex);
 

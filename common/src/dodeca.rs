@@ -302,10 +302,14 @@ impl Vertex {
         *data::CHUNK_TO_DUAL_FACTOR_F64
     }
 
+    /// In dodeca-centric coordinates, the center of the smallest sphere that contains the entire
+    /// chunk defined by this vertex.
     pub fn chunk_bounding_sphere_center(self) -> &'static MPoint<f32> {
         &data::CHUNK_BOUNDING_SPHERE_CENTERS_F32[self as usize]
     }
 
+    /// In dodeca-centric coordinates, the center of the smallest sphere that contains the entire
+    /// chunk defined by this vertex.
     pub fn chunk_bounding_sphere_center_f64(self) -> &'static MPoint<f64> {
         &data::CHUNK_BOUNDING_SPHERE_CENTERS_F64[self as usize]
     }
