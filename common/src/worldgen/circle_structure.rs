@@ -206,7 +206,12 @@ mod test {
     use std::collections::BTreeMap;
 
     use super::*;
-    use crate::{dodeca::Side, math::MIsometry, proto::Position, traversal::ensure_nearby};
+    use crate::{
+        dodeca::Side,
+        math::MIsometry,
+        proto::Position,
+        traversal::{self, ensure_nearby, nearby_nodes},
+    };
     use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
     use fxhash::{FxHashMap, FxHashSet};
 
@@ -246,8 +251,8 @@ mod test {
             ensure_nearby(&mut graph, &Position { node: node_id, local: MIsometry::identity() }, 3.0);
         }
 
-        let fresh = graph.fresh().to_vec();
-        for node_id in fresh {
+        let all_nodes = nearby_nodes(&graph, &Position::origin(), f32::INFINITY);
+        for (node_id, _) in all_nodes {
             println!("{:?}", graph.node_path(node_id));
             graph.ensure_node_state(node_id);
         }
@@ -383,9 +388,9 @@ mod test {
         let mut num_sibling_nodes: BTreeMap<usize, u32> = BTreeMap::new();
 
         let mut graph = Graph::new(1);
-        ensure_nearby(&mut graph, &Position::origin(), 7.0);
-        let base_nodes = graph.fresh().to_vec();
-        for base_node in base_nodes {
+        ensure_nearby(&mut graph, &Position::origin(), 5.0);
+        let base_nodes = nearby_nodes(&graph, &Position::origin(), 5.0);
+        for (base_node, _) in base_nodes {
             /*let mut base_node = NodeId::ROOT;
             for side in [Side::A, Side::B, Side::C, Side::D] {
                 base_node = graph.ensure_neighbor(base_node, side);

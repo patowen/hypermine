@@ -5,7 +5,7 @@ use common::{
     graph::{Graph, NodeId},
     node::{Chunk, ChunkId},
     proto::Position,
-    traversal::ensure_nearby,
+    traversal::{ensure_nearby, nearby_nodes},
     worldgen::ChunkParams,
 };
 
@@ -39,10 +39,10 @@ fn build_graph(c: &mut Criterion) {
         b.iter(|| {
             let mut graph = Graph::new(12);
             ensure_nearby(&mut graph, &Position::origin(), 3.0);
-            let fresh = graph.fresh().to_vec();
+            let all_nodes = nearby_nodes(&graph, &Position::origin(), 3.0);
             graph.clear_fresh();
             let mut n = 0;
-            for node in fresh {
+            for (node, _) in all_nodes {
                 for vertex in Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
                     let params = ChunkParams::new(12, &mut graph, chunk);
