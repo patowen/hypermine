@@ -31,7 +31,6 @@ fn build_graph(c: &mut Criterion) {
                 n = graph.ensure_neighbor(n, Side::J);
             }
             assert_eq!(graph.len(), 1001);
-            graph.clear_fresh();
         })
     });
 
@@ -40,7 +39,6 @@ fn build_graph(c: &mut Criterion) {
             let mut graph = Graph::new(12);
             ensure_nearby(&mut graph, &Position::origin(), 3.0);
             let all_nodes = nearby_nodes(&graph, &Position::origin(), 3.0);
-            graph.clear_fresh();
             let mut n = 0;
             for (node, _) in all_nodes {
                 for vertex in Vertex::iter() {

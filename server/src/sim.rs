@@ -72,8 +72,6 @@ impl Sim {
         result
             .load_all_entities(save)
             .expect("save file must be of a valid format");
-        // Loading entities can cause graph nodes to also be created, so we should populate them before returning.
-        result.populate_fresh_graph_nodes();
         // As no players have logged in yet, and `snapshot` may be called before the first call of `step`,
         // make sure that `accumulated_changes` is empty to avoid accidental double-spawns of anything.
         result.accumulated_changes = AccumulatedChanges::default();
@@ -120,8 +118,6 @@ impl Sim {
 
     /// Loads all entities from the given save file. Note that this must be called before any players
     /// log in, as `accumulated_changes` will not properly reflect the entities that were loaded in.
-    /// It is also important to call `populate_fresh_graph_nodes` after calling this function to keep
-    /// `Sim` in a consistent state, as this function can expand the graph without populating the graph nodes.
     fn load_all_entities(&mut self, save: &save::Save) -> anyhow::Result<()> {
         let mut read = save.read()?;
         for node_hash in read.get_all_entity_node_ids()? {
@@ -494,16 +490,10 @@ impl Sim {
             + self.cfg.character.block_reach
             + 0.001;
 
-        // Extend graph structure
-        for (_, (position, _)) in self.world.query::<(&mut Position, &mut Character)>().iter() {
-            ensure_nearby(&mut self.graph, position, chunk_generation_distance);
-        }
-
-        self.populate_fresh_graph_nodes();
-
         // Load all chunks around entities corresponding to clients, which correspond to entities
         // with a "Character" component.
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
+            ensure_nearby(&mut self.graph, position, chunk_generation_distance);
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
                 let mut is_fresh_node = false;
@@ -630,12 +620,6 @@ impl Sim {
                 );
             }
         }
-    }
-
-    /// Should be called after any set of changes is made to the graph to ensure that the server
-    /// does not have any partially-initialized graph nodes.
-    fn populate_fresh_graph_nodes(&mut self) {
-        self.graph.clear_fresh();
     }
 
     fn new_id(&mut self) -> EntityId {

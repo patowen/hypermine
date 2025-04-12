@@ -87,10 +87,8 @@ impl Sim {
         chunk_load_parallelism: usize,
         local_character_id: EntityId,
     ) -> Self {
-        let mut graph = Graph::new(cfg.chunk_size);
-        graph.clear_fresh();
         Self {
-            graph,
+            graph: Graph::new(cfg.chunk_size),
             worldgen_driver: WorldgenDriver::new(chunk_load_parallelism),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
@@ -386,7 +384,6 @@ impl Sim {
             let node_id = self.graph.ensure_neighbor(node.parent, node.side);
             self.graph.ensure_node_state(node_id);
         }
-        self.graph.clear_fresh();
         for block_update in msg.block_updates.into_iter() {
             self.worldgen_driver
                 .apply_block_update(&mut self.graph, block_update);
