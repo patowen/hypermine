@@ -28,7 +28,9 @@ fn build_graph(c: &mut Criterion) {
             let mut n = NodeId::ROOT;
             for _ in 0..500 {
                 n = graph.ensure_neighbor(n, Side::A);
+                graph.ensure_node_state(n);
                 n = graph.ensure_neighbor(n, Side::J);
+                graph.ensure_node_state(n);
             }
             assert_eq!(graph.len(), 1001);
         })
