@@ -5,7 +5,8 @@ use hecs::Entity;
 use tracing::{debug, error, trace};
 
 use crate::{
-    local_character_controller::LocalCharacterController, metrics, prediction::PredictedMotion,
+    loader::Loader, local_character_controller::LocalCharacterController, metrics,
+    prediction::PredictedMotion, worldgen_driver::WorldgenDriver,
 };
 use common::{
     EntityId, GraphEntities, SimConfig, Step, character_controller,
@@ -13,7 +14,7 @@ use common::{
     graph::{Graph, NodeId},
     graph_ray_casting,
     math::{MDirection, MIsometry, MPoint},
-    node::{ChunkId, VoxelData},
+    node::VoxelData,
     proto::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         Inventory, Position,
@@ -39,10 +40,8 @@ const MATERIAL_PALETTE: [Material; 10] = [
 pub struct Sim {
     // World state
     pub graph: Graph,
-    /// Voxel data that have been downloaded from the server for chunks not yet introduced to the graph
-    preloaded_block_updates: FxHashMap<ChunkId, Vec<BlockUpdate>>,
-    /// Voxel data that has been fetched from the server but not yet introduced to the graph
-    pub preloaded_voxel_data: FxHashMap<ChunkId, VoxelData>,
+    /// Drives chunk generation
+    worldgen_driver: WorldgenDriver,
     pub graph_entities: GraphEntities,
     entity_ids: FxHashMap<EntityId, Entity>,
     pub world: hecs::World,
@@ -88,8 +87,7 @@ impl Sim {
         graph.clear_fresh();
         Self {
             graph,
-            preloaded_block_updates: FxHashMap::default(),
-            preloaded_voxel_data: FxHashMap::default(),
+            worldgen_driver: WorldgenDriver::new(),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -115,6 +113,11 @@ impl Sim {
             }),
             local_character_controller: LocalCharacterController::new(),
         }
+    }
+
+    pub fn init_worldgen_driver(&mut self, loader: &mut Loader, chunk_load_parallelism: usize) {
+        self.worldgen_driver
+            .init_work_queue(loader, chunk_load_parallelism);
     }
 
     /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.
@@ -224,6 +227,11 @@ impl Sim {
             &mut self.graph,
             &self.local_character_controller.oriented_position(),
             self.cfg.chunk_generation_distance,
+        );
+        self.worldgen_driver.drive(
+            self.view(),
+            self.cfg.chunk_generation_distance,
+            &mut self.graph,
         );
 
         let step_interval = self.cfg.step_interval;
@@ -386,23 +394,16 @@ impl Sim {
         }
         self.graph.clear_fresh();
         for block_update in msg.block_updates.into_iter() {
-            if !self.graph.update_block(&block_update) {
-                self.preloaded_block_updates
-                    .entry(block_update.chunk_id)
-                    .or_default()
-                    .push(block_update);
-            }
+            self.worldgen_driver
+                .apply_block_update(&mut self.graph, block_update);
         }
         for (chunk_id, voxel_data) in msg.voxel_data {
             let Some(voxel_data) = VoxelData::deserialize(&voxel_data, self.cfg.chunk_size) else {
                 tracing::error!("Voxel data received from server is of incorrect dimension");
                 continue;
             };
-            if self.graph.contains(chunk_id.node) {
-                self.graph.populate_chunk(chunk_id, voxel_data);
-            } else {
-                self.preloaded_voxel_data.insert(chunk_id, voxel_data);
-            }
+            self.worldgen_driver
+                .apply_voxel_data(&mut self.graph, chunk_id, voxel_data);
         }
         for (subject, new_entity) in msg.inventory_additions {
             self.world
@@ -417,19 +418,6 @@ impl Sim {
                 .unwrap()
                 .contents
                 .retain(|&id| id != removed_entity);
-        }
-    }
-
-    /// Adds established voxel data to the graph. This could come from world generation or sent from the server,
-    /// depending on whether the chunk has been modified.
-    pub fn add_chunk_to_graph(&mut self, chunk_id: ChunkId, voxels: VoxelData) {
-        self.graph.populate_chunk(chunk_id, voxels);
-
-        if let Some(block_updates) = self.preloaded_block_updates.remove(&chunk_id) {
-            for block_update in block_updates {
-                // The chunk was just populated, so a block update should always succeed.
-                assert!(self.graph.update_block(&block_update));
-            }
         }
     }
 
