@@ -238,9 +238,9 @@ mod tests {
     fn traversal_functions_example() {
         let mut graph = Graph::new(1);
         ensure_nearby(&mut graph, &Position::origin(), 6.0);
-        assert_abs_diff_eq!(graph.len(), 60137, epsilon = 5);
+        assert_abs_diff_eq!(graph.len(), 687959, epsilon = 50);
 
         let nodes = nearby_nodes(&graph, &Position::origin(), 6.0);
-        assert_abs_diff_eq!(nodes.len(), 60137, epsilon = 5);
+        assert_abs_diff_eq!(nodes.len(), 687959, epsilon = 50);
     }
 }

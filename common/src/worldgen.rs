@@ -671,8 +671,6 @@ fn hash(a: u64, b: u64) -> u64 {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::Chunks;
-    use crate::node::Node;
     use approx::*;
 
     const CHUNK_SIZE: u8 = 12;
@@ -739,15 +737,8 @@ mod test {
             let new_node = path.fold(NodeId::ROOT, |node, side| g.ensure_neighbor(node, side));
 
             // assigning state
-            g[new_node] = Node {
-                partial_state: None,
-                state: {
-                    let mut state = NodeState::new(&g, NodeId::ROOT);
-                    state.enviro.max_elevation = i as f32 + 1.0;
-                    Some(state)
-                },
-                chunks: Chunks::default(),
-            };
+            g.ensure_node_state(new_node);
+            g[new_node].state.as_mut().unwrap().enviro.max_elevation = i as f32 + 1.0;
         }
 
         let enviros = chunk_incident_enviro_factors(&mut g, ChunkId::new(NodeId::ROOT, Vertex::A));
