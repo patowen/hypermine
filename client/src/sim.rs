@@ -507,10 +507,11 @@ impl Sim {
             self.since_input_sent.as_secs_f32(),
         );
 
-        if let Some(up) = self.graph.get_relative_up(&view_position) {
-            self.local_character_controller
-                .update_position(view_position, up, !self.no_clip)
-        }
+        self.local_character_controller.update_position(
+            view_position,
+            self.graph.get_relative_up(&view_position).unwrap(),
+            !self.no_clip,
+        )
     }
 
     pub fn view(&self) -> Position {

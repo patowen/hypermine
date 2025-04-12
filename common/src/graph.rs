@@ -185,7 +185,7 @@ impl Graph {
     }
 
     /// For debugging purposes, returns the path to the node, prioritizing the first
-    /// one in shortlex order
+    /// one in shortlex order for reversed strings
     pub fn node_path(&self, mut node_id: NodeId) -> Vec<Side> {
         let mut node_path = Vec::new();
         while let Some(parent_side) = self.parent(node_id) {
