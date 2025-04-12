@@ -43,8 +43,15 @@ impl PeerNode {
 
 /// Allows traversal through all `PeerNode`s for a given base node.
 pub struct PeerTraverser {
+    /// The path leading from the base node to the ancestor node we're currently looking at
     parent_path: ArrayVec<Side, 2>,
+
+    /// The nodes traversed by `parent_path`, including the start and end nodes. The length of `parent_path_nodes`
+    /// is always one greater than the length of `parent_path`.
     parent_path_nodes: ArrayVec<NodeId, 3>,
+
+    /// Index into the appropriate element of `DEPTH1_CHILD_PATHS` or `DEPTH2_CHILD_PATHS`
+    /// that the iterator is currently on
     child_path_index: usize,
 }
 
@@ -95,6 +102,7 @@ impl PeerTraverser {
             return allow_unchanged_path;
         }
         loop {
+            // Check if we're done incrementing and exit if so.
             if allow_unchanged_path && self.parent_path_end_is_shortlex(depth) {
                 if let Some(node) = graph.neighbor(
                     self.parent_path_nodes[depth - 1],
@@ -107,6 +115,7 @@ impl PeerTraverser {
                 }
             }
 
+            // Otherwise, increment.
             let mut current_side = self.parent_path[depth - 1];
             current_side = Side::VALUES[(current_side as usize + 1) % Side::VALUES.len()]; // Cycle the current side
             if current_side == Side::A {
@@ -127,19 +136,26 @@ impl PeerTraverser {
     fn increment_parent_path(&mut self, graph: &Graph) -> bool {
         let depth = self.parent_path.len();
         if depth == 0 {
+            // We're on the first iteration. If there are any peers at all, there will be one at depth 1.
             self.parent_path.push(Side::A);
             self.parent_path_nodes.push(NodeId::ROOT);
             return self.increment_parent_path_for_depth(graph, 1, true);
         } else if depth == 1 {
+            // Last time this was called, we were on a depth 1 path. Check if there's another depth 1 path to use.
             if self.increment_parent_path_for_depth(graph, 1, false) {
                 return true;
             }
+            // Otherwise, switch to depth 2 paths.
             self.parent_path.fill(Side::A);
             self.parent_path.push(Side::A);
             self.parent_path_nodes.push(NodeId::ROOT);
+            // We're on the first depth 2 path, so we cannot make any assumptions. Therefore, to assure the resulting
+            // path is valid, we need to call `increment_parent_path_for_depth` for its depth 1 subpath first before
+            // calling it for the whole path.
             return self.increment_parent_path_for_depth(graph, 1, true)
                 && self.increment_parent_path_for_depth(graph, 2, true);
         } else if depth == 2 {
+            // Last time this was called, we were on a depth 2 path. Check if there's another depth 2 path to use.
             return self.increment_parent_path_for_depth(graph, 2, false);
         }
         false
@@ -206,26 +222,35 @@ impl PeerTraverser {
         None
     }
 
+    /// Returns the next peer node, or `None` if there are no peer nodes left. The implementation of `GraphRef`
+    /// is used to decide how to handle traversing through potentially not-yet-created nodes.
     fn next_impl(&mut self, mut graph: impl GraphRef) -> Option<PeerNode> {
         let mut allow_unchanged_path = false;
         loop {
+            // The parent path is guaranteed to be valid here. It starts valid before iteration because empty
+            // paths are valid, and it remains valid because it is only modified with `increment_parent_path`.
+            // Therefore, if we can increment the child path here, that is all we need to do.
             if let Some(node) = self.increment_child_path(&mut graph, allow_unchanged_path) {
                 return Some(node);
             }
+            // If there is no valid child path, we need to increment the parent path.
             if !self.increment_parent_path(graph.as_ref()) {
                 return None;
             }
-            allow_unchanged_path = true;
-            self.child_path_index = 0;
+            allow_unchanged_path = true; // The path has changed, so it won't necessarily need to be changed again.
+            self.child_path_index = 0; // Since we incremented the parent, we should make sure to reset the child path index.
         }
     }
 
+    /// Assumes the graph is expanded enough to traverse peer nodes and returns the next peer node,
+    /// or `None` if there are no peer nodes left. Panics if this assumption is false.
     pub fn next(&mut self, graph: &Graph) -> Option<PeerNode> {
-        self.next_impl(ImmutableGraphRef { graph })
+        self.next_impl(AssertingGraphRef { graph })
     }
 
+    /// Returns the next peer node, expanding the graph if necessary, or `None` if there are no peer nodes left.
     pub fn ensure_next(&mut self, graph: &mut Graph) -> Option<PeerNode> {
-        self.next_impl(MutableGraphRef { graph })
+        self.next_impl(ExpandingGraphRef { graph })
     }
 }
 
@@ -290,23 +315,25 @@ static DEPTH2_CHILD_PATHS: LazyLock<
     })
 });
 
+/// A reference to the graph used by `PeerTraverser` to decide how to handle not-yet-created nodes
 trait GraphRef: AsRef<Graph> {
     fn length(&self, node: NodeId) -> u32;
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
 }
 
-struct ImmutableGraphRef<'a> {
+/// A `GraphRef` that asserts that all the nodes it needs already exist
+struct AssertingGraphRef<'a> {
     graph: &'a Graph,
 }
 
-impl AsRef<Graph> for ImmutableGraphRef<'_> {
+impl AsRef<Graph> for AssertingGraphRef<'_> {
     #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
     }
 }
 
-impl GraphRef for ImmutableGraphRef<'_> {
+impl GraphRef for AssertingGraphRef<'_> {
     #[inline]
     fn length(&self, node: NodeId) -> u32 {
         self.graph.length(node)
@@ -318,11 +345,12 @@ impl GraphRef for ImmutableGraphRef<'_> {
     }
 }
 
-struct MutableGraphRef<'a> {
+/// A `GraphRef` that expands the graph as necessary
+struct ExpandingGraphRef<'a> {
     graph: &'a mut Graph,
 }
 
-impl GraphRef for MutableGraphRef<'_> {
+impl GraphRef for ExpandingGraphRef<'_> {
     #[inline]
     fn length(&self, node: NodeId) -> u32 {
         self.graph.length(node)
@@ -334,7 +362,7 @@ impl GraphRef for MutableGraphRef<'_> {
     }
 }
 
-impl AsRef<Graph> for MutableGraphRef<'_> {
+impl AsRef<Graph> for ExpandingGraphRef<'_> {
     #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
