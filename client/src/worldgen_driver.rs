@@ -38,11 +38,10 @@ impl WorldgenDriver {
             sim.add_chunk_to_graph(ChunkId::new(chunk.node, chunk.chunk), chunk.voxels);
         }
 
-        // Determine what to load/render
         let view = sim.view();
         if !sim.graph.contains(view.node) {
             // Graph is temporarily out of sync with the server; we don't know where we are, so
-            // there's no point trying to draw.
+            // there's no point trying to generate chunks.
             return;
         }
         let frustum_planes = frustum.planes();
@@ -51,8 +50,15 @@ impl WorldgenDriver {
         'nearby_nodes: for &(node, ref node_transform) in nearby_nodes {
             let node_to_view = local_to_view * node_transform;
             let origin = node_to_view * MPoint::origin();
+
+            // Skip nodes beyond the chunk generation distance
+            if origin.distance(&MPoint::origin())
+                > sim.cfg.chunk_generation_distance + dodeca::BOUNDING_SPHERE_RADIUS
+            {
+                continue;
+            }
+            // Don't bother generating chunks from nodes that are wholly outside the frustum.
             if !frustum_planes.contain(&origin, dodeca::BOUNDING_SPHERE_RADIUS) {
-                // Don't bother generating or drawing chunks from nodes that are wholly outside the frustum.
                 continue;
             }
 
