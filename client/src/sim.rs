@@ -5,8 +5,8 @@ use hecs::Entity;
 use tracing::{debug, error, trace};
 
 use crate::{
-    loader::Loader, local_character_controller::LocalCharacterController, metrics,
-    prediction::PredictedMotion, worldgen_driver::WorldgenDriver,
+    local_character_controller::LocalCharacterController, metrics, prediction::PredictedMotion,
+    worldgen_driver::WorldgenDriver,
 };
 use common::{
     EntityId, GraphEntities, SimConfig, Step, character_controller,
@@ -82,12 +82,16 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(cfg: SimConfig, local_character_id: EntityId) -> Self {
+    pub fn new(
+        cfg: SimConfig,
+        chunk_load_parallelism: usize,
+        local_character_id: EntityId,
+    ) -> Self {
         let mut graph = Graph::new(cfg.chunk_size);
         graph.clear_fresh();
         Self {
             graph,
-            worldgen_driver: WorldgenDriver::new(),
+            worldgen_driver: WorldgenDriver::new(chunk_load_parallelism),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),
             world: hecs::World::new(),
@@ -113,11 +117,6 @@ impl Sim {
             }),
             local_character_controller: LocalCharacterController::new(),
         }
-    }
-
-    pub fn init_worldgen_driver(&mut self, loader: &mut Loader, chunk_load_parallelism: usize) {
-        self.worldgen_driver
-            .init_work_queue(loader, chunk_load_parallelism);
     }
 
     /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.

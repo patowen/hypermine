@@ -10,14 +10,10 @@ use common::{
 };
 use fxhash::FxHashMap;
 use metrics::histogram;
-
-use crate::{
-    graphics::Base,
-    loader::{Cleanup, LoadCtx, LoadFuture, Loadable, Loader, WorkQueue},
-};
+use tokio::sync::mpsc;
 
 pub struct WorldgenDriver {
-    work_queue: Option<WorkQueue<ChunkDesc>>, // TODO: This WorkQueue likely suffers from use-after-free due to graphics coupling
+    work_queue: WorkQueue,
     /// Voxel data that have been downloaded from the server for chunks not yet introduced to the graph
     preloaded_block_updates: FxHashMap<ChunkId, Vec<BlockUpdate>>,
     /// Voxel data that has been fetched from the server but not yet introduced to the graph
@@ -25,28 +21,19 @@ pub struct WorldgenDriver {
 }
 
 impl WorldgenDriver {
-    pub fn new() -> Self {
+    pub fn new(chunk_load_parallelism: usize) -> Self {
         Self {
-            work_queue: None,
+            work_queue: WorkQueue::new(chunk_load_parallelism),
             preloaded_block_updates: FxHashMap::default(),
             preloaded_voxel_data: FxHashMap::default(),
         }
     }
 
-    pub fn init_work_queue(&mut self, loader: &mut Loader, chunk_load_parallelism: usize) {
-        self.work_queue = Some(loader.make_queue(chunk_load_parallelism));
-    }
-
     pub fn drive(&mut self, view: Position, chunk_generation_distance: f32, graph: &mut Graph) {
-        if self.work_queue.is_none() {
-            // If there's no work queue to use, it is impossible to generate chunks.
-            return;
-        };
-
         let drive_worldgen_started = Instant::now();
 
         // Check for chunks that have finished generating
-        while let Some(chunk) = self.work_queue.as_mut().unwrap().poll() {
+        while let Some(chunk) = self.work_queue.poll() {
             self.add_chunk_to_graph(graph, ChunkId::new(chunk.node, chunk.chunk), chunk.voxels);
         }
 
@@ -90,10 +77,7 @@ impl WorldgenDriver {
                     common::worldgen::ChunkParams::new(graph.layout().dimension(), graph, chunk_id);
                 if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk_id) {
                     self.add_chunk_to_graph(graph, chunk_id, voxel_data);
-                } else if (self.work_queue.as_mut().unwrap())
-                    .load(ChunkDesc { node, params })
-                    .is_ok()
-                {
+                } else if self.work_queue.load(ChunkDesc { node, params }) {
                     graph[chunk_id] = Chunk::Generating;
                 } else {
                     // No capacity is available in the work queue. Stop trying to prepare chunks to generate.
@@ -156,20 +140,48 @@ struct LoadedChunk {
     voxels: VoxelData,
 }
 
-impl Cleanup for LoadedChunk {
-    // TODO: `Base` is unused. Try to uncouple Loader from graphics.
-    unsafe fn cleanup(self, _gfx: &Base) {}
+struct WorkQueue {
+    _runtime: tokio::runtime::Runtime,
+    send: tokio::sync::mpsc::Sender<ChunkDesc>,
+    recv: tokio::sync::mpsc::Receiver<LoadedChunk>,
 }
 
-impl Loadable for ChunkDesc {
-    type Output = LoadedChunk;
-    fn load(self, _ctx: &LoadCtx) -> LoadFuture<'_, Self::Output> {
-        Box::pin(async move {
-            Ok(LoadedChunk {
-                node: self.node,
-                chunk: self.params.chunk(),
-                voxels: self.params.generate_voxels(),
-            })
-        })
+impl WorkQueue {
+    pub fn new(chunk_load_parallelism: usize) -> Self {
+        let runtime = tokio::runtime::Builder::new_multi_thread().build().unwrap();
+
+        let (input_send, mut input_recv) = mpsc::channel::<ChunkDesc>(chunk_load_parallelism);
+        let (output_send, output_recv) = mpsc::channel::<LoadedChunk>(chunk_load_parallelism);
+        runtime.spawn(async move {
+            while let Some(x) = input_recv.recv().await {
+                let out = output_send.clone();
+                tokio::spawn(async move {
+                    let loaded_chunk = LoadedChunk {
+                        node: x.node,
+                        chunk: x.params.chunk(),
+                        voxels: x.params.generate_voxels(),
+                    };
+                    let _ = out.send(loaded_chunk).await;
+                });
+            }
+        });
+
+        Self {
+            _runtime: runtime,
+            send: input_send,
+            recv: output_recv,
+        }
+    }
+
+    /// Begin loading a single item, if capacity is available
+    #[must_use]
+    pub fn load(&mut self, x: ChunkDesc) -> bool {
+        self.send.try_send(x).is_ok()
+    }
+
+    /// Fetch a load result if one is ready, freeing capacity
+    pub fn poll(&mut self) -> Option<LoadedChunk> {
+        let result = self.recv.try_recv().ok()?;
+        Some(result)
     }
 }

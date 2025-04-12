@@ -229,10 +229,6 @@ impl Draw {
         }
     }
 
-    pub fn loader_mut(&mut self) -> &mut Loader {
-        &mut self.loader
-    }
-
     /// Called with server-defined world parameters once they're known
     pub fn configure(&mut self, cfg: &SimConfig) {
         let voxels = Voxels::new(
