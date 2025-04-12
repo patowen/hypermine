@@ -7,6 +7,14 @@ use crate::{
     graph::{Graph, NodeId},
 };
 
+/// Details relating to a specific peer node. For a given base node, a peer node is
+/// any node of the same depth as the base node where it is possible to reach the
+/// same node from both the base and the peer node without "going backwards". Going backwards
+/// in this sense means going from a node with a higher depth to a node with a lower depth.
+///
+/// Peer nodes are important because if worldgen produces a structure at a given base node
+/// and another structure at a given peer node, those two structures could potentially intersect
+/// if care is not taken. Checking the peer nodes in advance will prevent this.
 pub struct PeerNode {
     node_id: NodeId,
     parent_path: ArrayVec<Side, 2>,
@@ -14,22 +22,26 @@ pub struct PeerNode {
 }
 
 impl PeerNode {
+    /// The ID of the peer node
     #[inline]
     pub fn node(&self) -> NodeId {
         self.node_id
     }
 
+    /// The sequence of sides that takes you from the peer node to the shared child node
     #[inline]
-    pub fn path_from_peer(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
+    pub fn path_from_peer(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
         self.parent_path.clone().into_iter().rev()
     }
 
+    /// The sequence of sides that takes you from the base node to the shared child node
     #[inline]
-    pub fn path_from_base(&self) -> impl ExactSizeIterator<Item = Side> + use<> {
+    pub fn path_from_base(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
         self.child_path.clone().into_iter()
     }
 }
 
+/// Allows traversal through all `PeerNode`s for a given base node.
 pub struct PeerTraverser {
     parent_path: ArrayVec<Side, 2>,
     parent_path_nodes: ArrayVec<NodeId, 3>,
@@ -46,7 +58,7 @@ impl PeerTraverser {
     }
 
     /// Assuming `parent_path` obeys shortlex rules up to right before the last
-    /// element for a given depth,
+    /// element for a given depth, returns whether it still obeys shortlex rules.
     fn parent_path_end_is_shortlex(&self, depth: usize) -> bool {
         if depth <= 1 {
             // One-element node strings are always shortlex.
@@ -59,17 +71,18 @@ impl PeerTraverser {
             return false;
         }
         if last.adjacent_to(second_last) && (last as usize) < (second_last as usize) {
-            // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
+            // Unnecessarily having a higher side index first is not valid (lex part of shortlex).
+            // This is because adjacent sides in a path can always be swapped, still leading to the same node.
             return false;
         }
         true
     }
 
     /// Assuming `parent_path` and `parent_path_nodes` is already valid apart from possibly the last node,
-    /// iterates to the next valid path for the given depth.
-    /// Returns `false` if this is not possible.
+    /// increments to the next valid `parent_path` for the given depth and updates `parent_path_nodes`.
     /// If `allow_unchanged_path` is true, the `parent_path` will not be incremented if it is already valid, but
-    /// the `parent_path_nodes` still will.
+    /// `parent_path_nodes` will still be updated.
+    /// Returns `false` if no such valid path exists.
     #[must_use]
     fn increment_parent_path_for_depth(
         &mut self,
@@ -108,6 +121,8 @@ impl PeerTraverser {
         }
     }
 
+    /// Increments to the next valid `parent_path` for the given depth and updates `parent_path_nodes`.
+    /// Returns `false` if no such valid path exists.
     #[must_use]
     fn increment_parent_path(&mut self, graph: &Graph) -> bool {
         let depth = self.parent_path.len();
@@ -130,6 +145,9 @@ impl PeerTraverser {
         false
     }
 
+    /// Increments `child_path_index` to the index of the next valid path and returns the associated `PeerNode`.
+    /// If `allow_unchanged_path` is true, the `child_path_index` will not be incremented if it is already valid.
+    /// Returns `None` if no such valid path exists.
     #[must_use]
     fn increment_child_path(
         &mut self,
@@ -168,7 +186,7 @@ impl PeerTraverser {
                     let child_path = &child_paths[self.child_path_index];
                     let mut current_node = self.parent_path_nodes[2];
                     for &side in child_path {
-                        current_node = graph.neighbor(current_node, side); // TODO
+                        current_node = graph.neighbor(current_node, side);
                     }
                     if graph.length(current_node) == graph.length(self.parent_path_nodes[0]) {
                         let mut result_child_path = ArrayVec::new();
@@ -211,9 +229,11 @@ impl PeerTraverser {
     }
 }
 
+/// All paths that are compatible with the given parent path of length 1
 static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
     LazyLock::new(|| {
         Side::VALUES.map(|parent_side| {
+            // The main constraint is that all parent sides need to be adjacent to all child sides.
             let mut path_list: ArrayVec<Side, 5> = ArrayVec::new();
             for child_side in Side::iter() {
                 if !child_side.adjacent_to(parent_side) {
@@ -225,6 +245,7 @@ static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
         })
     });
 
+/// All paths that are compatible with the given parent path of length 2
 static DEPTH2_CHILD_PATHS: LazyLock<
     [[ArrayVec<[Side; 2], 2>; Side::VALUES.len()]; Side::VALUES.len()],
 > = LazyLock::new(|| {
@@ -232,8 +253,11 @@ static DEPTH2_CHILD_PATHS: LazyLock<
         Side::VALUES.map(|parent_side1| {
             let mut path_list: ArrayVec<[Side; 2], 2> = ArrayVec::new();
             if parent_side0 == parent_side1 {
+                // Backtracking parent paths are irrelevant and may result in more child paths than
+                // can fit in the ArrayVec, so skip these.
                 return path_list;
             }
+            // The main constraint is that all parent sides need to be adjacent to all child sides.
             for child_side0 in Side::iter() {
                 if !child_side0.adjacent_to(parent_side0) || !child_side0.adjacent_to(parent_side1)
                 {
@@ -241,14 +265,15 @@ static DEPTH2_CHILD_PATHS: LazyLock<
                     continue;
                 }
                 for child_side1 in Side::iter() {
+                    // To avoid redundancies, only look at child paths that obey shortlex rules.
                     if child_side0 == child_side1 {
-                        // Only look at child paths that obey shortlex rules
+                        // Child path backtracks and should be discounted.
                         continue;
                     }
                     if child_side0.adjacent_to(child_side1)
                         && (child_side0 as usize) > (child_side1 as usize)
                     {
-                        // Only look at child paths that obey shortlex rules
+                        // There is a lexicographically earlier child path, so this should be discounted.
                         continue;
                     }
                     if !child_side1.adjacent_to(parent_side0)
@@ -318,7 +343,22 @@ impl AsRef<Graph> for MutableGraphRef<'_> {
 
 #[cfg(test)]
 mod tests {
+    use fxhash::FxHashSet;
+
     use super::*;
+
+    // Returns the `NodeId` corresponding to the given path
+    fn node_from_path(
+        graph: &mut Graph,
+        start_node: NodeId,
+        path: impl IntoIterator<Item = Side>,
+    ) -> NodeId {
+        let mut current_node = start_node;
+        for side in path {
+            current_node = graph.ensure_neighbor(current_node, side);
+        }
+        current_node
+    }
 
     #[test]
     fn peer_traverser_example() {
@@ -328,17 +368,80 @@ mod tests {
         for side in [Side::B, Side::D, Side::C, Side::A] {
             node = graph.ensure_neighbor(node, side);
         }
+
+        let expected_paths: &[(&[Side], &[Side])] = &[
+            (&[Side::A], &[Side::B]),
+            (&[Side::A], &[Side::E]),
+            (&[Side::A], &[Side::I]),
+            (&[Side::C], &[Side::B]),
+            (&[Side::C], &[Side::F]),
+            (&[Side::C], &[Side::H]),
+            (&[Side::D], &[Side::H]),
+            (&[Side::D], &[Side::I]),
+            (&[Side::D], &[Side::K]),
+            (&[Side::C, Side::A], &[Side::B, Side::D]),
+            (&[Side::D, Side::A], &[Side::I, Side::C]),
+            (&[Side::D, Side::C], &[Side::H, Side::A]),
+        ];
+
         let mut traverser = PeerTraverser::new(node);
-        while let Some(peer) = traverser.ensure_next(&mut graph) {
-            println!(
-                "Location: {:?}, {:?}, {:?}",
-                graph.node_path(peer.node()),
+        for expected_path in expected_paths {
+            let peer = traverser.ensure_next(&mut graph).unwrap();
+            assert_eq!(
+                peer.path_from_peer().collect::<Vec<_>>(),
+                expected_path.0.to_vec(),
+            );
+            assert_eq!(
                 peer.path_from_base().collect::<Vec<_>>(),
-                peer.path_from_peer().collect::<Vec<_>>()
+                expected_path.1.to_vec(),
             );
         }
 
-        // TODO: Add a test that shows that path_from_base and path_from_peer
-        // take you to the same node
+        assert!(traverser.ensure_next(&mut graph).is_none());
+    }
+
+    #[test]
+    fn peer_definition_holds() {
+        let mut graph = Graph::new(1);
+        let base_node = node_from_path(
+            &mut graph,
+            NodeId::ROOT,
+            [Side::B, Side::D, Side::C, Side::A],
+        );
+        let mut found_peer_nodes = FxHashSet::default();
+        let mut traverser = PeerTraverser::new(base_node);
+        while let Some(peer) = traverser.ensure_next(&mut graph) {
+            let peer_node = peer.node();
+
+            assert!(
+                found_peer_nodes.insert(peer_node),
+                "The same peer node must not be returned more than once."
+            );
+
+            let destination_from_base =
+                node_from_path(&mut graph, base_node, peer.path_from_base());
+            let destination_from_peer =
+                node_from_path(&mut graph, peer_node, peer.path_from_peer());
+
+            assert_eq!(
+                graph.length(base_node),
+                graph.length(peer_node),
+                "The base and peer nodes must have the same depth in the graph."
+            );
+            assert_eq!(
+                graph.length(base_node) + peer.path_from_base().len() as u32,
+                graph.length(destination_from_base),
+                "path_from_base must not backtrack to a parent node."
+            );
+            assert_eq!(
+                graph.length(peer_node) + peer.path_from_peer().len() as u32,
+                graph.length(destination_from_peer),
+                "path_from_peer must not backtrack to a parent node."
+            );
+            assert_eq!(
+                destination_from_base, destination_from_peer,
+                "path_from_base and path_from_peer must lead to the same node."
+            );
+        }
     }
 }
