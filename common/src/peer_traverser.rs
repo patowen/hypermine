@@ -391,11 +391,11 @@ mod tests {
     #[test]
     fn peer_traverser_example() {
         let mut graph = Graph::new(1);
-        //ensure_nearby(&mut graph, &Position::origin(), 6.0);
-        let mut node = NodeId::ROOT;
-        for side in [Side::B, Side::D, Side::C, Side::A] {
-            node = graph.ensure_neighbor(node, side);
-        }
+        let base_node = node_from_path(
+            &mut graph,
+            NodeId::ROOT,
+            [Side::B, Side::D, Side::C, Side::A],
+        );
 
         let expected_paths: &[(&[Side], &[Side])] = &[
             (&[Side::A], &[Side::B]),
@@ -412,7 +412,7 @@ mod tests {
             (&[Side::D, Side::C], &[Side::H, Side::A]),
         ];
 
-        let mut traverser = PeerTraverser::new(node);
+        let mut traverser = PeerTraverser::new(base_node);
         for expected_path in expected_paths {
             let peer = traverser.ensure_next(&mut graph).unwrap();
             assert_eq!(
@@ -471,5 +471,71 @@ mod tests {
                 "path_from_base and path_from_peer must lead to the same node."
             );
         }
+    }
+
+    #[test]
+    fn alternative_implementation() {
+        // Tests that the traverser's implementation is equivalent to a much simpler implementation that returns
+        // everything at once instead of maintaining a state machine.
+        let mut graph = Graph::new(1);
+        let base_node = node_from_path(
+            &mut graph,
+            NodeId::ROOT,
+            [Side::B, Side::D, Side::C, Side::A],
+        );
+        let mut traverser = PeerTraverser::new(base_node);
+
+        // Depth 1 paths
+        for (parent_side, parent_node) in graph.descenders(base_node) {
+            for &child_side in &DEPTH1_CHILD_PATHS[parent_side as usize] {
+                let peer_node = graph.ensure_neighbor(parent_node, child_side);
+                if graph.length(peer_node) == graph.length(base_node) {
+                    assert_peer_node_eq(
+                        PeerNode {
+                            node_id: peer_node,
+                            parent_path: ArrayVec::from_iter([parent_side]),
+                            child_path: ArrayVec::from_iter([child_side]),
+                        },
+                        traverser.ensure_next(&mut graph).unwrap(),
+                    );
+                }
+            }
+        }
+
+        // Depth 2 paths
+        for (parent_side0, parent_node0) in graph.descenders(base_node) {
+            for (parent_side1, parent_node1) in graph.descenders(parent_node0) {
+                // Avoid redundancies by enforcing shortlex order
+                if parent_side1.adjacent_to(parent_side0)
+                    && (parent_side1 as usize) < (parent_side0 as usize)
+                {
+                    continue;
+                }
+                for &child_sides in
+                    &DEPTH2_CHILD_PATHS[parent_side0 as usize][parent_side1 as usize]
+                {
+                    let peer_node_parent = graph.ensure_neighbor(parent_node1, child_sides[0]);
+                    let peer_node = graph.ensure_neighbor(peer_node_parent, child_sides[1]);
+                    if graph.length(peer_node) == graph.length(base_node) {
+                        assert_peer_node_eq(
+                            PeerNode {
+                                node_id: peer_node,
+                                parent_path: ArrayVec::from_iter([parent_side0, parent_side1]),
+                                child_path: ArrayVec::from_iter(child_sides),
+                            },
+                            traverser.ensure_next(&mut graph).unwrap(),
+                        );
+                    }
+                }
+            }
+        }
+
+        assert!(traverser.ensure_next(&mut graph).is_none());
+    }
+
+    fn assert_peer_node_eq(left: PeerNode, right: PeerNode) {
+        assert_eq!(left.node_id, right.node_id);
+        assert_eq!(left.parent_path, right.parent_path);
+        assert_eq!(left.child_path, right.child_path);
     }
 }
