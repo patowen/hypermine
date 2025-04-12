@@ -506,12 +506,25 @@ impl Sim {
         for (_, (position, _)) in self.world.query::<(&Position, &Character)>().iter() {
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
+                let mut is_fresh_node = false;
                 for vertex in dodeca::Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
-                    if let Chunk::Fresh = &self.graph[chunk] {
+                    if !matches!(self.graph[chunk], Chunk::Fresh) {
+                        continue;
+                    }
+                    is_fresh_node = true;
+                    if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk) {
+                        self.modified_chunks.insert(chunk);
+                        self.graph.populate_chunk(chunk, voxel_data);
+                    } else {
                         let params = ChunkParams::new(self.cfg.chunk_size, &mut self.graph, chunk);
                         self.graph.populate_chunk(chunk, params.generate_voxels());
                     }
+                }
+                if is_fresh_node {
+                    // Clients should know about new nodes the server generates, since otherwise, they might
+                    // not know where they are.
+                    self.accumulated_changes.fresh_nodes.push(node);
                 }
             }
         }
@@ -622,21 +635,7 @@ impl Sim {
     /// Should be called after any set of changes is made to the graph to ensure that the server
     /// does not have any partially-initialized graph nodes.
     fn populate_fresh_graph_nodes(&mut self) {
-        let fresh_nodes = self.graph.fresh().to_vec();
         self.graph.clear_fresh();
-
-        self.accumulated_changes
-            .fresh_nodes
-            .extend_from_slice(&fresh_nodes);
-        for fresh_node in fresh_nodes.iter().copied() {
-            for vertex in Vertex::iter() {
-                let chunk = ChunkId::new(fresh_node, vertex);
-                if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk) {
-                    self.modified_chunks.insert(chunk);
-                    self.graph.populate_chunk(chunk, voxel_data)
-                }
-            }
-        }
     }
 
     fn new_id(&mut self) -> EntityId {
