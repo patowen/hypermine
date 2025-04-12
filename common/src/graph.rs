@@ -10,8 +10,6 @@ use crate::{
     dodeca::Side,
     math::{MIsometry, MPoint},
     node::{ChunkId, ChunkLayout, Node},
-    peer_traverser::PeerTraverser,
-    worldgen::{NodeState, PartialNodeState},
 };
 
 /// Graph of the right dodecahedral tiling of H^3
@@ -98,44 +96,6 @@ impl Graph {
     #[inline]
     pub fn length(&self, node: NodeId) -> u32 {
         self.nodes[&node].length
-    }
-
-    #[inline]
-    pub fn partial_node_state(&self, node_id: NodeId) -> &PartialNodeState {
-        self.nodes[&node_id].value.partial_state.as_ref().unwrap()
-    }
-
-    pub fn ensure_partial_node_state(&mut self, node_id: NodeId) {
-        if self.nodes[&node_id].value.partial_state.is_some() {
-            return;
-        }
-
-        for (_, parent) in self.descenders(node_id) {
-            self.ensure_node_state(parent);
-        }
-
-        let partial_node_state = PartialNodeState::new(self, node_id);
-        self.nodes.get_mut(&node_id).unwrap().value.partial_state = Some(partial_node_state);
-    }
-
-    #[inline]
-    pub fn node_state(&self, node_id: NodeId) -> &NodeState {
-        self.nodes[&node_id].value.state.as_ref().unwrap()
-    }
-
-    pub fn ensure_node_state(&mut self, node_id: NodeId) {
-        if self.nodes[&node_id].value.state.is_some() {
-            return;
-        }
-
-        self.ensure_partial_node_state(node_id);
-        let mut peers = PeerTraverser::new(node_id);
-        while let Some(peer) = peers.ensure_next(self) {
-            self.ensure_partial_node_state(peer.node());
-        }
-
-        let node_state = NodeState::new(self, node_id);
-        self.nodes.get_mut(&node_id).unwrap().value.state = Some(node_state);
     }
 
     /// Given a `transform` relative to a `reference` node, computes the node

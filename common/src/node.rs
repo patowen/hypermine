@@ -8,6 +8,7 @@ use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
+use crate::peer_traverser::PeerTraverser;
 use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
 use crate::voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords};
 use crate::world::Material;
@@ -28,6 +29,44 @@ impl ChunkId {
 }
 
 impl Graph {
+    #[inline]
+    pub fn partial_node_state(&self, node_id: NodeId) -> &PartialNodeState {
+        self[node_id].partial_state.as_ref().unwrap()
+    }
+
+    pub fn ensure_partial_node_state(&mut self, node_id: NodeId) {
+        if self[node_id].partial_state.is_some() {
+            return;
+        }
+
+        for (_, parent) in self.descenders(node_id) {
+            self.ensure_node_state(parent);
+        }
+
+        let partial_node_state = PartialNodeState::new(self, node_id);
+        self[node_id].partial_state = Some(partial_node_state);
+    }
+
+    #[inline]
+    pub fn node_state(&self, node_id: NodeId) -> &NodeState {
+        self[node_id].state.as_ref().unwrap()
+    }
+
+    pub fn ensure_node_state(&mut self, node_id: NodeId) {
+        if self[node_id].state.is_some() {
+            return;
+        }
+
+        self.ensure_partial_node_state(node_id);
+        let mut peers = PeerTraverser::new(node_id);
+        while let Some(peer) = peers.ensure_next(self) {
+            self.ensure_partial_node_state(peer.node());
+        }
+
+        let node_state = NodeState::new(self, node_id);
+        self[node_id].state = Some(node_state);
+    }
+
     /// Returns the up-direction relative to the given position, or `None` if the
     /// position is in an unpopulated node.
     pub fn get_relative_up(&self, position: &Position) -> Option<na::UnitVector3<f32>> {
