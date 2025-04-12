@@ -19,7 +19,7 @@ use common::{
         self, BlockUpdate, Character, CharacterInput, CharacterState, Command, Component,
         Inventory, Position,
     },
-    sanitize_motion_input, traversal,
+    sanitize_motion_input,
     world::Material,
 };
 

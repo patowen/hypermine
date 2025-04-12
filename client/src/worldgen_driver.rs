@@ -145,6 +145,8 @@ struct WorkQueue {
     _runtime: tokio::runtime::Runtime,
     send: tokio::sync::mpsc::Sender<ChunkDesc>,
     recv: tokio::sync::mpsc::Receiver<LoadedChunk>,
+    capacity: usize,
+    fill: usize,
 }
 
 impl WorkQueue {
@@ -171,18 +173,29 @@ impl WorkQueue {
             _runtime: runtime,
             send: input_send,
             recv: output_recv,
+            capacity: chunk_load_parallelism,
+            fill: 0,
         }
     }
 
     /// Begin loading a single item, if capacity is available
     #[must_use]
     pub fn load(&mut self, x: ChunkDesc) -> bool {
-        self.send.try_send(x).is_ok()
+        if self.fill == self.capacity {
+            return false;
+        }
+        if self.send.try_send(x).is_ok() {
+            self.fill += 1;
+            true
+        } else {
+            false
+        }
     }
 
     /// Fetch a load result if one is ready, freeing capacity
     pub fn poll(&mut self) -> Option<LoadedChunk> {
         let result = self.recv.try_recv().ok()?;
+        self.fill -= 1;
         Some(result)
     }
 }
