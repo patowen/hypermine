@@ -265,6 +265,7 @@ impl ChunkParams {
         }
 
         // TODO: Don't generate detailed data for solid chunks with no neighboring voids
+
         self.generate_trees(&mut voxels, &mut rng);
 
         margins::initialize_margins(self.dimension, &mut voxels);
