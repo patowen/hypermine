@@ -1,4 +1,4 @@
-use circle_structure::{Horosphere, HorosphereChunk};
+use horosphere::{Horosphere, HorosphereChunk};
 use rand::{Rng, SeedableRng, distr::Uniform};
 use rand_distr::Normal;
 
@@ -13,7 +13,7 @@ use crate::{
     world::Material,
 };
 
-mod circle_structure;
+mod horosphere;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum NodeStateKind {
@@ -68,7 +68,7 @@ impl NodeStateRoad {
 /// Contains a minimal amount of information about a node that can be deduced entirely from
 /// the NodeState of its parents.
 pub struct PartialNodeState {
-    /// This becomes a real structure only if it doesn't interfere with another higher-priority structure.
+    /// This becomes a real horosphere only if it doesn't interfere with another higher-priority horosphere.
     candidate_horosphere: Option<Horosphere>,
 }
 

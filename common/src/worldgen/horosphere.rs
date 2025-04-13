@@ -71,7 +71,7 @@ impl Horosphere {
 
     pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
         if self.owner != other.owner {
-            panic!("Tried to average two unrelated structures");
+            panic!("Tried to average two unrelated horospheres");
         }
         self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;
     }
@@ -80,21 +80,21 @@ impl Horosphere {
         self.vector.w = self.vector.xyz().norm();
     }
 
-    /// Returns whether the structure is freshly created, or whether it's a
-    /// reference to a structure created earlier on in the node graph.
+    /// Returns whether the horosphere is freshly created, or whether it's a
+    /// reference to a horosphere created earlier on in the node graph.
     pub fn is_fresh(&self, node_id: NodeId) -> bool {
         self.owner == node_id
     }
 
-    /// If self and other have to compete to exist as an actual structure,
+    /// If self and other have to compete to exist as an actual horosphere,
     /// returns whether self wins.
     pub fn has_priority(&self, other: &Horosphere, node_id: NodeId) -> bool {
-        // If both structures are fresh, use the w-coordinate as an arbitrary
+        // If both horospheres are fresh, use the w-coordinate as an arbitrary
         // tie-breaker to decide which horosphere should win.
         !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.vector.w < other.vector.w)
     }
 
-    /// Based on other nodes in the graph, determines whether the structure
+    /// Based on other nodes in the graph, determines whether the horosphere
     /// should generate. If false, it means that another horosphere elsewhere
     /// would interfere, and generation should not proceed.
     pub fn should_generate(&self, graph: &Graph, node_id: NodeId) -> bool {
@@ -113,7 +113,7 @@ impl Horosphere {
                 continue;
             };
             if !self.has_priority(peer_horosphere, node_id)
-                // Check that these structures can interfere by seeing if they share a node in common.
+                // Check that these horospheres can interfere by seeing if they share a node in common.
                 && peer_horosphere.should_propagate_through_path(peer.path_from_peer())
                 && self.should_propagate_through_path(peer.path_from_base())
             {
