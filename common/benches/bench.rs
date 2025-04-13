@@ -39,8 +39,8 @@ fn build_graph(c: &mut Criterion) {
     c.bench_function("worldgen", |b| {
         b.iter(|| {
             let mut graph = Graph::new(12);
-            ensure_nearby(&mut graph, &Position::origin(), 3.0);
-            let all_nodes = nearby_nodes(&graph, &Position::origin(), 3.0);
+            ensure_nearby(&mut graph, &Position::origin(), 1.0);
+            let all_nodes = nearby_nodes(&graph, &Position::origin(), 1.0);
             let mut n = 0;
             for (node, _) in all_nodes {
                 for vertex in Vertex::iter() {
@@ -54,7 +54,7 @@ fn build_graph(c: &mut Criterion) {
                     n += 1;
                 }
             }
-            assert_eq!(n, 640);
+            assert_eq!(n, 860);
         })
     });
 }

@@ -65,6 +65,8 @@ impl NodeStateRoad {
     }
 }
 
+/// Contains a minimal amount of information about a node that can be deduced entirely from
+/// the NodeState of its parents.
 pub struct PartialNodeState {
     /// This becomes a real structure only if it doesn't interfere with another higher-priority structure.
     candidate_horosphere: Option<Horosphere>,
@@ -80,7 +82,9 @@ impl PartialNodeState {
 }
 
 /// Contains all information about a node used for world generation. Most world
-/// generation logic uses this information as a starting point.
+/// generation logic uses this information as a starting point. The `NodeState` is deduced
+/// from the `NodeState` of the node's parents, along with the `PartialNodeState` of the node
+/// itself and its "peer" nodes (See `peer_traverser`).
 pub struct NodeState {
     kind: NodeStateKind,
     surface: Plane,

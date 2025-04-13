@@ -29,11 +29,14 @@ impl ChunkId {
 }
 
 impl Graph {
+    /// Returns the PartialNodeState for the given node, panicking if it isn't initialized.
     #[inline]
     pub fn partial_node_state(&self, node_id: NodeId) -> &PartialNodeState {
         self[node_id].partial_state.as_ref().unwrap()
     }
 
+    /// Initializes the PartialNodeState for the given node if not already initialized,
+    /// initializing other nodes' NodeState and PartialNodeState as necessary
     pub fn ensure_partial_node_state(&mut self, node_id: NodeId) {
         if self[node_id].partial_state.is_some() {
             return;
@@ -47,11 +50,14 @@ impl Graph {
         self[node_id].partial_state = Some(partial_node_state);
     }
 
+    /// Returns the NodeState for the given node, panicking if it isn't initialized.
     #[inline]
     pub fn node_state(&self, node_id: NodeId) -> &NodeState {
         self[node_id].state.as_ref().unwrap()
     }
 
+    /// Initializes the NodeState for the given node if not already initialized,
+    /// initializing other nodes' NodeState and PartialNodeState as necessary
     pub fn ensure_node_state(&mut self, node_id: NodeId) {
         if self[node_id].state.is_some() {
             return;
