@@ -13,14 +13,29 @@ use crate::{
     world::Material,
 };
 
+/// Represents a node's reference to a particular horosphere.
 #[derive(Clone)]
-pub struct Horosphere {
-    pub owner: NodeId,
-    pub vector: MVector<f32>, // TODO: Explain (equation of horosphere is `mip(h,p) == -1`)
+pub struct HorosphereNode {
+    /// The node that originally created the horosphere. All parts of the horosphere will
+    /// be in a node with this as an ancestor.
+    owner: NodeId,
+
+    /// The vector representing the horosphere in the perspective of the relevant node. A vector
+    /// `pos` is in this horosphere if `pos.mip(&self.vector) == -1`. This vector should always have
+    /// the invariant `self.vector.mip(&self.vector) == 0`, behaving much like a "light-like" vector
+    /// in Minkowski space. One consequence of this invariant is that this vector's length is always
+    /// proportional to its w-coordinate. If the w-coordinate is 1, the horosphere intersects the origin.
+    /// If it's less than 1, the horosphere contains the origin, and if it's greater than 1, the origin
+    /// is outside the horosphere. The vector points in the direction of the horosphere's ideal point.
+    ///
+    /// TODO: If a player traverses too far inside a horosphere, this vector will underflow, preventing
+    /// the horosphere from generating properly. Fixing this requires using logic similar to `Plane` to
+    /// increase the range of magnitudes the vector can take.
+    pub vector: MVector<f32>,
 }
 
-impl Horosphere {
-    pub fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<Horosphere> {
+impl HorosphereNode {
+    pub fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
         let mut horospheres_to_average_iter =
             graph
                 .descenders(node_id)
@@ -41,13 +56,13 @@ impl Horosphere {
         Some(horosphere)
     }
 
-    pub fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<Horosphere> {
+    pub fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
         let spice = graph.hash_of(node_id) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(spice.wrapping_add(42));
         for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
             let horosphere_pos = Self::random_horosphere_pos(&mut rng);
             if Self::is_horosphere_pos_valid(graph, node_id, &horosphere_pos) {
-                return Some(Horosphere {
+                return Some(HorosphereNode {
                     owner: node_id,
                     vector: horosphere_pos,
                 });
@@ -62,14 +77,14 @@ impl Horosphere {
         self.vector.mip(side.normal()) > -1.0
     }
 
-    pub fn propagate(&self, side: Side) -> Horosphere {
-        Horosphere {
+    pub fn propagate(&self, side: Side) -> HorosphereNode {
+        HorosphereNode {
             owner: self.owner,
             vector: side.reflection() * self.vector,
         }
     }
 
-    pub fn average_with(&mut self, other: Horosphere, other_weight: f32) {
+    pub fn average_with(&mut self, other: HorosphereNode, other_weight: f32) {
         if self.owner != other.owner {
             panic!("Tried to average two unrelated horospheres");
         }
@@ -88,7 +103,7 @@ impl Horosphere {
 
     /// If self and other have to compete to exist as an actual horosphere,
     /// returns whether self wins.
-    pub fn has_priority(&self, other: &Horosphere, node_id: NodeId) -> bool {
+    pub fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
         // If both horospheres are fresh, use the w-coordinate as an arbitrary
         // tie-breaker to decide which horosphere should win.
         !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.vector.w < other.vector.w)
@@ -173,7 +188,10 @@ impl Horosphere {
     }
 }
 
+/// Represents a chunks's reference to a particular horosphere.
 pub struct HorosphereChunk {
+    /// The vector representing the horosphere in the perspective of the relevant chunk.
+    /// See `HorosphereNode::vector` for details.
     pub vector: MVector<f32>,
 }
 

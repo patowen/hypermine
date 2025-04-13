@@ -1,4 +1,4 @@
-use horosphere::{Horosphere, HorosphereChunk};
+use horosphere::{HorosphereChunk, HorosphereNode};
 use rand::{Rng, SeedableRng, distr::Uniform};
 use rand_distr::Normal;
 
@@ -69,14 +69,14 @@ impl NodeStateRoad {
 /// the NodeState of its parents.
 pub struct PartialNodeState {
     /// This becomes a real horosphere only if it doesn't interfere with another higher-priority horosphere.
-    candidate_horosphere: Option<Horosphere>,
+    candidate_horosphere: Option<HorosphereNode>,
 }
 
 impl PartialNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         Self {
-            candidate_horosphere: Horosphere::create_from_parents(graph, node)
-                .or_else(|| Horosphere::maybe_create_fresh(graph, node)),
+            candidate_horosphere: HorosphereNode::create_from_parents(graph, node)
+                .or_else(|| HorosphereNode::maybe_create_fresh(graph, node)),
         }
     }
 }
@@ -90,7 +90,7 @@ pub struct NodeState {
     surface: Plane,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
-    horosphere: Option<Horosphere>,
+    horosphere: Option<HorosphereNode>,
 }
 impl NodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
