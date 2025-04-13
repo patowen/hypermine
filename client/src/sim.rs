@@ -87,8 +87,10 @@ impl Sim {
         chunk_load_parallelism: usize,
         local_character_id: EntityId,
     ) -> Self {
+        let mut graph = Graph::new(cfg.chunk_size);
+        graph.ensure_node_state(NodeId::ROOT);
         Self {
-            graph: Graph::new(cfg.chunk_size),
+            graph,
             worldgen_driver: WorldgenDriver::new(chunk_load_parallelism),
             graph_entities: GraphEntities::new(),
             entity_ids: FxHashMap::default(),

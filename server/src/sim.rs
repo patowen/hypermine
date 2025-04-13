@@ -496,13 +496,11 @@ impl Sim {
             ensure_nearby(&mut self.graph, position, chunk_generation_distance);
             let nodes = nearby_nodes(&self.graph, position, chunk_generation_distance);
             for &(node, _) in &nodes {
-                let mut is_fresh_node = false;
                 for vertex in dodeca::Vertex::iter() {
                     let chunk = ChunkId::new(node, vertex);
                     if !matches!(self.graph[chunk], Chunk::Fresh) {
                         continue;
                     }
-                    is_fresh_node = true;
                     if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk) {
                         self.modified_chunks.insert(chunk);
                         self.graph.populate_chunk(chunk, voxel_data);
@@ -510,11 +508,6 @@ impl Sim {
                         let params = ChunkParams::new(self.cfg.chunk_size, &mut self.graph, chunk);
                         self.graph.populate_chunk(chunk, params.generate_voxels());
                     }
-                }
-                if is_fresh_node {
-                    // Clients should know about new nodes the server generates, since otherwise, they might
-                    // not know where they are.
-                    self.accumulated_changes.fresh_nodes.push(node);
                 }
             }
         }
