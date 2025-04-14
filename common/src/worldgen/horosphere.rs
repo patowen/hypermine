@@ -13,7 +13,10 @@ use crate::{
     world::Material,
 };
 
-/// Represents a node's reference to a particular horosphere.
+/// Represents a node's reference to a particular horosphere. As a general rule, for any give horosphere,
+/// every node in the convex hull of nodes containing the horosphere will have a `HorosphereNode`
+/// referencing it. The unique node in this convex hull with the smallest depth in the graph is the owner
+/// of the horosphere, where it is originally generated.
 #[derive(Clone)]
 pub struct HorosphereNode {
     /// The node that originally created the horosphere. All parts of the horosphere will
@@ -35,7 +38,14 @@ pub struct HorosphereNode {
 }
 
 impl HorosphereNode {
+    /// Propagates `HorosphereNode` information from the given parent nodes to this child node. Returns
+    /// `None` if there's no horosphere to propagate, either because none of the parent nodes have a
+    /// horosphere associated with them, or because any existing horosphere is outside the range
+    /// of this node.
     pub fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+        // Rather than selecting an arbitrary parent horosphere, we average all of them. This
+        // is important because otherwise, the propagation of floating point precision errors could
+        // create a seam. This ensures that all errors average out, keeping the horosphere smooth.
         let mut horospheres_to_average_iter =
             graph
                 .descenders(node_id)
@@ -56,10 +66,15 @@ impl HorosphereNode {
         Some(horosphere)
     }
 
+    /// Create a `HorosphereNode` corresponding to a freshly created horosphere with the given node as its owner,
+    /// if one should be created. This function is called on every node that doesn't already have a horosphere
+    /// associated with it, so this function has control over how frequent the horospheres should be.
     pub fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+        const HOROSPHERE_DENSITY: f32 = 6.0;
+
         let spice = graph.hash_of(node_id) as u64;
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(spice.wrapping_add(42));
-        for _ in 0..rng.sample(Poisson::new(6.0).unwrap()) as u32 {
+        for _ in 0..rng.sample(Poisson::new(HOROSPHERE_DENSITY).unwrap()) as u32 {
             let horosphere_pos = Self::random_horosphere_pos(&mut rng);
             if Self::is_horosphere_pos_valid(graph, node_id, &horosphere_pos) {
                 return Some(HorosphereNode {
@@ -71,12 +86,15 @@ impl HorosphereNode {
         None
     }
 
+    /// Whether the horosphere will still be relevant after crossing the given side of the current node.
     pub fn should_propagate(&self, side: Side) -> bool {
         // TODO: Consider adding epsilon to ensure floating point precision
         // doesn't cause `average_with` to fail
         self.vector.mip(side.normal()) > -1.0
     }
 
+    /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
+    /// at the given side. The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`
     pub fn propagate(&self, side: Side) -> HorosphereNode {
         HorosphereNode {
             owner: self.owner,
