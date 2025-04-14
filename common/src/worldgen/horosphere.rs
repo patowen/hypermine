@@ -197,28 +197,41 @@ impl HorosphereNode {
         node_id: NodeId,
         horosphere_pos: &MVector<f32>,
     ) -> bool {
-        // TODO: This needs an explanation.
+        // See `should_propagate` for an explanation of what the mip between a horosphere position and
+        // a plane's normal signifies.
         Side::iter().all(|s| s.normal().mip(&horosphere_pos) < 1.0)
             && (graph.descenders(node_id)).all(|(s, _)| s.normal().mip(horosphere_pos) < -1.0)
     }
 
-    /// Returns a vector representing a random horosphere close enough to the origin that it would
-    /// intersect with the sphere that a dodeca is inscribed in.
+    /// Returns a vector representing a uniformly random horosphere within a certain distance to the origin.
+    /// This distance is set up to ensure that `is_horosphere_pos_valid` would always return false if it were any futher,
+    /// ensuring that this function does not artificially restrict which horospheres can be created. Rejection
+    /// sampling is used to more precisely finetune the list of allowed horospheres.
     fn random_horosphere_pos(rng: &mut Pcg64Mcg) -> MVector<f32> {
-        // TODO: This needs an explanation.
-        let vertex_w = sqrtf(2.0) * (3.0 + sqrtf(5.0)) / 4.0; // w-coordinate of every vertex in dodeca-coordinates
-        let max_w = sqrtf(3.0) * (vertex_w + sqrtf(vertex_w * vertex_w - 1.0)); // Maximum possible w-coordinate of valid horosphere
+        // Pick a w-coordinate whose probability density function is `p(w) = w`. By trial and error,
+        // this seems to produce horospheres with a uniform and isotropic distribution.
+        // TODO: Find a rigorous explanation for this. We would want to show that the probability density is unchanged
+        // when an isometry is applied.
+        let w = sqrtf(rng.random::<f32>()) * Self::MAX_OWNED_HOROSPHERE_W;
 
-        let w = sqrtf(rng.random::<f32>()) * max_w;
-        let phi = acosf(rng.random::<f32>() * 2.0 - 1.0);
+        // Uniformly pick spherical coordinates from a unit sphere
+        let cos_phi = rng.random::<f32>() * 2.0 - 1.0;
+        let sin_phi = sqrtf(1.0 - cos_phi * cos_phi);
         let theta = rng.random::<f32>() * std::f32::consts::TAU;
+
+        // Construct the resulting vector.
         MVector::new(
-            w * sinf(phi) * cosf(theta),
-            w * sinf(phi) * sinf(theta),
-            w * cosf(phi),
+            w * sin_phi * cosf(theta),
+            w * sin_phi * sinf(theta),
+            w * cos_phi,
             w,
         )
     }
+
+    /// The maximum node-centric w-coordinate a horosphere can have such that the node in question
+    /// is still the owner of the horosphere.
+    // See `test_max_owned_horosphere_w()` for how this is computed.
+    const MAX_OWNED_HOROSPHERE_W: f32 = 5.9047837;
 }
 
 /// Represents a chunks's reference to a particular horosphere.
@@ -265,13 +278,44 @@ mod test {
 
     use super::*;
     use crate::{
-        dodeca::Side,
-        math::MIsometry,
+        dodeca::{self, Side},
+        math::{MIsometry, MPoint},
         proto::Position,
         traversal::{self, ensure_nearby, nearby_nodes},
     };
     use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
+    use approx::assert_abs_diff_eq;
     use fxhash::{FxHashMap, FxHashSet};
+
+    #[test]
+    fn test_max_owned_horosphere_w() {
+        // This tests that `MAX_OWNED_HOROSPHERE_W` is set to the correct value.
+
+        // The worst case scenario would be a horosphere located directly in the direction of a dodeca's vertex.
+        // This is because the horosphere can be outside the dodeca, tangent to each of the planes that extend the
+        // dodeca's sides adjancent to that vertex. If that horosphere were brought any closer, it would intersect
+        // all three of those planes, making it impossible for any child node to own the dodeca and forcing the node
+        // in focus to own it.
+
+        // First, find an arbitrary horosphere in the direction of a vertex.
+        let example_vertex = Vertex::A;
+        let example_vertex_pos = example_vertex.dual_to_node() * MPoint::origin();
+        let mut horosphere_pos = MVector::from(example_vertex_pos);
+        horosphere_pos.w = horosphere_pos.xyz().norm();
+
+        // Then, scale the horosphere so that it's mip with each of the sides of the vertex is 1, making it tangent.
+        horosphere_pos /= horosphere_pos.mip(example_vertex.canonical_sides()[0].normal());
+        for side in example_vertex.canonical_sides() {
+            assert_abs_diff_eq!(horosphere_pos.mip(side.normal()), 1.0, epsilon = 1.0e-6);
+        }
+
+        // Finally, compare that horosphere's w-coordinate to `MAX_OWNED_HOROSPHERE_W`
+        assert_abs_diff_eq!(
+            horosphere_pos.w,
+            HorosphereNode::MAX_OWNED_HOROSPHERE_W,
+            epsilon = 1.0e-6
+        );
+    }
 
     #[test]
     #[rustfmt::skip]
