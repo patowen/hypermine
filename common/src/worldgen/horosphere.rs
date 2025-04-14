@@ -24,8 +24,8 @@ pub struct HorosphereNode {
     owner: NodeId,
 
     /// The vector representing the horosphere in the perspective of the relevant node. A vector
-    /// `pos` is in this horosphere if `pos.mip(&self.vector) == -1`. This vector should always have
-    /// the invariant `self.vector.mip(&self.vector) == 0`, behaving much like a "light-like" vector
+    /// `point` is in this horosphere if `point.mip(&self.pos) == -1`. This vector should always have
+    /// the invariant `self.pos.mip(&self.pos) == 0`, behaving much like a "light-like" vector
     /// in Minkowski space. One consequence of this invariant is that this vector's length is always
     /// proportional to its w-coordinate. If the w-coordinate is 1, the horosphere intersects the origin.
     /// If it's less than 1, the horosphere contains the origin, and if it's greater than 1, the origin
@@ -34,7 +34,7 @@ pub struct HorosphereNode {
     /// TODO: If a player traverses too far inside a horosphere, this vector will underflow, preventing
     /// the horosphere from generating properly. Fixing this requires using logic similar to `Plane` to
     /// increase the range of magnitudes the vector can take.
-    pub vector: MVector<f32>,
+    pos: MVector<f32>,
 }
 
 impl HorosphereNode {
@@ -79,7 +79,7 @@ impl HorosphereNode {
             if Self::is_horosphere_pos_valid(graph, node_id, &horosphere_pos) {
                 return Some(HorosphereNode {
                     owner: node_id,
-                    vector: horosphere_pos,
+                    pos: horosphere_pos,
                 });
             }
         }
@@ -90,7 +90,7 @@ impl HorosphereNode {
     pub fn should_propagate(&self, side: Side) -> bool {
         // TODO: Consider adding epsilon to ensure floating point precision
         // doesn't cause `average_with` to fail
-        self.vector.mip(side.normal()) > -1.0
+        self.pos.mip(side.normal()) > -1.0
     }
 
     /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
@@ -98,7 +98,7 @@ impl HorosphereNode {
     pub fn propagate(&self, side: Side) -> HorosphereNode {
         HorosphereNode {
             owner: self.owner,
-            vector: side.reflection() * self.vector,
+            pos: side.reflection() * self.pos,
         }
     }
 
@@ -106,11 +106,11 @@ impl HorosphereNode {
         if self.owner != other.owner {
             panic!("Tried to average two unrelated horospheres");
         }
-        self.vector = self.vector * (1.0 - other_weight) + other.vector * other_weight;
+        self.pos = self.pos * (1.0 - other_weight) + other.pos * other_weight;
     }
 
     pub fn renormalize(&mut self) {
-        self.vector.w = self.vector.xyz().norm();
+        self.pos.w = self.pos.xyz().norm();
     }
 
     /// Returns whether the horosphere is freshly created, or whether it's a
@@ -124,7 +124,7 @@ impl HorosphereNode {
     pub fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
         // If both horospheres are fresh, use the w-coordinate as an arbitrary
         // tie-breaker to decide which horosphere should win.
-        !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.vector.w < other.vector.w)
+        !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.pos.w < other.pos.w)
     }
 
     /// Based on other nodes in the graph, determines whether the horosphere
@@ -172,7 +172,7 @@ impl HorosphereNode {
 
     pub fn chunk_data(&self, vertex: Vertex) -> HorosphereChunk {
         HorosphereChunk {
-            vector: vertex.node_to_dual() * self.vector,
+            pos: vertex.node_to_dual() * self.pos,
         }
     }
 
@@ -181,10 +181,14 @@ impl HorosphereNode {
     /// (as otherwise, a parent node would own the horosphere), and the horosphere must not be fully
     /// behind any of the other dodeca sides (as otherwise, a child node would own the horosphere). Note
     /// that the horosphere does not necessarily need to intersect the dodeca to be valid.
-    fn is_horosphere_pos_valid(graph: &Graph, node_id: NodeId, horosphere: &MVector<f32>) -> bool {
+    fn is_horosphere_pos_valid(
+        graph: &Graph,
+        node_id: NodeId,
+        horosphere_pos: &MVector<f32>,
+    ) -> bool {
         // TODO: This needs an explanation.
-        Side::iter().all(|s| s.normal().mip(&horosphere) < 1.0)
-            && (graph.descenders(node_id)).all(|(s, _)| s.normal().mip(horosphere) < -1.0)
+        Side::iter().all(|s| s.normal().mip(&horosphere_pos) < 1.0)
+            && (graph.descenders(node_id)).all(|(s, _)| s.normal().mip(horosphere_pos) < -1.0)
     }
 
     /// Returns a vector representing a random horosphere close enough to the origin that it would
@@ -209,8 +213,8 @@ impl HorosphereNode {
 /// Represents a chunks's reference to a particular horosphere.
 pub struct HorosphereChunk {
     /// The vector representing the horosphere in the perspective of the relevant chunk.
-    /// See `HorosphereNode::vector` for details.
-    pub vector: MVector<f32>,
+    /// See `HorosphereNode::pos` for details.
+    pub pos: MVector<f32>,
 }
 
 impl HorosphereChunk {
@@ -226,7 +230,7 @@ impl HorosphereChunk {
                         chunk_size as f32 * Vertex::dual_to_chunk_factor(),
                     )
                     .normalized_point();
-                    if pos.mip(&self.vector) > -1.0 {
+                    if pos.mip(&self.pos) > -1.0 {
                         voxels.data_mut(chunk_size)[Coords([x, y, z]).to_index(chunk_size)] =
                             Material::RedSandstone;
                     }
