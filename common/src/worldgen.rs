@@ -239,7 +239,7 @@ impl ChunkParams {
             horosphere: state
                 .horosphere
                 .as_ref()
-                .map(|h| h.chunk_data(chunk.vertex)),
+                .map(|h| HorosphereChunk::new(h, chunk.vertex)),
         }
     }
 
