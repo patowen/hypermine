@@ -75,8 +75,7 @@ pub struct PartialNodeState {
 impl PartialNodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         Self {
-            candidate_horosphere: HorosphereNode::create_from_parents(graph, node)
-                .or_else(|| HorosphereNode::maybe_create_fresh(graph, node)),
+            candidate_horosphere: HorosphereNode::new(graph, node),
         }
     }
 }

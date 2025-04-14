@@ -1,4 +1,4 @@
-use libm::{acosf, cosf, sinf, sqrtf};
+use libm::{cosf, sinf, sqrtf};
 use rand::{Rng, SeedableRng};
 use rand_distr::Poisson;
 use rand_pcg::Pcg64Mcg;
@@ -38,11 +38,18 @@ pub struct HorosphereNode {
 }
 
 impl HorosphereNode {
+    /// Returns the `HorosphereNode` for the given node, either by propagating an existing parent
+    /// `HorosphereNode` or by randomly generating a new one.
+    pub fn new(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+        HorosphereNode::create_from_parents(graph, node_id)
+            .or_else(|| HorosphereNode::maybe_create_fresh(graph, node_id))
+    }
+
     /// Propagates `HorosphereNode` information from the given parent nodes to this child node. Returns
     /// `None` if there's no horosphere to propagate, either because none of the parent nodes have a
     /// horosphere associated with them, or because any existing horosphere is outside the range
     /// of this node.
-    pub fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+    fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
         // Rather than selecting an arbitrary parent horosphere, we average all of them. This
         // is important because otherwise, the propagation of floating point precision errors could
         // create a seam. This ensures that all errors average out, keeping the horosphere smooth.
@@ -72,7 +79,7 @@ impl HorosphereNode {
     /// Create a `HorosphereNode` corresponding to a freshly created horosphere with the given node as its owner,
     /// if one should be created. This function is called on every node that doesn't already have a horosphere
     /// associated with it, so this function has control over how frequent the horospheres should be.
-    pub fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+    fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
         const HOROSPHERE_DENSITY: f32 = 6.0;
 
         let spice = graph.hash_of(node_id) as u64;
@@ -90,7 +97,7 @@ impl HorosphereNode {
     }
 
     /// Whether the horosphere will still be relevant after crossing the given side of the current node.
-    pub fn should_propagate(&self, side: Side) -> bool {
+    fn should_propagate(&self, side: Side) -> bool {
         // TODO: Consider adding epsilon to ensure floating point precision
         // doesn't cause `average_with` to fail
 
@@ -105,7 +112,7 @@ impl HorosphereNode {
 
     /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
     /// at the given side. The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`.
-    pub fn propagate(&self, side: Side) -> HorosphereNode {
+    fn propagate(&self, side: Side) -> HorosphereNode {
         HorosphereNode {
             owner: self.owner,
             pos: side.reflection() * self.pos,
@@ -113,7 +120,7 @@ impl HorosphereNode {
     }
 
     /// Takes the weighted average of the coordinates of this horosphere with the coordinates of the other horosphere.
-    pub fn average_with(&mut self, other: HorosphereNode, other_weight: f32) {
+    fn average_with(&mut self, other: HorosphereNode, other_weight: f32) {
         if self.owner != other.owner {
             // If this panic is triggered, it may mean that two horospheres were generated that interfere
             // with each other. The logic in `should_generate` should prevent this, so this would be a sign
@@ -125,18 +132,18 @@ impl HorosphereNode {
 
     /// Ensures that the horosphere invariant holds (`pos.mip(&pos) == 0`), as numerical error can otherwise propagate,
     /// potentially making the surface behave more like a sphere or an equidistant surface.
-    pub fn renormalize(&mut self) {
+    fn renormalize(&mut self) {
         self.pos.w = self.pos.xyz().norm();
     }
 
     /// Returns whether the horosphere is freshly created, instead of a
     /// reference to a horosphere created earlier on in the node graph.
-    pub fn is_fresh(&self, node_id: NodeId) -> bool {
+    fn is_fresh(&self, node_id: NodeId) -> bool {
         self.owner == node_id
     }
 
     /// If `self` and `other` have to compete to exist as an actual horosphere, returns whether `self` wins.
-    pub fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
+    fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
         // If both horospheres are fresh, use the w-coordinate as an arbitrary
         // tie-breaker to decide which horosphere should win.
         !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.pos.w < other.pos.w)
@@ -272,20 +279,10 @@ impl HorosphereChunk {
 }
 
 #[cfg(test)]
-#[allow(unused)]
 mod test {
-    use std::collections::BTreeMap;
-
     use super::*;
-    use crate::{
-        dodeca::{self, Side},
-        math::{MIsometry, MPoint},
-        proto::Position,
-        traversal::{self, ensure_nearby, nearby_nodes},
-    };
-    use Side::{A, B, C, D, E, F, G, H, I, J, K, L};
+    use crate::math::MPoint;
     use approx::assert_abs_diff_eq;
-    use fxhash::{FxHashMap, FxHashSet};
 
     #[test]
     fn test_max_owned_horosphere_w() {
@@ -316,213 +313,4 @@ mod test {
             epsilon = 1.0e-6
         );
     }
-
-    #[test]
-    #[rustfmt::skip]
-    fn average_with_test() {
-        /*
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C]
-        !=
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
-        for
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, F, C, B]
-        */
-
-
-        /*
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, G, C]
-        !=
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B]
-        for
-        [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, G, C, F, B]
-
-        Sibling relationship path: CBGF
-        */
-        let mut graph = Graph::new(12);
-        let mut node_id = NodeId::ROOT;
-        for side in [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, G, E, C] {
-            node_id = graph.ensure_neighbor(node_id, side);
-            graph.ensure_node_state(node_id);
-            ensure_nearby(&mut graph, &Position { node: node_id, local: MIsometry::identity() }, 3.0);
-        }
-
-        let mut node_id = NodeId::ROOT;
-        for side in [B, D, E, B, D, E, C, B, I, C, B, I, D, E, C, E, C, B, A, L, E, F, B] {
-            node_id = graph.ensure_neighbor(node_id, side);
-            graph.ensure_node_state(node_id);
-            ensure_nearby(&mut graph, &Position { node: node_id, local: MIsometry::identity() }, 3.0);
-        }
-
-        let all_nodes = nearby_nodes(&graph, &Position::origin(), f32::INFINITY);
-        for (node_id, _) in all_nodes {
-            println!("{:?}", graph.node_path(node_id));
-            graph.ensure_node_state(node_id);
-        }
-    }
-
-    fn is_shortlex(last: Side, rest: &[Side]) -> bool {
-        let Some(second_last) = rest.last() else {
-            // One-element node strings are always shortlex.
-            return true;
-        };
-        if last == *second_last {
-            // Backtracking is not valid (short part of shortlex)
-            return false;
-        }
-        if last.adjacent_to(*second_last) && (last as usize) < (*second_last as usize) {
-            // Unnecessarily having a higher side index first is not valid (lex part of shortlex)
-            return false;
-        }
-        true
-    }
-
-    // Like is_shortlex, but without the lex part. Slightly more complicated because it's no longer
-    // sufficient to check for immediate backtracking
-    fn is_shortest_path(last: Side, rest: &[Side]) -> bool {
-        for &side in rest.iter().rev() {
-            if last == side {
-                // Backtracking discovered
-                return false;
-            }
-            if !last.adjacent_to(side) {
-                // Chain of adjacencies has ended, so there's no way to shorten the path.
-                return true;
-            }
-        }
-        true
-    }
-
-    fn is_interfering_path(
-        last: Side,
-        rest: &[Side],
-        depth: usize,
-        graph: &Graph,
-        node: NodeId,
-    ) -> bool {
-        if !is_shortest_path(last, rest) {
-            return false;
-        }
-        if rest.len() >= depth {
-            for &side in &rest[0..depth] {
-                if !last.adjacent_to(side) && last != side {
-                    return false;
-                }
-            }
-        }
-        if rest.len() < depth {
-            let ancestor_node = (rest.iter().chain(Some(last).iter()))
-                .try_fold(node, |current_node, side| {
-                    graph.neighbor(current_node, *side)
-                });
-            let Some(ancestor_node) = ancestor_node else {
-                return false;
-            };
-            if graph.length(ancestor_node) + rest.len() as u32 + 1 != graph.length(node) {
-                return false;
-            }
-        }
-        true
-    }
-
-    // Returns false if we were unable to increment the path because we exhausted all possibilities
-    fn increment_path(
-        path: &mut [Side],
-        mut always_increment: bool,
-        validity_check: &impl Fn(Side, &[Side]) -> bool,
-    ) -> bool {
-        if path.is_empty() {
-            // Empty paths always pass validity checks, so looping is only necessary
-            // if incrementing was requested.
-            return !always_increment;
-        }
-        let (last, rest) = path.split_last_mut().unwrap();
-        while !validity_check(*last, rest) || always_increment {
-            always_increment = false;
-            *last = Side::VALUES[(*last as usize + 1) % Side::VALUES.len()];
-            if *last == Side::A && !increment_path(rest, true, validity_check) {
-                return false;
-            }
-        }
-        true
-    }
-
-    struct NodeString {
-        path: Vec<Side>,
-        initialized: bool,
-    }
-
-    impl NodeString {
-        fn new(len: usize) -> Self {
-            NodeString {
-                path: vec![Side::A; len],
-                initialized: false,
-            }
-        }
-
-        fn increment(&mut self, validity_check: &impl Fn(Side, &[Side]) -> bool) -> bool {
-            if !self.initialized {
-                for i in 0..self.path.len() {
-                    if !increment_path(&mut self.path[0..=i], false, validity_check) {
-                        return false;
-                    }
-                }
-                self.initialized = true;
-                true
-            } else {
-                increment_path(&mut self.path, true, validity_check)
-            }
-        }
-    }
-
-    #[test]
-    fn enumerate_siblings() {
-        // If BF...A.... and CG.... reach the same place, then the CG string must have an A in it.
-        // Transforming one path to the other will still require transferring B and F past C and G
-        // So, strings x and y can interfere iff everything in x commutes with everything in y.
-        // However, x and y are only worth considering if they don't share a common parent (other than)
-        // the root. This is a bit complicated because CG and GC don't share a parent, but BF and FB do (because they commute).
-
-        // Actually, checking for redundancies between BF and CG is tricky, but there's a simpler way to think about it:
-        // These two paths are redundant iff FBCG can be shortened.
-        // Perhaps, the problem is as simple as follows:
-        // Find all shortlex node strings of a particular even length where the first half commutes with the second half.
-
-        let mut num_sibling_nodes: BTreeMap<usize, u32> = BTreeMap::new();
-
-        let mut graph = Graph::new(1);
-        ensure_nearby(&mut graph, &Position::origin(), 5.0);
-        let base_nodes = nearby_nodes(&graph, &Position::origin(), 5.0);
-        for (base_node, _) in base_nodes {
-            /*let mut base_node = NodeId::ROOT;
-            for side in [Side::A, Side::B, Side::C, Side::D] {
-                base_node = graph.ensure_neighbor(base_node, side);
-            }*/
-
-            let depth = 1;
-
-            let mut path = NodeString::new(depth * 2);
-            let mut sibling_nodes = FxHashSet::default();
-            //println!("List of depth-{} interference patterns", depth);
-            while path
-                .increment(&|last, rest| is_interfering_path(last, rest, depth, &graph, base_node))
-            {
-                let found_node_id = path.path.iter().fold(base_node, |current_node, side| {
-                    graph.ensure_neighbor(current_node, *side)
-                });
-                if graph.length(found_node_id) != graph.length(base_node) {
-                    continue;
-                }
-                if sibling_nodes.insert(found_node_id) {
-                    //println!("{:?}: {:?}", path.path, found_node_id);
-                }
-            }
-            //println!("End of list");
-            //println!("{:?}: {}", base_node, sibling_nodes.len());
-            *num_sibling_nodes.entry(sibling_nodes.len()).or_default() += 1;
-        }
-
-        println!("Sibling node count histogram: {:?}", num_sibling_nodes);
-    }
-
-    // BF vs CG
 }
