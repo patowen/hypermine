@@ -55,6 +55,9 @@ pub struct PeerTraverser {
     child_path_index: usize,
 }
 
+// This implementation is rather complicated and can be difficult to follow. It is recommended to see the
+// `alternative_implementation` test for an equivalent algorithm. Most of the logic here is just maintaining
+// state to allow `PeerTraverser` to work much like an iterator instead of storing everything into an array or vec.
 impl PeerTraverser {
     pub fn new(base_node: NodeId) -> Self {
         PeerTraverser {

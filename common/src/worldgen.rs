@@ -216,6 +216,7 @@ pub struct ChunkParams {
     is_road_support: bool,
     /// Random quantity used to seed terrain gen
     node_spice: u64,
+    /// Horosphere to place in the chunk
     horosphere: Option<HorosphereChunk>,
 }
 
