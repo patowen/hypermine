@@ -3,43 +3,9 @@ name: Package
 on:
   push:
     branches: ['master']
+  pull_request:
 
 jobs:
-  package-windows:
-    name: Windows
-    runs-on: windows-latest
-    env:
-      VULKAN_VERSION: "1.3.290.0"
-      VULKAN_SDK: "C:/VulkanSDK/1.3.290.0"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          lfs: true
-      - name: Install Vulkan SDK
-        run: |
-          Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/${{ env.VULKAN_VERSION }}/windows/VulkanSDK-${{ env.VULKAN_VERSION }}-Installer.exe" -OutFile vulkan.exe
-          ./vulkan.exe --accept-licenses --default-answer --confirm-command install
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Server
-        run: cargo build --package server --release
-
-      - name: Build Client
-        run: cargo build --package client --release --no-default-features
-
-      - name: Package Artifacts
-        run: |
-          mkdir artifacts
-          Move-Item -Path assets/* -Destination artifacts/
-          Move-Item -Path target/release/*.exe -Destination artifacts/
-
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: "artifacts/*"
-
   package-linux:
     name: Linux
     # Oldest supported runner, for wide glibc compat
