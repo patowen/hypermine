@@ -470,10 +470,14 @@ impl Sim {
                 _ => panic!("ungenerated chunk is marked as modified"),
             };
 
-            (spawns.voxel_data).push((chunk_id, voxels.serialize(self.cfg.chunk_size)));
+            spawns
+                .voxel_data
+                .push((chunk_id, voxels.serialize(self.cfg.chunk_size)));
         }
         for (&chunk_id, voxels) in self.preloaded_voxel_data.iter() {
-            (spawns.voxel_data).push((chunk_id, voxels.serialize(self.cfg.chunk_size)));
+            spawns
+                .voxel_data
+                .push((chunk_id, voxels.serialize(self.cfg.chunk_size)));
         }
         spawns
     }
@@ -505,7 +509,7 @@ impl Sim {
                         self.modified_chunks.insert(chunk);
                         self.graph.populate_chunk(chunk, voxel_data);
                     } else {
-                        let params = ChunkParams::new(self.cfg.chunk_size, &mut self.graph, chunk);
+                        let params = ChunkParams::new(&mut self.graph, chunk);
                         self.graph.populate_chunk(chunk, params.generate_voxels());
                     }
                 }

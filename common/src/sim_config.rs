@@ -14,7 +14,7 @@ pub struct SimConfigRaw {
     pub view_distance: Option<f32>,
     /// Maximum distance at which new chunks will be generated in meters
     pub chunk_generation_distance: Option<f32>,
-    /// Maximum distance at which fog becomes completely opaque in meters
+    /// Distance at which fog becomes completely opaque in meters
     pub fog_distance: Option<f32>,
     pub input_queue_size_ms: Option<u16>,
     /// Whether gameplay-like restrictions exist, such as limited inventory
@@ -44,7 +44,7 @@ pub struct SimConfig {
     pub view_distance: f32,
     /// Maximum distance at which new chunks will be generate in absolute units
     pub chunk_generation_distance: f32,
-    /// Maximum distance at which fog becomes completely opaque in absolute units
+    /// Distance at which fog becomes completely opaque in absolute units
     pub fog_distance: f32,
     pub input_queue_size: Duration,
     /// Whether gameplay-like restrictions exist, such as limited inventory

@@ -13,6 +13,11 @@ use crate::{
     world::Material,
 };
 
+/// Whether an assortment of random horospheres should be added to world generation. This is a temporary
+/// option until large structures that fit with the theme of the world are introduced.
+/// For code simplicity, this is made into a constant instead of a configuration option.
+const HOROSPHERES_ENABLED: bool = true;
+
 /// Represents a node's reference to a particular horosphere. As a general rule, for any give horosphere,
 /// every node in the convex hull of nodes containing the horosphere will have a `HorosphereNode`
 /// referencing it. The unique node in this convex hull with the smallest depth in the graph is the owner
@@ -41,6 +46,9 @@ impl HorosphereNode {
     /// Returns the `HorosphereNode` for the given node, either by propagating an existing parent
     /// `HorosphereNode` or by randomly generating a new one.
     pub fn new(graph: &Graph, node_id: NodeId) -> Option<HorosphereNode> {
+        if !HOROSPHERES_ENABLED {
+            return None;
+        }
         HorosphereNode::create_from_parents(graph, node_id)
             .or_else(|| HorosphereNode::maybe_create_fresh(graph, node_id))
     }

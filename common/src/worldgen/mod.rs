@@ -1,6 +1,8 @@
 use horosphere::{HorosphereChunk, HorosphereNode};
+use plane::Plane;
 use rand::{Rng, SeedableRng, distr::Uniform};
 use rand_distr::Normal;
+use terraingen::VoronoiInfo;
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -8,12 +10,12 @@ use crate::{
     margins,
     math::{self, MVector},
     node::{ChunkId, VoxelData},
-    plane::Plane,
-    terraingen::VoronoiInfo,
     world::Material,
 };
 
 mod horosphere;
+mod plane;
+mod terraingen;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum NodeStateKind {
@@ -222,12 +224,12 @@ pub struct ChunkParams {
 
 impl ChunkParams {
     /// Extract data necessary to generate a chunk, generating new graph nodes if necessary
-    pub fn new(dimension: u8, graph: &mut Graph, chunk: ChunkId) -> Self {
+    pub fn new(graph: &mut Graph, chunk: ChunkId) -> Self {
         graph.ensure_node_state(chunk.node);
         let env = chunk_incident_enviro_factors(graph, chunk);
         let state = graph.node_state(chunk.node);
         Self {
-            dimension,
+            dimension: graph.layout().dimension(),
             chunk: chunk.vertex,
             env,
             surface: state.surface,

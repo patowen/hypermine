@@ -65,8 +65,7 @@ impl WorldgenDriver {
                 }
 
                 // Generate voxel data
-                let params =
-                    common::worldgen::ChunkParams::new(graph.layout().dimension(), graph, chunk_id);
+                let params = common::worldgen::ChunkParams::new(graph, chunk_id);
                 if let Some(voxel_data) = self.preloaded_voxel_data.remove(&chunk_id) {
                     self.add_chunk_to_graph(graph, chunk_id, voxel_data);
                 } else if self.work_queue.load(ChunkDesc { node, params }) {
@@ -99,12 +98,13 @@ impl WorldgenDriver {
     }
 
     pub fn apply_block_update(&mut self, graph: &mut Graph, block_update: BlockUpdate) {
-        if !graph.update_block(&block_update) {
-            self.preloaded_block_updates
-                .entry(block_update.chunk_id)
-                .or_default()
-                .push(block_update);
+        if graph.update_block(&block_update) {
+            return;
         }
+        self.preloaded_block_updates
+            .entry(block_update.chunk_id)
+            .or_default()
+            .push(block_update);
     }
 
     pub fn apply_voxel_data(
