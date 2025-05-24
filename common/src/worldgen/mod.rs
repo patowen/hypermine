@@ -133,14 +133,10 @@ impl NodeState {
             p.node_state.road_state.child(p.side)
         });
 
-        let horosphere =
-            (graph.partial_node_state(node).candidate_horosphere.as_ref()).and_then(|h| {
-                if h.should_generate(graph, node) {
-                    Some(h.clone())
-                } else {
-                    None
-                }
-            });
+        let horosphere = graph
+            .partial_node_state(node)
+            .candidate_horosphere
+            .filter(|h| h.should_generate(graph, node));
 
         Self {
             kind,

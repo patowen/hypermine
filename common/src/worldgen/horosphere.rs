@@ -22,7 +22,7 @@ const HOROSPHERES_ENABLED: bool = true;
 /// every node in the convex hull of nodes containing the horosphere will have a `HorosphereNode`
 /// referencing it. The unique node in this convex hull with the smallest depth in the graph is the owner
 /// of the horosphere, where it is originally generated.
-#[derive(Clone)]
+#[derive(Copy, Clone)]
 pub struct HorosphereNode {
     /// The node that originally created the horosphere. All parts of the horosphere will
     /// be in a node with this as an ancestor.
@@ -188,7 +188,7 @@ impl HorosphereNode {
     /// This function is much like `should_propagate`, but it takes in a sequence of sides instead
     /// of a single side.
     fn should_propagate_through_path(&self, mut path: impl ExactSizeIterator<Item = Side>) -> bool {
-        let mut current_horosphere = self.clone();
+        let mut current_horosphere = *self;
         while let Some(side) = path.next() {
             if !current_horosphere.should_propagate(side) {
                 return false;
