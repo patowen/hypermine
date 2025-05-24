@@ -71,6 +71,7 @@ impl NodeStateRoad {
 /// the NodeState of its parents.
 pub struct PartialNodeState {
     /// This becomes a real horosphere only if it doesn't interfere with another higher-priority horosphere.
+    /// See `HorosphereNode::has_priority` for the definition of priority.
     candidate_horosphere: Option<HorosphereNode>,
 }
 
