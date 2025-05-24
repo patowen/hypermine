@@ -1,0 +1,3 @@
+# save::DbError is 160 bytes, so to avoid result_large_err without adding
+# an "allow" to many places in the code, we bump up the threshold.
+large-error-threshold = 161
