@@ -8,12 +8,11 @@ use crate::collision_math::Ray;
 use crate::dodeca::Vertex;
 use crate::graph::{Graph, NodeId};
 use crate::lru_slab::SlotId;
-use crate::peer_traverser::PeerTraverser;
 use crate::proto::{BlockUpdate, Position, SerializedVoxelData};
 use crate::voxel_math::{ChunkDirection, CoordAxis, CoordSign, Coords};
 use crate::world::Material;
 use crate::worldgen::{NodeState, PartialNodeState};
-use crate::{Chunks, margins};
+use crate::{Chunks, margins, peer_traverser};
 
 /// Unique identifier for a single chunk (1/20 of a dodecahedron) in the graph
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,8 +63,7 @@ impl Graph {
         }
 
         self.ensure_partial_node_state(node_id);
-        let mut peers = PeerTraverser::new(node_id);
-        while let Some(peer) = peers.ensure_next(self) {
+        for peer in peer_traverser::ensure_peer_nodes(self, node_id) {
             self.ensure_partial_node_state(peer.node());
         }
 

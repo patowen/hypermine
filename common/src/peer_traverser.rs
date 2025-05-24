@@ -7,6 +7,64 @@ use crate::{
     graph::{Graph, NodeId},
 };
 
+/// Assumes the graph is expanded enough to traverse peer nodes and returns all peer nodes
+/// for the given base node. Panics if this assumption is false.
+pub fn expect_peer_nodes(graph: &Graph, base_node: NodeId) -> Vec<PeerNode> {
+    peer_nodes_impl(AssertingGraphRef { graph }, base_node)
+}
+
+/// Returns all peer nodes for the given base node, expanding the graph if necessary.
+pub fn ensure_peer_nodes(graph: &mut Graph, base_node: NodeId) -> Vec<PeerNode> {
+    peer_nodes_impl(ExpandingGraphRef { graph }, base_node)
+}
+
+fn peer_nodes_impl(mut graph: impl GraphRef, base_node: NodeId) -> Vec<PeerNode> {
+    let mut nodes = Vec::new();
+
+    // Depth 1 paths
+    for parent_side in Side::iter() {
+        let parent_node = graph.neighbor(base_node, parent_side);
+        if graph.length(parent_node) >= graph.length(base_node) {
+            continue;
+        }
+        for &child_side in &DEPTH1_CHILD_PATHS[parent_side as usize] {
+            let peer_node = graph.neighbor(parent_node, child_side);
+            if graph.length(peer_node) == graph.length(base_node) {
+                nodes.push(PeerNode {
+                    node_id: peer_node,
+                    parent_path: ArrayVec::from_iter([parent_side]),
+                    child_path: ArrayVec::from_iter([child_side]),
+                });
+            }
+        }
+    }
+
+    // Depth 2 paths
+    for (parent_side0, parent_node0) in graph.descenders(base_node) {
+        for (parent_side1, parent_node1) in graph.descenders(parent_node0) {
+            // Avoid redundancies by enforcing shortlex order
+            if parent_side1.adjacent_to(parent_side0)
+                && (parent_side1 as usize) < (parent_side0 as usize)
+            {
+                continue;
+            }
+            for &child_sides in &DEPTH2_CHILD_PATHS[parent_side0 as usize][parent_side1 as usize] {
+                let peer_node_parent = graph.neighbor(parent_node1, child_sides[0]);
+                let peer_node = graph.neighbor(peer_node_parent, child_sides[1]);
+                if graph.length(peer_node) == graph.length(base_node) {
+                    nodes.push(PeerNode {
+                        node_id: peer_node,
+                        parent_path: ArrayVec::from_iter([parent_side0, parent_side1]),
+                        child_path: ArrayVec::from_iter(child_sides),
+                    });
+                }
+            }
+        }
+    }
+
+    nodes
+}
+
 /// Details relating to a specific peer node. For a given base node, a peer node is
 /// any node of the same depth as the base node where it is possible to reach the
 /// same node from both the base and the peer node without "going backwards". Going backwards
@@ -42,7 +100,7 @@ impl PeerNode {
 }
 
 /// Allows traversal through all `PeerNode`s for a given base node.
-pub struct PeerTraverser {
+struct PeerTraverser {
     /// The path leading from the base node to the ancestor node we're currently looking at
     parent_path: ArrayVec<Side, 2>,
 
@@ -322,6 +380,8 @@ static DEPTH2_CHILD_PATHS: LazyLock<
 trait GraphRef: AsRef<Graph> {
     fn length(&self, node: NodeId) -> u32;
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
+    fn descenders(&self, node: NodeId)
+    -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<Self>;
 }
 
 /// A `GraphRef` that asserts that all the nodes it needs already exist
@@ -346,6 +406,12 @@ impl GraphRef for AssertingGraphRef<'_> {
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
         self.graph.neighbor(node, side).unwrap()
     }
+
+    #[inline]
+    #[allow(refining_impl_trait)]
+    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<> {
+        self.graph.descenders(node)
+    }
 }
 
 /// A `GraphRef` that expands the graph as necessary
@@ -362,6 +428,12 @@ impl GraphRef for ExpandingGraphRef<'_> {
     #[inline]
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
         self.graph.ensure_neighbor(node, side)
+    }
+
+    #[inline]
+    #[allow(refining_impl_trait)]
+    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<> {
+        self.graph.descenders(node)
     }
 }
 
