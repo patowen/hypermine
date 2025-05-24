@@ -176,8 +176,8 @@ impl HorosphereNode {
             };
             if !self.has_priority(peer_horosphere, node_id)
                 // Check that these horospheres can interfere by seeing if they share a node in common.
-                && peer_horosphere.should_propagate_through_path(peer.path_from_peer())
-                && self.should_propagate_through_path(peer.path_from_base())
+                && peer_horosphere.should_propagate_through_path(peer.peer_to_shared())
+                && self.should_propagate_through_path(peer.base_to_shared())
             {
                 return false;
             }

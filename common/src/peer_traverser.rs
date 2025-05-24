@@ -92,18 +92,18 @@ impl PeerNode {
 
     /// The sequence of sides that takes you from the peer node to the shared child node
     #[inline]
-    pub fn path_from_peer(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
+    pub fn peer_to_shared(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
         self.parent_path.clone().into_iter().rev()
     }
 
     /// The sequence of sides that takes you from the base node to the shared child node
     #[inline]
-    pub fn path_from_base(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
+    pub fn base_to_shared(&self) -> impl ExactSizeIterator<Item = Side> + Clone + use<> {
         self.child_path.clone().into_iter()
     }
 }
 
-/// All paths that are compatible with the given parent path of length 1
+/// All paths that can potentially lead to a peer node after following the given parent path of length 1
 static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
     LazyLock::new(|| {
         Side::VALUES.map(|parent_side| {
@@ -119,7 +119,7 @@ static DEPTH1_CHILD_PATHS: LazyLock<[ArrayVec<Side, 5>; Side::VALUES.len()]> =
         })
     });
 
-/// All paths that are compatible with the given parent path of length 2
+/// All paths that can potentially lead to a peer node after following the given parent path of length 2
 static DEPTH2_CHILD_PATHS: LazyLock<
     [[ArrayVec<[Side; 2], 2>; Side::VALUES.len()]; Side::VALUES.len()],
 > = LazyLock::new(|| {
@@ -279,11 +279,11 @@ mod tests {
         assert_eq!(peers.len(), expected_paths.len());
         for (peer, expected_path) in peers.into_iter().zip(expected_paths) {
             assert_eq!(
-                peer.path_from_peer().collect::<Vec<_>>(),
+                peer.peer_to_shared().collect::<Vec<_>>(),
                 expected_path.0.to_vec(),
             );
             assert_eq!(
-                peer.path_from_base().collect::<Vec<_>>(),
+                peer.base_to_shared().collect::<Vec<_>>(),
                 expected_path.1.to_vec(),
             );
         }
@@ -307,9 +307,9 @@ mod tests {
             );
 
             let destination_from_base =
-                node_from_path(&mut graph, base_node, peer.path_from_base());
+                node_from_path(&mut graph, base_node, peer.base_to_shared());
             let destination_from_peer =
-                node_from_path(&mut graph, peer_node, peer.path_from_peer());
+                node_from_path(&mut graph, peer_node, peer.peer_to_shared());
 
             assert_eq!(
                 graph.length(base_node),
@@ -317,12 +317,12 @@ mod tests {
                 "The base and peer nodes must have the same depth in the graph."
             );
             assert_eq!(
-                graph.length(base_node) + peer.path_from_base().len() as u32,
+                graph.length(base_node) + peer.base_to_shared().len() as u32,
                 graph.length(destination_from_base),
                 "path_from_base must not backtrack to a parent node."
             );
             assert_eq!(
-                graph.length(peer_node) + peer.path_from_peer().len() as u32,
+                graph.length(peer_node) + peer.peer_to_shared().len() as u32,
                 graph.length(destination_from_peer),
                 "path_from_peer must not backtrack to a parent node."
             );
