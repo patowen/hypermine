@@ -70,8 +70,7 @@ impl HorosphereNode {
                         .node_state(parent_id)
                         .horosphere
                         .as_ref()
-                        .filter(|h| h.should_propagate(parent_side))
-                        .map(|h| h.propagate(parent_side))
+                        .and_then(|h| h.propagate(parent_side))
                 });
 
         let mut horosphere = horospheres_to_average_iter.next()?;
@@ -116,27 +115,24 @@ impl HorosphereNode {
         None
     }
 
-    /// Whether the horosphere will still be relevant after crossing the given side of the current node.
-    fn should_propagate(&self, side: Side) -> bool {
-        // TODO: Consider adding epsilon to ensure floating point precision
-        // doesn't cause `average_with` to fail
-
+    /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
+    /// at the given side, or `None` if the horosphere is no longer relevant after crossing the given side.
+    /// The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`.
+    fn propagate(&self, side: Side) -> Option<HorosphereNode> {
         // If the horosphere is entirely behind the plane bounded by the given side, it is no longer relevant.
         // The relationship between a horosphere and a directed plane given by a normal vector can be determined with
         // the Minkowski inner product (mip) between their respective vectors. If it's positive, the ideal point is in front
         // of the plane, and if it's negative, the ideal point is behind it. The horosphere intersects the plane
         // exactly when the mip is between -1 and 1. Therefore, if it's less than -1, the horosphere is entirely
         // behind the plane.
-        self.pos.mip(side.normal()) > -1.0
-    }
+        if self.pos.mip(side.normal()) <= -1.0 {
+            return None;
+        }
 
-    /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
-    /// at the given side. The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`.
-    fn propagate(&self, side: Side) -> HorosphereNode {
-        HorosphereNode {
+        Some(HorosphereNode {
             owner: self.owner,
             pos: side.reflection() * self.pos,
-        }
+        })
     }
 
     /// Takes the weighted average of the coordinates of this horosphere with the coordinates of the other horosphere.
@@ -198,18 +194,15 @@ impl HorosphereNode {
         true
     }
 
-    /// This function is much like `should_propagate`, but it takes in a sequence of sides instead
-    /// of a single side.
-    fn should_propagate_through_path(&self, mut path: impl ExactSizeIterator<Item = Side>) -> bool {
+    /// This function returns whether the horosphere will propagate all the way to the node given
+    /// by the sequence of sides.
+    fn should_propagate_through_path(&self, path: impl ExactSizeIterator<Item = Side>) -> bool {
         let mut current_horosphere = *self;
-        while let Some(side) = path.next() {
-            if !current_horosphere.should_propagate(side) {
+        for side in path {
+            let Some(horosphere) = current_horosphere.propagate(side) else {
                 return false;
-            }
-            if path.len() == 0 {
-                return true;
-            }
-            current_horosphere = current_horosphere.propagate(side);
+            };
+            current_horosphere = horosphere;
         }
         true
     }
@@ -221,7 +214,7 @@ impl HorosphereNode {
 /// behind any of the other dodeca sides (as otherwise, a child node would own the horosphere). Note
 /// that the horosphere does not necessarily need to intersect the dodeca to be valid.
 fn is_horosphere_pos_valid(graph: &Graph, node_id: NodeId, horosphere_pos: &MVector<f32>) -> bool {
-    // See `should_propagate` for an explanation of what the mip between a horosphere position and
+    // See `propagate`'s implementation for an explanation of what the mip between a horosphere position and
     // a plane's normal signifies.
     Side::iter().all(|s| s.normal().mip(&horosphere_pos) < 1.0)
         && (graph.descenders(node_id)).all(|(s, _)| s.normal().mip(horosphere_pos) < -1.0)
