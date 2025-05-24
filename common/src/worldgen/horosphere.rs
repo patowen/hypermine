@@ -6,7 +6,7 @@ use rand_pcg::Pcg64Mcg;
 use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
-    math::MVector,
+    math::{MDirection, MIsometry, MPoint, MVector},
     node::VoxelData,
     peer_traverser,
     voxel_math::Coords,
@@ -29,18 +29,8 @@ pub struct HorosphereNode {
     /// to the same horosphere.
     owner: NodeId,
 
-    /// The vector representing the horosphere with respect to the node storing this `HorosphereNode`. A vector
-    /// `point` is in this horosphere if `point.mip(&self.pos) == -1`. This vector should always have
-    /// the invariant `self.pos.mip(&self.pos) == 0`, behaving much like a "light-like" vector
-    /// in Minkowski space. One consequence of this invariant is that this vector's length is always
-    /// proportional to its w-coordinate. If the w-coordinate is 1, the horosphere intersects the origin.
-    /// If it's less than 1, the horosphere contains the origin, and if it's greater than 1, the origin
-    /// is outside the horosphere. The vector points in the direction of the horosphere's ideal point.
-    ///
-    /// TODO: If a player traverses too far inside a horosphere, this vector will underflow, preventing
-    /// the horosphere from generating properly. Fixing this requires using logic similar to `Plane` to
-    /// increase the range of magnitudes the vector can take.
-    pos: MVector<f32>,
+    /// The horosphere's location
+    horosphere: Horosphere,
 }
 
 impl HorosphereNode {
@@ -73,18 +63,18 @@ impl HorosphereNode {
                         .and_then(|h| h.propagate(parent_side))
                 });
 
-        let mut horosphere = horospheres_to_average_iter.next()?;
+        let mut horosphere_node = horospheres_to_average_iter.next()?;
         let mut count = 1;
         for other in horospheres_to_average_iter {
             // Take an average of all HorosphereNodes in this iterator, giving each of them equal weight
             // by keeping track of a moving average with a weight that changes over time to make the
             // numbers work out the same way.
             count += 1;
-            horosphere.average_with(other, 1.0 / count as f32);
+            horosphere_node.average_with(other, 1.0 / count as f32);
         }
 
-        horosphere.renormalize();
-        Some(horosphere)
+        horosphere_node.horosphere.renormalize();
+        Some(horosphere_node)
     }
 
     /// Create a `HorosphereNode` corresponding to a freshly created horosphere with the given node as its owner,
@@ -104,11 +94,11 @@ impl HorosphereNode {
 
             // However, we do return early to ensure that after filtering, we only take the first
             // horosphere if there is one, since a node can have at most one horosphere.
-            let horosphere_pos = random_horosphere_pos(&mut rng);
-            if is_horosphere_pos_valid(graph, node_id, &horosphere_pos) {
+            let horosphere = Horosphere::new_random(&mut rng, MAX_OWNED_HOROSPHERE_W);
+            if is_horosphere_valid(graph, node_id, &horosphere) {
                 return Some(HorosphereNode {
                     owner: node_id,
-                    pos: horosphere_pos,
+                    horosphere,
                 });
             }
         }
@@ -120,18 +110,13 @@ impl HorosphereNode {
     /// The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`.
     fn propagate(&self, side: Side) -> Option<HorosphereNode> {
         // If the horosphere is entirely behind the plane bounded by the given side, it is no longer relevant.
-        // The relationship between a horosphere and a directed plane given by a normal vector can be determined with
-        // the Minkowski inner product (mip) between their respective vectors. If it's positive, the ideal point is in front
-        // of the plane, and if it's negative, the ideal point is behind it. The horosphere intersects the plane
-        // exactly when the mip is between -1 and 1. Therefore, if it's less than -1, the horosphere is entirely
-        // behind the plane.
-        if self.pos.mip(side.normal()) <= -1.0 {
+        if !self.horosphere.intersects_half_space(side.normal()) {
             return None;
         }
 
         Some(HorosphereNode {
             owner: self.owner,
-            pos: side.reflection() * self.pos,
+            horosphere: side.reflection() * self.horosphere,
         })
     }
 
@@ -143,13 +128,8 @@ impl HorosphereNode {
             // of a bug in that function's implementation.
             panic!("Tried to average two unrelated HorosphereNodes");
         }
-        self.pos = self.pos * (1.0 - other_weight) + other.pos * other_weight;
-    }
-
-    /// Ensures that the horosphere invariant holds (`pos.mip(&pos) == 0`), as numerical error can otherwise propagate,
-    /// potentially making the surface behave more like a sphere or an equidistant surface.
-    fn renormalize(&mut self) {
-        self.pos.w = self.pos.xyz().norm();
+        self.horosphere.pos =
+            self.horosphere.pos * (1.0 - other_weight) + other.horosphere.pos * other_weight;
     }
 
     /// Returns whether the horosphere is freshly created, instead of a
@@ -163,7 +143,8 @@ impl HorosphereNode {
     fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
         // If both horospheres are fresh, use the w-coordinate as an arbitrary
         // tie-breaker to decide which horosphere should win.
-        !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.pos.w < other.pos.w)
+        !self.is_fresh(node_id)
+            || (other.is_fresh(node_id) && self.horosphere.pos.w < other.horosphere.pos.w)
     }
 
     /// Based on other nodes in the graph, determines whether the horosphere
@@ -213,35 +194,9 @@ impl HorosphereNode {
 /// (as otherwise, a parent node would own the horosphere), and the horosphere must not be fully
 /// behind any of the other dodeca sides (as otherwise, a child node would own the horosphere). Note
 /// that the horosphere does not necessarily need to intersect the dodeca to be valid.
-fn is_horosphere_pos_valid(graph: &Graph, node_id: NodeId, horosphere_pos: &MVector<f32>) -> bool {
-    // See `propagate`'s implementation for an explanation of what the mip between a horosphere position and
-    // a plane's normal signifies.
-    Side::iter().all(|s| s.normal().mip(&horosphere_pos) < 1.0)
-        && (graph.descenders(node_id)).all(|(s, _)| s.normal().mip(horosphere_pos) < -1.0)
-}
-
-/// Returns a vector representing a uniformly random horosphere within a certain distance to the origin.
-/// This distance is set up to ensure that `is_horosphere_pos_valid` would always return false if it were any futher,
-/// ensuring that this function does not artificially restrict which horospheres can be created.
-fn random_horosphere_pos(rng: &mut Pcg64Mcg) -> MVector<f32> {
-    // Pick a w-coordinate whose probability density function is `p(w) = w`. By trial and error,
-    // this seems to produce horospheres with a uniform and isotropic distribution.
-    // TODO: Find a rigorous explanation for this. We would want to show that the probability density is unchanged
-    // when an isometry is applied.
-    let w = sqrtf(rng.random::<f32>()) * MAX_OWNED_HOROSPHERE_W;
-
-    // Uniformly pick spherical coordinates from a unit sphere
-    let cos_phi = rng.random::<f32>() * 2.0 - 1.0;
-    let sin_phi = sqrtf(1.0 - cos_phi * cos_phi);
-    let theta = rng.random::<f32>() * std::f32::consts::TAU;
-
-    // Construct the resulting vector.
-    MVector::new(
-        w * sin_phi * cosf(theta),
-        w * sin_phi * sinf(theta),
-        w * cos_phi,
-        w,
-    )
+fn is_horosphere_valid(graph: &Graph, node_id: NodeId, horosphere: &Horosphere) -> bool {
+    Side::iter().all(|s| !horosphere.is_inside_half_space(s.normal()))
+        && (graph.descenders(node_id)).all(|(s, _)| !horosphere.intersects_half_space(s.normal()))
 }
 
 /// The maximum node-centric w-coordinate a horosphere can have such that the node in question
@@ -253,14 +208,14 @@ const MAX_OWNED_HOROSPHERE_W: f32 = 5.9047837;
 pub struct HorosphereChunk {
     /// The vector representing the horosphere in the perspective of the relevant chunk.
     /// See `HorosphereNode::pos` for details.
-    pub pos: MVector<f32>,
+    pub horosphere: Horosphere,
 }
 
 impl HorosphereChunk {
     /// Creates a `HorosphereChunk` based on a `HorosphereNode`
     pub fn new(horosphere_node: &HorosphereNode, vertex: Vertex) -> Self {
         HorosphereChunk {
-            pos: vertex.node_to_dual() * horosphere_node.pos,
+            horosphere: vertex.node_to_dual() * horosphere_node.horosphere,
         }
     }
 
@@ -276,12 +231,87 @@ impl HorosphereChunk {
                         chunk_size as f32 * Vertex::dual_to_chunk_factor(),
                     )
                     .normalized_point();
-                    if pos.mip(&self.pos) > -1.0 {
+                    if self.horosphere.contains_point(&pos) {
                         voxels.data_mut(chunk_size)[Coords([x, y, z]).to_index(chunk_size)] =
                             Material::RedSandstone;
                     }
                 }
             }
+        }
+    }
+}
+
+/// A horosphere in hyperbolic space. Contains helper functions for common operations
+#[derive(Copy, Clone)]
+pub struct Horosphere {
+    /// The vector representing the horosphere with respect to the node storing this `HorosphereNode`. A vector
+    /// `point` is in this horosphere if `point.mip(&self.pos) == -1`. This vector should always have
+    /// the invariant `self.pos.mip(&self.pos) == 0`, behaving much like a "light-like" vector
+    /// in Minkowski space. One consequence of this invariant is that this vector's length is always
+    /// proportional to its w-coordinate. If the w-coordinate is 1, the horosphere intersects the origin.
+    /// If it's less than 1, the horosphere contains the origin, and if it's greater than 1, the origin
+    /// is outside the horosphere. The vector points in the direction of the horosphere's ideal point.
+    ///
+    /// TODO: If a player traverses too far inside a horosphere, this vector will underflow, preventing
+    /// the horosphere from generating properly. Fixing this requires using logic similar to `Plane` to
+    /// increase the range of magnitudes the vector can take.
+    pos: MVector<f32>,
+}
+
+impl Horosphere {
+    /// Returns whether the point is inside the horosphere
+    pub fn contains_point(&self, point: &MPoint<f32>) -> bool {
+        self.pos.mip(point) >= -1.0
+    }
+
+    /// Returns whether the horosphere is entirely inside the half space in front of the plane defined by `normal`
+    pub fn is_inside_half_space(&self, normal: &MDirection<f32>) -> bool {
+        self.pos.mip(normal) >= 1.0
+    }
+
+    /// Returns whether any part of the horosphere intersects the half space in front of the plane defined by `normal`
+    pub fn intersects_half_space(&self, normal: &MDirection<f32>) -> bool {
+        self.pos.mip(normal) >= -1.0
+    }
+
+    /// Ensures that the horosphere invariant holds (`pos.mip(&pos) == 0`), as numerical error can otherwise propagate,
+    /// potentially making the surface behave more like a sphere or an equidistant surface.
+    pub fn renormalize(&mut self) {
+        self.pos.w = self.pos.xyz().norm();
+    }
+
+    /// Returns a uniformly random horosphere, restricted so that the w-coordinate of its representing vector
+    /// must be at most `max_w`.
+    pub fn new_random(rng: &mut Pcg64Mcg, max_w: f32) -> Self {
+        // Pick a w-coordinate whose probability density function is `p(w) = w`. By trial and error,
+        // this seems to produce horospheres with a uniform and isotropic distribution.
+        // TODO: Find a rigorous explanation for this. We would want to show that the probability density is unchanged
+        // when an isometry is applied.
+        let w = sqrtf(rng.random::<f32>()) * max_w;
+
+        // Uniformly pick spherical coordinates from a unit sphere
+        let cos_phi = rng.random::<f32>() * 2.0 - 1.0;
+        let sin_phi = sqrtf(1.0 - cos_phi * cos_phi);
+        let theta = rng.random::<f32>() * std::f32::consts::TAU;
+
+        // Construct the resulting vector.
+        Horosphere {
+            pos: MVector::new(
+                w * sin_phi * cosf(theta),
+                w * sin_phi * sinf(theta),
+                w * cos_phi,
+                w,
+            ),
+        }
+    }
+}
+
+impl std::ops::Mul<Horosphere> for &MIsometry<f32> {
+    type Output = Horosphere;
+
+    fn mul(self, rhs: Horosphere) -> Self::Output {
+        Horosphere {
+            pos: self * rhs.pos,
         }
     }
 }
