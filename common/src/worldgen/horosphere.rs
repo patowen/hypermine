@@ -244,13 +244,22 @@ impl HorosphereChunk {
 /// A horosphere in hyperbolic space. Contains helper functions for common operations
 #[derive(Copy, Clone)]
 pub struct Horosphere {
-    /// The vector representing the horosphere with respect to the node storing this `HorosphereNode`. A vector
-    /// `point` is in this horosphere if `point.mip(&self.pos) == -1`. This vector should always have
-    /// the invariant `self.pos.mip(&self.pos) == 0`, behaving much like a "light-like" vector
-    /// in Minkowski space. One consequence of this invariant is that this vector's length is always
-    /// proportional to its w-coordinate. If the w-coordinate is 1, the horosphere intersects the origin.
-    /// If it's less than 1, the horosphere contains the origin, and if it's greater than 1, the origin
-    /// is outside the horosphere. The vector points in the direction of the horosphere's ideal point.
+    /// This vector, `pos`, entirely represents the horosphere using the following rule: A vector
+    /// `point` is in this horosphere exactly when `point.mip(&self.pos) == -1`. This vector should
+    /// always have the invariant `self.pos.mip(&self.pos) == 0`, behaving much like a "light-like"
+    /// vector in Minkowski space.
+    ///
+    /// One recommended way to gain an intuition of this vector is to consider its direction separately.
+    /// The vector points in the direction of an ideal point in the hyperboloid model because it is on
+    /// the cone that the hyperboloid approaches. This ideal point is the center of the horosphere.
+    /// This determines `self.pos` up to a scalar multiple, and the remaining degree of freedom can
+    /// be pinned down by analyzing the w-coordinate.
+    ///
+    /// The w-coordinate determines which of the concentric horospheres with that ideal point is represented.
+    /// A larger w-coordinate represents a horosphere that is farther away from the origin.
+    /// If the w-coordinate is 1, the origin is on the horosphere's surface.
+    /// If it's less than 1, the origin is in the horosphere's interior, and if it's greater than 1, the origin
+    /// is outside the horosphere.
     ///
     /// TODO: If a player traverses too far inside a horosphere, this vector will underflow, preventing
     /// the horosphere from generating properly. Fixing this requires using logic similar to `Plane` to
