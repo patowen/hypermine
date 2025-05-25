@@ -29,7 +29,7 @@ pub struct HorosphereNode {
     /// to the same horosphere.
     owner: NodeId,
 
-    /// The horosphere's location
+    /// The horosphere's location relative to the node containing this `HorosphereNode`
     horosphere: Horosphere,
 }
 
@@ -206,8 +206,7 @@ const MAX_OWNED_HOROSPHERE_W: f32 = 5.9047837;
 
 /// Represents a chunks's reference to a particular horosphere.
 pub struct HorosphereChunk {
-    /// The vector representing the horosphere in the perspective of the relevant chunk.
-    /// See `HorosphereNode::pos` for details.
+    /// The horosphere's location relative to the chunk containing this `HorosphereChunk`.
     pub horosphere: Horosphere,
 }
 
