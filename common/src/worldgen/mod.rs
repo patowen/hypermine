@@ -97,7 +97,7 @@ pub struct NodeState {
 impl NodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
         let mut parents = graph
-            .descenders(node)
+            .parents(node)
             .map(|(s, n)| ParentInfo {
                 node_id: n,
                 side: s,

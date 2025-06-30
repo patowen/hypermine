@@ -41,7 +41,7 @@ impl Graph {
             return;
         }
 
-        for (_, parent) in self.descenders(node_id) {
+        for (_, parent) in self.parents(node_id) {
             self.ensure_node_state(parent);
         }
 

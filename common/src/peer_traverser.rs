@@ -28,12 +28,12 @@ fn peer_nodes_impl(mut graph: impl GraphRef, base_node: NodeId) -> Vec<PeerNode>
     // Depth 1 paths
     for parent_side in Side::iter() {
         let parent_node = graph.neighbor(base_node, parent_side);
-        if graph.length(parent_node) >= graph.length(base_node) {
+        if graph.depth(parent_node) >= graph.depth(base_node) {
             continue;
         }
         for &child_side in &DEPTH1_CHILD_PATHS[parent_side as usize] {
             let peer_node = graph.neighbor(parent_node, child_side);
-            if graph.length(peer_node) == graph.length(base_node) {
+            if graph.depth(peer_node) == graph.depth(base_node) {
                 nodes.push(PeerNode {
                     node_id: peer_node,
                     parent_path: ArrayVec::from_iter([parent_side]),
@@ -44,8 +44,8 @@ fn peer_nodes_impl(mut graph: impl GraphRef, base_node: NodeId) -> Vec<PeerNode>
     }
 
     // Depth 2 paths
-    for (parent_side0, parent_node0) in graph.descenders(base_node) {
-        for (parent_side1, parent_node1) in graph.descenders(parent_node0) {
+    for (parent_side0, parent_node0) in graph.parents(base_node) {
+        for (parent_side1, parent_node1) in graph.parents(parent_node0) {
             // Avoid redundancies by enforcing shortlex order
             if parent_side1.adjacent_to(parent_side0)
                 && (parent_side1 as usize) < (parent_side0 as usize)
@@ -55,7 +55,7 @@ fn peer_nodes_impl(mut graph: impl GraphRef, base_node: NodeId) -> Vec<PeerNode>
             for &child_sides in &DEPTH2_CHILD_PATHS[parent_side0 as usize][parent_side1 as usize] {
                 let peer_node_parent = graph.neighbor(parent_node1, child_sides[0]);
                 let peer_node = graph.neighbor(peer_node_parent, child_sides[1]);
-                if graph.length(peer_node) == graph.length(base_node) {
+                if graph.depth(peer_node) == graph.depth(base_node) {
                     nodes.push(PeerNode {
                         node_id: peer_node,
                         parent_path: ArrayVec::from_iter([parent_side0, parent_side1]),
@@ -166,10 +166,9 @@ static DEPTH2_CHILD_PATHS: LazyLock<
 
 /// A reference to the graph used by `PeerTraverser` to decide how to handle not-yet-created nodes
 trait GraphRef: AsRef<Graph> {
-    fn length(&self, node: NodeId) -> u32;
+    fn depth(&self, node: NodeId) -> u32;
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
-    fn descenders(&self, node: NodeId)
-    -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<Self>;
+    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<Self>;
 }
 
 /// A `GraphRef` that asserts that all the nodes it needs already exist
@@ -178,27 +177,22 @@ struct AssertingGraphRef<'a> {
 }
 
 impl AsRef<Graph> for AssertingGraphRef<'_> {
-    #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
     }
 }
 
-impl GraphRef for AssertingGraphRef<'_> {
-    #[inline]
-    fn length(&self, node: NodeId) -> u32 {
-        self.graph.length(node)
+impl<'a> GraphRef for AssertingGraphRef<'a> {
+    fn depth(&self, node: NodeId) -> u32 {
+        self.graph.depth(node)
     }
 
-    #[inline]
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
         self.graph.neighbor(node, side).unwrap()
     }
 
-    #[inline]
-    #[allow(refining_impl_trait)]
-    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<> {
-        self.graph.descenders(node)
+    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<'a> {
+        self.graph.parents(node)
     }
 }
 
@@ -207,26 +201,21 @@ struct ExpandingGraphRef<'a> {
     graph: &'a mut Graph,
 }
 
-impl GraphRef for ExpandingGraphRef<'_> {
-    #[inline]
-    fn length(&self, node: NodeId) -> u32 {
-        self.graph.length(node)
+impl<'a> GraphRef for ExpandingGraphRef<'a> {
+    fn depth(&self, node: NodeId) -> u32 {
+        self.graph.depth(node)
     }
 
-    #[inline]
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId {
         self.graph.ensure_neighbor(node, side)
     }
 
-    #[inline]
-    #[allow(refining_impl_trait)]
-    fn descenders(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<> {
-        self.graph.descenders(node)
+    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<'a> {
+        self.graph.parents(node)
     }
 }
 
 impl AsRef<Graph> for ExpandingGraphRef<'_> {
-    #[inline]
     fn as_ref(&self) -> &Graph {
         self.graph
     }
@@ -312,18 +301,18 @@ mod tests {
                 node_from_path(&mut graph, peer_node, peer.peer_to_shared());
 
             assert_eq!(
-                graph.length(base_node),
-                graph.length(peer_node),
+                graph.depth(base_node),
+                graph.depth(peer_node),
                 "The base and peer nodes must have the same depth in the graph."
             );
             assert_eq!(
-                graph.length(base_node) + peer.base_to_shared().len() as u32,
-                graph.length(destination_from_base),
+                graph.depth(base_node) + peer.base_to_shared().len() as u32,
+                graph.depth(destination_from_base),
                 "path_from_base must not backtrack to a parent node."
             );
             assert_eq!(
-                graph.length(peer_node) + peer.peer_to_shared().len() as u32,
-                graph.length(destination_from_peer),
+                graph.depth(peer_node) + peer.peer_to_shared().len() as u32,
+                graph.depth(destination_from_peer),
                 "path_from_peer must not backtrack to a parent node."
             );
             assert_eq!(
