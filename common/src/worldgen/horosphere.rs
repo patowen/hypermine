@@ -31,6 +31,9 @@ pub struct HorosphereNode {
 
     /// The horosphere's location relative to the node containing this `HorosphereNode`
     horosphere: Horosphere,
+
+    /// A region bounded by node sides that limits where the horosphere can be
+    region: NodeBoundedRegion,
 }
 
 impl HorosphereNode {
@@ -99,6 +102,7 @@ impl HorosphereNode {
                 return Some(HorosphereNode {
                     owner: node_id,
                     horosphere,
+                    region: NodeBoundedRegion::node_and_descendents(graph, node_id),
                 });
             }
         }
@@ -117,6 +121,7 @@ impl HorosphereNode {
         Some(HorosphereNode {
             owner: self.owner,
             horosphere: side.reflection() * self.horosphere,
+            region: self.region.neighbor(side),
         })
     }
 
@@ -130,6 +135,7 @@ impl HorosphereNode {
         }
         self.horosphere.pos =
             self.horosphere.pos * (1.0 - other_weight) + other.horosphere.pos * other_weight;
+        self.region = self.region.intersect(other.region);
     }
 
     /// Returns whether the horosphere is freshly created, instead of a
@@ -321,6 +327,55 @@ impl std::ops::Mul<Horosphere> for &MIsometry<f32> {
         Horosphere {
             pos: self * rhs.pos,
         }
+    }
+}
+
+/// Represents a region of space bounded by planes corresponding to a subset of a node's sides in that node's perspective.
+#[derive(Clone, Copy)]
+struct NodeBoundedRegion {
+    /// A bit-array with 12 elements, one for each side. A 1 means that that side is a bound, and a 0 means it is not.
+    bounded_sides: u16,
+}
+
+impl NodeBoundedRegion {
+    /// Creates a region with no bounds
+    fn unbounded() -> Self {
+        NodeBoundedRegion { bounded_sides: 0 }
+    }
+
+    /// Creates a region that contains the given node and all its descendents
+    fn node_and_descendents(graph: &Graph, node_id: NodeId) -> Self {
+        let mut bounded_sides = 0;
+        for (parent_side, _) in graph.parents(node_id) {
+            bounded_sides |= 1 << (parent_side as u8);
+        }
+        NodeBoundedRegion { bounded_sides }
+    }
+
+    /// Produces the set intersection of the `self` and `other` regions
+    fn intersect(self, other: NodeBoundedRegion) -> NodeBoundedRegion {
+        NodeBoundedRegion {
+            bounded_sides: self.bounded_sides | other.bounded_sides,
+        }
+    }
+
+    /// Returns the sub-region consisting of everything beyond the plane containing
+    /// the given side (in the perspective of the corresponding neighboring node).
+    fn neighbor(self, neighbor_side: Side) -> NodeBoundedRegion {
+        let mut bounded_sides = self.bounded_sides;
+
+        // Don't allow backtracking
+        bounded_sides |= 1 << (neighbor_side as u8);
+
+        // As we're shifting perspective to a neighboring node, most sides now refer
+        // to different planes and no longer bound the region. The only exceptions to this
+        // are the shared side and its neighbors.
+        for side in Side::iter() {
+            if !side.adjacent_to(neighbor_side) && side != neighbor_side {
+                bounded_sides &= !(1 << (side as u8));
+            }
+        }
+        NodeBoundedRegion { bounded_sides }
     }
 }
 
