@@ -32,7 +32,9 @@ pub struct HorosphereNode {
     /// The horosphere's location relative to the node containing this `HorosphereNode`
     horosphere: Horosphere,
 
-    /// A region bounded by node sides that limits where the horosphere can be
+    /// A region bounded by node sides that limits where the horosphere can be. Specifically, this region should
+    /// cover all parts of the horosphere contained in this node and all its descendent nodes.
+    /// Note that unless `tighten_region` is called on the `HorosphereNode`, this region's bounds may not be as tight as they could be.
     region: NodeBoundedRegion,
 }
 
@@ -77,6 +79,7 @@ impl HorosphereNode {
         }
 
         horosphere_node.horosphere.renormalize();
+        horosphere_node.tighten_region();
         Some(horosphere_node)
     }
 
@@ -99,22 +102,42 @@ impl HorosphereNode {
             // horosphere if there is one, since a node can have at most one horosphere.
             let horosphere = Horosphere::new_random(&mut rng, MAX_OWNED_HOROSPHERE_W);
             if is_horosphere_valid(graph, node_id, &horosphere) {
-                return Some(HorosphereNode {
+                let mut horosphere_node = HorosphereNode {
                     owner: node_id,
                     horosphere,
                     region: NodeBoundedRegion::node_and_descendents(graph, node_id),
-                });
+                };
+                horosphere_node.tighten_region();
+                return Some(horosphere_node);
             }
         }
         None
+    }
+
+    /// Updates the region associated with the `HorosphereNode` to be the minimal region
+    /// that still contains all descendent nodes that contain part of the horosphere
+    fn tighten_region(&mut self) {
+        for side in Side::iter() {
+            if !self.region.is_bounded_by(side) && self.can_tighten_region(side) {
+                self.region.add_bound(side);
+            }
+        }
+    }
+
+    /// Computes whether propagation can stop at a particular side due to no part of the horosphere
+    /// being behind it. This function is used to tighten region bounds.
+    fn can_tighten_region(&self, side: Side) -> bool {
+        // If the half-space beyond the given side does not contain any part of the horosphere, then
+        // we can include that side in the bounds.
+        !self.horosphere.intersects_half_space(side.normal())
     }
 
     /// Returns an estimate of the `HorosphereNode` corresponding to the node adjacent to the current node
     /// at the given side, or `None` if the horosphere is no longer relevant after crossing the given side.
     /// The estimates given by multiple nodes may be used to produce the actual `HorosphereNode`.
     fn propagate(&self, side: Side) -> Option<HorosphereNode> {
-        // If the horosphere is entirely behind the plane bounded by the given side, it is no longer relevant.
-        if !self.horosphere.intersects_half_space(side.normal()) {
+        // Don't propagate beyond the already-computed bounds of the `HorosphereNode`.
+        if self.region.is_bounded_by(side) {
             return None;
         }
 
@@ -171,25 +194,12 @@ impl HorosphereNode {
                 continue;
             };
             if !self.has_priority(peer_horosphere, node_id)
-                // Check that these horospheres can interfere by seeing if they share a node in common.
-                && peer_horosphere.should_propagate_through_path(peer.peer_to_shared())
-                && self.should_propagate_through_path(peer.base_to_shared())
+                // Check that these horospheres can interfere by seeing if their regions share a node in common.
+                && peer_horosphere.region.contains_node(peer.peer_to_shared())
+                && self.region.contains_node(peer.base_to_shared())
             {
                 return false;
             }
-        }
-        true
-    }
-
-    /// This function returns whether the horosphere will propagate all the way to the node given
-    /// by the sequence of sides.
-    fn should_propagate_through_path(&self, path: impl ExactSizeIterator<Item = Side>) -> bool {
-        let mut current_horosphere = *self;
-        for side in path {
-            let Some(horosphere) = current_horosphere.propagate(side) else {
-                return false;
-            };
-            current_horosphere = horosphere;
         }
         true
     }
@@ -361,7 +371,11 @@ impl NodeBoundedRegion {
 
     /// Returns the sub-region consisting of everything beyond the plane containing
     /// the given side (in the perspective of the corresponding neighboring node).
+    /// As a precondition, the given side cannot be an existing bound, as that would
+    /// make the sub-region empty (which is non-representable in `NodeBoundedRegion`).
     fn neighbor(self, neighbor_side: Side) -> NodeBoundedRegion {
+        debug_assert!(!self.is_bounded_by(neighbor_side));
+
         let mut bounded_sides = self.bounded_sides;
 
         // Don't allow backtracking
@@ -376,6 +390,30 @@ impl NodeBoundedRegion {
             }
         }
         NodeBoundedRegion { bounded_sides }
+    }
+
+    /// Returns whether the node reachable via the given path is within the region.
+    /// Note that this path is required to be one of the shortest paths that can reach
+    /// that node.
+    fn contains_node(self, path: impl Iterator<Item = Side>) -> bool {
+        let mut current_region = self;
+        for side in path {
+            if current_region.is_bounded_by(side) {
+                return false;
+            }
+            current_region = current_region.neighbor(side);
+        }
+        true
+    }
+
+    /// Returns whether the given side bounds the region
+    fn is_bounded_by(self, side: Side) -> bool {
+        self.bounded_sides & (1 << (side as u8)) != 0
+    }
+
+    /// Adds the given side as a bound for the region
+    fn add_bound(&mut self, side: Side) {
+        self.bounded_sides |= 1 << (side as u8);
     }
 }
 
