@@ -10,13 +10,16 @@ use crate::{
     node::VoxelData,
     peer_traverser,
     voxel_math::Coords,
-    world::Material,
+    world::Material, worldgen::hash,
 };
 
 /// Whether an assortment of random horospheres should be added to world generation. This is a temporary
 /// option until large structures that fit with the theme of the world are introduced.
 /// For code simplicity, this is made into a constant instead of a configuration option.
 const HOROSPHERES_ENABLED: bool = true;
+
+/// Value to mix into the node's spice for generating horospheres. Chosen randomly.
+const HOROSPHERE_SEED: u64 = 6046133366614030452;
 
 /// Represents a node's reference to a particular horosphere. As a general rule, for any give horosphere,
 /// every node in the convex hull of nodes containing the horosphere will have a `HorosphereNode`
@@ -94,7 +97,7 @@ impl HorosphereNode {
         const HOROSPHERE_DENSITY: f32 = 6.0;
 
         let spice = graph.hash_of(node_id) as u64;
-        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(spice.wrapping_add(42));
+        let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(hash(spice, HOROSPHERE_SEED));
         for _ in 0..rng.sample(Poisson::new(HOROSPHERE_DENSITY).unwrap()) as u32 {
             // This logic is designed to create an average of "HOROSPHERE_DENSITY" horosphere candiates
             // in the region determined by `random_horosphere_pos` and then filters the resulting
