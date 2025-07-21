@@ -32,9 +32,13 @@ pub struct HorosphereNode {
     /// The horosphere's location relative to the node containing this `HorosphereNode`
     horosphere: Horosphere,
 
-    /// A region bounded by node sides that limits where the horosphere can be. Specifically, this region should
-    /// cover all parts of the horosphere contained in this node and all its descendent nodes.
-    /// Note that unless `tighten_region` is called on the `HorosphereNode`, this region's bounds may not be as tight as they could be.
+    /// A region that bounds the `HorosphereNode`'s descendents. A `HorosphereNode` will never propagate beyond
+    /// this region, and the region's bounds will be as tight as possible. Note that this region does note necessarily
+    /// contain the whole horosphere because parts of the horosphere that require backtracking towards the origin
+    /// are ignored.
+    // Note: All public constructors generate a `HorosphereNode` with tight bounds, but some `HorosphereNode`s
+    // might not have tight bounds because a `HorosphereNode` is used in an intermediate calculations, averaged
+    // together with other `HorosphereNode`s before the bounds are tightened.
     region: NodeBoundedRegion,
 }
 
@@ -79,7 +83,7 @@ impl HorosphereNode {
         }
 
         horosphere_node.horosphere.renormalize();
-        horosphere_node.tighten_region();
+        horosphere_node.tighten_region_bounds();
         Some(horosphere_node)
     }
 
@@ -107,18 +111,17 @@ impl HorosphereNode {
                     horosphere,
                     region: NodeBoundedRegion::node_and_descendents(graph, node_id),
                 };
-                horosphere_node.tighten_region();
+                horosphere_node.tighten_region_bounds();
                 return Some(horosphere_node);
             }
         }
         None
     }
 
-    /// Updates the region associated with the `HorosphereNode` to be the minimal region
-    /// that still contains all descendent nodes that contain part of the horosphere
-    fn tighten_region(&mut self) {
+    /// Updates the region associated with the `HorosphereNode` to have bounds that are as tight as possible.
+    fn tighten_region_bounds(&mut self) {
         for side in Side::iter() {
-            if !self.region.is_bounded_by(side) && self.can_tighten_region(side) {
+            if !self.region.is_bounded_by(side) && self.can_tighten_region_bound(side) {
                 self.region.add_bound(side);
             }
         }
@@ -126,9 +129,7 @@ impl HorosphereNode {
 
     /// Computes whether propagation can stop at a particular side due to no part of the horosphere
     /// being behind it. This function is used to tighten region bounds.
-    fn can_tighten_region(&self, side: Side) -> bool {
-        // If the half-space beyond the given side does not contain any part of the horosphere, then
-        // we can include that side in the bounds.
+    fn can_tighten_region_bound(&self, side: Side) -> bool {
         !self.horosphere.intersects_half_space(side.normal())
     }
 
@@ -349,6 +350,7 @@ struct NodeBoundedRegion {
 
 impl NodeBoundedRegion {
     /// Creates a region with no bounds
+    #[cfg(test)]
     fn unbounded() -> Self {
         NodeBoundedRegion { bounded_sides: 0 }
     }
@@ -447,5 +449,82 @@ mod test {
 
         // Finally, compare that horosphere's w-coordinate to `MAX_OWNED_HOROSPHERE_W`
         assert_abs_diff_eq!(horosphere_pos.w, MAX_OWNED_HOROSPHERE_W, epsilon = 1.0e-6);
+    }
+
+    #[test]
+    fn node_bounded_region_intersect_example() {
+        let mut region0 = NodeBoundedRegion::unbounded();
+        region0.add_bound(Side::A);
+        region0.add_bound(Side::B);
+
+        let mut region1 = NodeBoundedRegion::unbounded();
+        region1.add_bound(Side::B);
+        region1.add_bound(Side::C);
+
+        let intersection = region0.intersect(region1);
+        for side in Side::iter() {
+            assert_eq!(
+                intersection.is_bounded_by(side),
+                [Side::A, Side::B, Side::C].contains(&side),
+                "testing side {side:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn node_bounded_region_neighbor_example() {
+        let mut region = NodeBoundedRegion::unbounded();
+        // Sides adjacent to A
+        region.add_bound(Side::B);
+        region.add_bound(Side::C);
+        region.add_bound(Side::D);
+
+        // Sides not adjacent to A
+        region.add_bound(Side::F);
+        region.add_bound(Side::G);
+        region.add_bound(Side::J);
+
+        let neighbor = region.neighbor(Side::A);
+
+        for side in Side::iter() {
+            assert_eq!(
+                neighbor.is_bounded_by(side),
+                [Side::A, Side::B, Side::C, Side::D].contains(&side),
+                "testing side {side:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn node_bounded_region_node_and_descendents_example() {
+        let mut graph = Graph::new(1);
+        let node_id = graph.ensure_neighbor(NodeId::ROOT, Side::A);
+        let region = NodeBoundedRegion::node_and_descendents(&graph, node_id);
+
+        for side in Side::iter() {
+            assert_eq!(
+                region.is_bounded_by(side),
+                [Side::A].contains(&side),
+                "testing side {side:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn node_bounded_region_contains_node_example() {
+        let mut region = NodeBoundedRegion::unbounded();
+        // Sides adjacent to A
+        region.add_bound(Side::B);
+        region.add_bound(Side::C);
+
+        // Sides not adjacent to A
+        region.add_bound(Side::F);
+        region.add_bound(Side::G);
+        region.add_bound(Side::J);
+
+        assert!(region.contains_node([Side::A].into_iter()));
+        assert!(!region.contains_node([Side::B].into_iter()));
+        assert!(region.contains_node([Side::A, Side::F].into_iter()));
+        assert!(!region.contains_node([Side::A, Side::B].into_iter()));
     }
 }
