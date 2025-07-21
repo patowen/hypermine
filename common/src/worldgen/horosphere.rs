@@ -10,7 +10,8 @@ use crate::{
     node::VoxelData,
     peer_traverser,
     voxel_math::Coords,
-    world::Material, worldgen::hash,
+    world::Material,
+    worldgen::hash,
 };
 
 /// Whether an assortment of random horospheres should be added to world generation. This is a temporary
@@ -174,10 +175,9 @@ impl HorosphereNode {
     /// If `self` and `other` would propagate to the same node, to avoid interference, only one of these
     /// two horospheres can generate. This function determines whether `self` should be the one to generate.
     fn has_priority(&self, other: &HorosphereNode, node_id: NodeId) -> bool {
-        // If both horospheres are fresh, use the w-coordinate as an arbitrary
+        // If both horospheres are fresh, use the owner's NodeId as an arbitrary
         // tie-breaker to decide which horosphere should win.
-        !self.is_fresh(node_id)
-            || (other.is_fresh(node_id) && self.horosphere.pos.w < other.horosphere.pos.w)
+        !self.is_fresh(node_id) || (other.is_fresh(node_id) && self.owner < other.owner)
     }
 
     /// Based on other nodes in the graph, determines whether the horosphere
