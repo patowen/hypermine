@@ -4,6 +4,7 @@ This is subject to change.
 * How to play hypermine
     * Controls
     * Config file
+    * The save file (with a warning that compatibility between versions of Hypermine are not guaranteed and another warning to back up save files)
     * Setting up multiplayer
 * Background math
     * Linear algebra
