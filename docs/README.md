@@ -1,7 +1,7 @@
 # Current outline
 This is subject to change.
 * Introduction
-* How to play hypermine
+* How to play Hypermine
     * Controls
     * Config file
     * The save file (with a warning that compatibility between versions of Hypermine are not guaranteed and another warning to back up save files)
@@ -78,8 +78,11 @@ This is subject to change.
 * We should be prepared to keep placeholders in the docs, potentially with links to external sources, as this would allow us to separate the tasks of writing and organizing documentation.
 * Since geometry is heavily involved, the docs should contain pictures.
     * Interactive elements would also be helpful.
-* To avoid running up against GitHub limits or making repositories take longer to clone, images and videos will need to be generated on the reader's machine.
+* As 3D geometry can be difficult to visualize, we should use a 2D analogy for anything that can be reduced to 2D without loss of generality. For instance, many diagrams that explain concepts can be 2D.
+    * It should still be made clear how the analogy extends to 3D.
+* To avoid running up against GitHub limits or making repositories take longer to clone, larger images and videos will need to be generated on the reader's machine.
     * One option would be to add functionality to Hypermine itself for these visualizations. It is not decided what the preferred approach is.
+    * Images that don't take up much storage are fine to store with Git LFS. Try to keep the total size of all assets used in the documentation under approximately 1 MiB (subject to change based on feasibility/importance of larger images). It should be possible to use the SVG file format to keep most images very small. Producing such images with code is still recommended.
 * We should try to keep the reader interested/motivated, making the documentation enjoyable to read.
     * Animations and interactive visualizations can help with this a lot (in addition to helping the learning process).
 * If some information in the docs can be made concrete by pointing to source code, we should do that.
