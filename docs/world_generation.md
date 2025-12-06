@@ -24,6 +24,21 @@ Finally, for each voxel, add a random offset to its temperature, drawn independe
 TODO: Picture of same pentagonal tiling with the final temperature of each voxel.
 
 ## Determining the temperature of each node
-To decide on a temperature for each node, we break the dodecahedral tiling up into the planes that divide one group of nodes from another. We associate each plane with a temperature offset, such that crossing a plane increases or decreases the temperature by a specific amount. Once we decide on a temperature of the root node, every other node has its temperature fully determined by the planes crossed by going from the root node to that node.
+The pentagonal tiling of the hyperbolic plane can be thought of as a set of lines dividing the hyperbolic plane instead of individual pentagons.
 
-TODO: Add 2D analogy and suitable pictures
+TODO: Picture of pentagonal tiling with lines colored to distinguish them from each other
+
+Similarly, the dodecahedral tiling can be thought of as a set of planes dividing hyperbolic space. This interpretation of the dodecahedral tiling is important for understanding how the noise function works between nodes.
+
+To decide on a temperature for each node, we break the dodecahedral tiling up into this planes. We associate each plane with a randomly chosen temperature offset, such that crossing a specific plane in one direction increases or decreases the temperature by a specific amount, and crossing the same plane from the other side has the opposite effect. Once we decide on a temperature of the root node, this definition fully determines the temperature of every other node.
+
+The following diagram shows an example the 2D equivalent of this algorithm.
+
+TODO: Picture of pentagonal tiling with each line labeled with the temperature offset, using arrows or something similar to show how this offset applies. The center of each pentagon is also labeled with a number with its current temperature. Integers are used everywhere to allow the reader to verify the math easily in their head.
+
+In this diagram, the randomly-chosen temperature offset of each line, along with the derived temperature of each node, is shown. Note how the difference in temperature between any two adjacent nodes matches the temperature offset of the line dividing them.
+
+The resulting noise generation algorithm allows for random variation while keeping nearby nodes similar to each other, which proves useful for multiple aspects of world generation.
+
+## Hills and Valleys
+TODO
