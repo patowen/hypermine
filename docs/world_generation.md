@@ -44,5 +44,12 @@ Finally, for each voxel, add a random offset to its noise value, drawn independe
 
 TODO: Picture of same pentagonal tiling with the final noise value of each voxel.
 
-## Hills and Valleys
+## Terrain shape
+Hypermine uses the 3D noise function to determine the shape of the terrain. This may seem surprising, as it is arguably simpler to use a 2D noise function instead to form a heightmap of the world. However, using 3D noise instead is a useful way of generating more interesting terrain with overhangs, and more importantly, a 2D heightmap works less well in hyperbolic space because of the way that space expands as you move away from the ground plane. The naive approach would cause hills and valleys to have significantly less detail than terrain near the ground plane.
+
+Instead, the basic algorithm is as follows: Using a 3D noise function, we determine the hypothetical elevation of the terrain at each voxel. We then subtract this elevation from the actual height of the voxel above the ground plane to determine a value that can be roughly translated to voxel's height relative to the terrain's surface. If this value is below zero, we are inside the terrain, and the voxel should be solid, and otherwise, it should be void. If the value is below zero but close to zero, one of the surface materials (like dirt) will be used, while if the value is far below zero, a material like stone will be used instead.
+
+Note that the above is a simplification of the actual algorithm. It is recommended to read the implementation of `worldgen::ChunkParams::generate_terrain` to understand all the details. For instance, terracing is used to add flatter terrain layers with steeper hills between them, and the strength of this terracing effect is controlled by another parameter affected by noise called `blockiness`. In addition, some measures are taken to make the terrain surface smoother than the dirt/stone interface.
+
+## Terrain material
 TODO
