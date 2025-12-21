@@ -1,14 +1,14 @@
 # World generation
-
 World generation in Hypermine is constrained the following principles:
-* The generated contents of each chunk must depend only on the parameters of the world generation algorithm, not on gameplay.
-* Everything must be generated in its settled state to ensure that unmodified terrain does not need to be stored on disk, and to help with immersion.
-* World generation should be as isotropic as reasonably possible, so that it is not obvious which direction leads to the origin.
+* Consistency: The contents of a chunk when it is first visited should be determined only by the chunk's location and the world generation parameters, which never change within a world.
+* Isotropy: World generation should be as isotropic as reasonably possible, so that it is not obvious which direction leads to the origin.
 
 These constraints help inspire the details of the world generation algorithm, which are explained further in the sections below.
 
 ## Noise
-Every procedural world generation algorithm needs to start with some way of generating noise. This noise is useful for determining properties like temperature and rainfall (which affects what material the ground is made of), and it is also used in determining the shape of the terrain. While Perlin noise is often used as a standard approach, it is not clear how it would be adapted to a large hyperbolic world. Instead, Hypermine uses a different approach specifically designed for a hyperbolic tiling, inspired by Hyperrogue.
+Hypermine relies on a random noise function for multiple purposes, such as the deciding the shape of the terrain and what material the ground should be. Because of this, to understand Hypermine's world generation, it's important to understand the noise function it uses.
+
+Hyperbolic space has a unique challenge compared to Euclidean space: Common approaches to generating good-looking terrain, such as fractal noise, rely on using grids of multiple different scales, while in hyperbolic space, grids cannot be arbitrarily scaled. This would cause terrain features to have a limited size if generated this way. To avoid this limitation, Hypermine uses a different approach specifically designed for a hyperbolic tiling, inspired by Hyperrogue, which is described in the following section.
 
 ### Coarse noise function output
 The first step is to form a coarse approximation of the noise function, deciding on one value for each node. To do this, we take advantage of the tiling itself. For a 2D analogy, the pentagonal tiling of the hyperbolic plane can be thought of as a set of lines dividing the hyperbolic plane instead of individual pentagons.
@@ -17,13 +17,13 @@ TODO: Picture of pentagonal tiling with lines colored to distinguish them from e
 
 Similarly, in 3D, the dodecahedral tiling can be thought of as a set of planes dividing hyperbolic space. This interpretation of the dodecahedral tiling is important for understanding how the noise function works between nodes.
 
-To decide on a noise value for each node, we break the dodecahedral tiling up into this planes. We associate each plane with a randomly chosen noise value offset, such that crossing a specific plane in one direction increases or decreases the noise value by a specific amount, and crossing the same plane from the other side has the opposite effect. Once we decide on a noise value for the root node, this definition fully determines the noise value of every other node.
+To decide on a noise value for each node, we break the dodecahedral tiling up into these planes. We associate each plane with a randomly chosen noise delta, such that crossing a specific plane in one direction increases or decreases the noise value by a specific amount, and crossing the same plane from the other side has the opposite effect. Once we decide on a noise value for the root node, this definition fully determines the noise value of every other node.
 
 The following diagram shows an example of the 2D equivalent of this algorithm.
 
-TODO: Picture of pentagonal tiling with each line labeled with the noise value offset, using arrows or something similar to show how this offset applies. The center of each pentagon is also labeled with a number with its current noise value. Integers are used everywhere to allow the reader to verify the math easily in their head.
+TODO: Picture of pentagonal tiling with each line labeled with the noise delta, using arrows or something similar to show how this offset applies. The center of each pentagon is also labeled with a number with its current noise value. Integers are used everywhere to allow the reader to verify the math easily in their head.
 
-In this diagram, the randomly-chosen noise value offset of each line, along with the derived noise value of each node, is shown. Note how the difference in noise values between any two adjacent nodes matches the noise value offset of the line dividing them.
+In this diagram, the randomly-chosen noise delta of each line, along with the derived noise value of each node, is shown. Note how the difference in noise values between any two adjacent nodes matches the noise delta of the line dividing them.
 
 This algorithm allows for random variation while keeping nearby nodes similar to each other, which is what we need from a noise function. One notable quirk worth mentioning is that the noise value is unbounded, which currently means that hills and valleys in Hypermine can become arbitrarily high and deep, respectively.
 
@@ -64,13 +64,10 @@ For decoration, tiny two-block trees are scattered throughout the terrain, with 
 
 Note that generating larger trees requires a more complicated algorithm that has not yet been planned out or implemented.
 
-## Implementation details
-Hypermine generates worlds in three main stages:
-* Generate a `NodeState` for each node
-* Generate a `ChunkParams` for each chunk, based on the `NodeState` of all 8 nodes adjacent to the chunk's origin
-* Using the information in `ChunkParams`, asynchronously generate the voxel data for each chunk
+## Random number generation
+The above sections mention random choices being made in several areas, but Hypermine requires any given chunk to always be generated with the same contents no matter when it is generated and no matter which computer is used. To accomplish this, Hypermine uses a deterministic and portable random number generator (RNG), seeding it for each node and chunk.
 
-The reasoning behind these three phases can be seen most clearly in the noise generation algorithm. The coarse noise function created at the beginning of the algorithm is stored in the `NodeState`. Since the noise needs to be interpolated between adjacent `NodeState`s, the `ChunkParams` needs all 8 adjancent nodes to be constructed. The actual interpolation and the inclusion of additional noise is done in the final, asynchronous phase of the algorithm, which depends entirely on `ChunkParams`.
+To elaborate, each node is given a "spice" value, which is set to the last 64 bits of the node's unique `NodeId`. This node spice is used directly as the seed for an RNG, which is used for non-chunk-specific decisions, such as the noise deltas between nodes. The node spice is then hashed together with the chunk's `Vertex` to produce the seed for another RNG, which is used for chunk-specific-decisions, such as how trees should be scattered within each chunk.
 
 ## Additional information
 For additional information related to world generation, it is recommended to read the code and its documentation in `worldgen.rs`, as it has many details not covered here.
