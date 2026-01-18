@@ -1,3 +1,4 @@
+use arrayvec::ArrayVec;
 use horosphere::{HorosphereChunk, HorosphereNode};
 use plane::Plane;
 use rand::{Rng, SeedableRng, distr::Uniform};
@@ -96,7 +97,7 @@ pub struct NodeState {
 }
 impl NodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
-        let mut parents = graph
+        let parents: ArrayVec<_, 3> = graph
             .parents(node)
             .into_iter()
             .map(|(s, n)| ParentInfo {
@@ -104,34 +105,32 @@ impl NodeState {
                 side: s,
                 node_state: graph.node_state(n),
             })
-            .fuse();
-        let parents = [parents.next(), parents.next(), parents.next()];
+            .collect();
 
-        let enviro = match (parents[0], parents[1]) {
-            (None, None) => EnviroFactors {
+        let enviro = if parents.is_empty() {
+            EnviroFactors {
                 max_elevation: 0.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
-            },
-            (Some(parent), None) => {
-                let spice = graph.hash_of(node) as u64;
-                EnviroFactors::varied_from(parent.node_state.enviro, spice)
             }
-            (Some(parent_a), Some(parent_b)) => {
-                let ab_node = graph.neighbor(parent_a.node_id, parent_b.side).unwrap();
-                let ab_state = &graph.node_state(ab_node);
-                EnviroFactors::continue_from(
-                    parent_a.node_state.enviro,
-                    parent_b.node_state.enviro,
-                    ab_state.enviro,
-                )
-            }
-            _ => unreachable!(),
+        } else if parents.len() == 1 {
+            let spice = graph.hash_of(node) as u64;
+            EnviroFactors::varied_from(parents[0].node_state.enviro, spice)
+        } else {
+            let ab_node = graph.neighbor(parents[0].node_id, parents[1].side).unwrap();
+            let ab_state = &graph.node_state(ab_node);
+            EnviroFactors::continue_from(
+                parents[0].node_state.enviro,
+                parents[1].node_state.enviro,
+                ab_state.enviro,
+            )
         };
 
-        let kind = parents[0].map_or(NodeStateKind::ROOT, |p| p.node_state.kind.child(p.side));
-        let road_state = parents[0].map_or(NodeStateRoad::ROOT, |p| {
+        let kind = parents
+            .first()
+            .map_or(NodeStateKind::ROOT, |p| p.node_state.kind.child(p.side));
+        let road_state = parents.first().map_or(NodeStateRoad::ROOT, |p| {
             p.node_state.road_state.child(p.side)
         });
 
@@ -145,7 +144,7 @@ impl NodeState {
             surface: match kind {
                 Land => Plane::from(Side::A),
                 Sky => -Plane::from(Side::A),
-                _ => parents[0].map(|p| p.side * p.node_state.surface).unwrap(),
+                _ => parents[0].side * parents[0].node_state.surface,
             },
             road_state,
             enviro,
