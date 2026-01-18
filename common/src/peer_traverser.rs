@@ -168,7 +168,7 @@ static DEPTH2_CHILD_PATHS: LazyLock<
 trait GraphRef: AsRef<Graph> {
     fn depth(&self, node: NodeId) -> u32;
     fn neighbor(&mut self, node: NodeId, side: Side) -> NodeId;
-    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<Self>;
+    fn parents(&self, node: NodeId) -> ArrayVec<(Side, NodeId), 3>;
 }
 
 /// A `GraphRef` that asserts that all the nodes it needs already exist
@@ -191,7 +191,7 @@ impl<'a> GraphRef for AssertingGraphRef<'a> {
         self.graph.neighbor(node, side).unwrap()
     }
 
-    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<'a> {
+    fn parents(&self, node: NodeId) -> ArrayVec<(Side, NodeId), 3> {
         self.graph.parents(node)
     }
 }
@@ -210,7 +210,7 @@ impl<'a> GraphRef for ExpandingGraphRef<'a> {
         self.graph.ensure_neighbor(node, side)
     }
 
-    fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<'a> {
+    fn parents(&self, node: NodeId) -> ArrayVec<(Side, NodeId), 3> {
         self.graph.parents(node)
     }
 }

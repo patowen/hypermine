@@ -68,6 +68,7 @@ impl HorosphereNode {
         let mut horospheres_to_average_iter =
             graph
                 .parents(node_id)
+                .into_iter()
                 .filter_map(|(parent_side, parent_id)| {
                     graph
                         .node_state(parent_id)
@@ -216,7 +217,9 @@ impl HorosphereNode {
 /// that the horosphere does not necessarily need to intersect the dodeca to be valid.
 fn is_horosphere_valid(graph: &Graph, node_id: NodeId, horosphere: &Horosphere) -> bool {
     Side::iter().all(|s| !horosphere.is_inside_half_space(s.normal()))
-        && (graph.parents(node_id)).all(|(s, _)| !horosphere.intersects_half_space(s.normal()))
+        && (graph.parents(node_id))
+            .into_iter()
+            .all(|(s, _)| !horosphere.intersects_half_space(s.normal()))
 }
 
 /// The maximum node-centric w-coordinate a horosphere can have such that the node in question

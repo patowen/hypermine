@@ -2,6 +2,7 @@
 
 use std::collections::VecDeque;
 
+use arrayvec::ArrayVec;
 use blake3::Hasher;
 use fxhash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
@@ -60,11 +61,10 @@ impl Graph {
     }
 
     /// Returns the given node's parents along with the side each shares with the node.
-    pub fn parents(&self, node: NodeId) -> impl ExactSizeIterator<Item = (Side, NodeId)> + use<> {
+    pub fn parents(&self, node: NodeId) -> ArrayVec<(Side, NodeId), 3> {
         let node_depth = self.depth(node);
 
-        let mut results = [None; 3];
-        let mut len = 0;
+        let mut results = ArrayVec::new();
 
         for side in Side::iter() {
             // filtering out not-yet-allocated neighbors is fine since
@@ -72,12 +72,11 @@ impl Graph {
             if let Some(neighbor_node) = self.neighbor(node, side)
                 && self.depth(neighbor_node) < node_depth
             {
-                results[len] = Some((side, neighbor_node));
-                len += 1;
+                results.push((side, neighbor_node));
             }
         }
 
-        (0..len).map(move |i| results[i].unwrap())
+        results
     }
 
     #[inline]
