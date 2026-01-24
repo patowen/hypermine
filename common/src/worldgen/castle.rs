@@ -1,7 +1,9 @@
+use libm::sqrtf;
+
 use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
-    math::{MDirection, MIsometry, MPoint, MVector},
+    math::{self, MDirection, MIsometry, MPoint, MVector},
     node::VoxelData,
     voxel_math::Coords,
     world::Material,
@@ -121,16 +123,23 @@ pub struct FlatWallCylinder {
 
 impl FlatWallCylinder {
     pub fn contains_point(&self, point: &MPoint<f32>) -> bool {
-        let projected_point =
-            (point.as_ref() - self.axis.as_ref() * point.mip(&self.axis)).normalized_point();
+        let adjuster = 1.0 + math::sqr(point.mip(&self.axis));
+        let projected_point = (point.as_ref() - self.axis.as_ref() * point.mip(&self.axis)); //.normalized_point();
+
+        /*
+        (p - a*<p,a>) / sqrt(-<p-a*<p,a>, p-a*<p,a>>)
+        (p - a*<p,a>) / sqrt(- [<p,p> + (<a,a> - 2)*<p,a>*<p,a>])
+        (p - a*<p,a>) / sqrt(- [-1 - <p,a>*<p,a>])
+        (p - a*<p,a>) / sqrt(1 + <p,a>*<p,a>)
+         */
 
         // TODO: Use more direct math
-        self.center.distance(&projected_point) < self.center_radius
+        -self.center.mip(&projected_point) / sqrtf(adjuster) < self.center_radius.cosh()
     }
 
     pub fn renormalize(&mut self) {
-        self.center = self.center.as_ref().normalized_point();
-        self.axis = self.axis.as_ref().normalized_direction();
+        //self.center = self.center.as_ref().normalized_point();
+        //self.axis = self.axis.as_ref().normalized_direction();
     }
 }
 
