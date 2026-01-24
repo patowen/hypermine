@@ -59,11 +59,11 @@ impl CastleNode {
 
         Some(CastleNode {
             cylinder: StraightWallCylinder {
-                center: MIsometry::translation_along(&na::Vector3::new(1.0, 0.0, 0.0))
-                    * Vertex::A.dual_to_node()
+                center: Vertex::A.dual_to_node()
+                    * MIsometry::translation_along(&na::Vector3::new(0.0, 30.0 + 1.5, 0.0))
                     * MPoint::origin(),
                 axis: *Side::A.normal(),
-                center_radius: 1.0,
+                center_radius: 30.0,
             },
         })
     }
@@ -124,8 +124,6 @@ pub struct StraightWallCylinder {
 
 impl StraightWallCylinder {
     pub fn contains_point(&self, point: &MPoint<f32>) -> bool {
-        let adjuster = 1.0 + math::sqr(point.mip(&self.axis));
-
         /*
         projected_point =
         (p - a*<p,a>) / sqrt(-<p-a*<p,a>, p-a*<p,a>>)
@@ -139,8 +137,8 @@ impl StraightWallCylinder {
         -<p,c> / sqrt(1 + <p,a>*<p,a>)
          */
 
-        -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)))
-            < coshf(self.center_radius)
+        let cosh_horizontal_distance = -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)));
+        cosh_horizontal_distance < coshf(self.center_radius) && cosh_horizontal_distance.acosh().fract() < 0.1
     }
 
     pub fn renormalize(&mut self) {

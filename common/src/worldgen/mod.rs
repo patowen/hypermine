@@ -554,7 +554,7 @@ impl EnviroFactors {
     fn varied_from(parent: Self, spice: u64) -> Self {
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(spice);
         let unif = Uniform::new_inclusive(-1.0, 1.0).unwrap();
-        let max_elevation = parent.max_elevation + rng.sample(Normal::new(0.0, 4.0).unwrap());
+        let max_elevation = parent.max_elevation;
 
         Self {
             max_elevation,
