@@ -11,8 +11,10 @@ use crate::{
     math::{self, MVector},
     node::{ChunkId, VoxelData},
     world::Material,
+    worldgen::castle::{CastleChunk, CastleNode},
 };
 
+mod castle;
 mod horosphere;
 mod plane;
 mod terraingen;
@@ -93,6 +95,7 @@ pub struct NodeState {
     road_state: NodeStateRoad,
     enviro: EnviroFactors,
     horosphere: Option<HorosphereNode>,
+    castle: Option<CastleNode>,
 }
 impl NodeState {
     pub fn new(graph: &Graph, node: NodeId) -> Self {
@@ -149,6 +152,7 @@ impl NodeState {
             road_state,
             enviro,
             horosphere,
+            castle: CastleNode::new(graph, node),
         }
     }
 
@@ -217,6 +221,7 @@ pub struct ChunkParams {
     node_spice: u64,
     /// Horosphere to place in the chunk
     horosphere: Option<HorosphereChunk>,
+    castle: Option<CastleChunk>,
 }
 
 impl ChunkParams {
@@ -239,6 +244,10 @@ impl ChunkParams {
                 .horosphere
                 .as_ref()
                 .map(|h| HorosphereChunk::new(h, chunk.vertex)),
+            castle: state
+                .castle
+                .as_ref()
+                .map(|c| CastleChunk::new(c, chunk.vertex)),
         }
     }
 
@@ -261,6 +270,10 @@ impl ChunkParams {
 
         if let Some(horosphere) = &self.horosphere {
             horosphere.generate(&mut voxels, self.dimension);
+        }
+
+        if let Some(castle) = &self.castle {
+            castle.generate(&mut voxels, self.dimension);
         }
 
         // TODO: Don't generate detailed data for solid chunks with no neighboring voids
