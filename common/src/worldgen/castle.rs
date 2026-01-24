@@ -1,4 +1,4 @@
-use libm::sqrtf;
+use libm::{coshf, sqrtf};
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -13,7 +13,7 @@ const CASTLE_SEED: u64 = 934820348209; // TODO
 
 #[derive(Copy, Clone)]
 pub struct CastleNode {
-    cylinder: FlatWallCylinder,
+    cylinder: StraightWallCylinder,
 }
 
 impl CastleNode {
@@ -58,8 +58,9 @@ impl CastleNode {
         }
 
         Some(CastleNode {
-            cylinder: FlatWallCylinder {
+            cylinder: StraightWallCylinder {
                 center: MIsometry::translation_along(&na::Vector3::new(1.0, 0.0, 0.0))
+                    * Vertex::A.dual_to_node()
                     * MPoint::origin(),
                 axis: *Side::A.normal(),
                 center_radius: 1.0,
@@ -81,7 +82,7 @@ impl CastleNode {
 }
 
 pub struct CastleChunk {
-    pub cylinder: FlatWallCylinder,
+    pub cylinder: StraightWallCylinder,
 }
 
 impl CastleChunk {
@@ -115,26 +116,31 @@ impl CastleChunk {
 }
 
 #[derive(Copy, Clone)]
-pub struct FlatWallCylinder {
+pub struct StraightWallCylinder {
     center: MPoint<f32>,
     axis: MDirection<f32>,
     center_radius: f32,
 }
 
-impl FlatWallCylinder {
+impl StraightWallCylinder {
     pub fn contains_point(&self, point: &MPoint<f32>) -> bool {
         let adjuster = 1.0 + math::sqr(point.mip(&self.axis));
-        let projected_point = (point.as_ref() - self.axis.as_ref() * point.mip(&self.axis)); //.normalized_point();
 
         /*
+        projected_point =
         (p - a*<p,a>) / sqrt(-<p-a*<p,a>, p-a*<p,a>>)
         (p - a*<p,a>) / sqrt(- [<p,p> + (<a,a> - 2)*<p,a>*<p,a>])
         (p - a*<p,a>) / sqrt(- [-1 - <p,a>*<p,a>])
         (p - a*<p,a>) / sqrt(1 + <p,a>*<p,a>)
+
+        -projected_point mip center =
+        (-<p,c> + <a,c>*<p,a>) / sqrt(1 + <p,a>*<p,a>)
+        (-<p,c> + 0*<p,a>) / sqrt(1 + <p,a>*<p,a>)
+        -<p,c> / sqrt(1 + <p,a>*<p,a>)
          */
 
-        // TODO: Use more direct math
-        -self.center.mip(&projected_point) / sqrtf(adjuster) < self.center_radius.cosh()
+        -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)))
+            < coshf(self.center_radius)
     }
 
     pub fn renormalize(&mut self) {
@@ -143,11 +149,11 @@ impl FlatWallCylinder {
     }
 }
 
-impl std::ops::Mul<FlatWallCylinder> for &MIsometry<f32> {
-    type Output = FlatWallCylinder;
+impl std::ops::Mul<StraightWallCylinder> for &MIsometry<f32> {
+    type Output = StraightWallCylinder;
 
-    fn mul(self, rhs: FlatWallCylinder) -> Self::Output {
-        FlatWallCylinder {
+    fn mul(self, rhs: StraightWallCylinder) -> Self::Output {
+        StraightWallCylinder {
             center: self * rhs.center,
             axis: self * rhs.axis,
             center_radius: rhs.center_radius,
