@@ -210,6 +210,10 @@ impl Graph {
         }
         true
     }
+
+    pub fn log_player_stats(&self, position: &Position) {
+        self.node_state(position.node).log_player_stats(&position.local);
+    }
 }
 
 impl Index<ChunkId> for Graph {

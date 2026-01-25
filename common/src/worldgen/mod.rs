@@ -8,7 +8,7 @@ use crate::{
     dodeca::{Side, Vertex},
     graph::{Graph, NodeId},
     margins,
-    math::{self, MVector},
+    math::{self, MIsometry, MVector},
     node::{ChunkId, VoxelData},
     world::Material,
     worldgen::castle::{CastleChunk, CastleNode},
@@ -160,6 +160,12 @@ impl NodeState {
 
     pub fn up_direction(&self) -> MVector<f32> {
         *self.surface.scaled_normal()
+    }
+
+    pub fn log_player_stats(&self, transform: &MIsometry<f32>) {
+        if let Some(castle) = self.castle {
+            castle.log_player_stats(transform);
+        }
     }
 }
 

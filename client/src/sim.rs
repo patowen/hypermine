@@ -272,6 +272,8 @@ impl Sim {
                 self.movement_input * dt.as_secs_f32() / step_interval.as_secs_f32();
         }
         self.update_view_position();
+        let debug_position = self.local_character_controller.oriented_position();
+        self.graph.log_player_stats(&debug_position);
         if !self.no_clip {
             self.local_character_controller.align_to_gravity();
         }

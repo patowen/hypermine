@@ -90,6 +90,14 @@ impl CastleNode {
     fn average_with(&mut self, other: CastleNode, other_weight: f32) {
         // TODO: Add implementation (blank implementation works but puts full weight to `self`, making it numerically unstable)
     }
+
+    pub fn log_player_stats(&self, transform: &MIsometry<f32>) {
+        let position = transform * MVector::origin();
+        let cylinder = self.cylinder;
+        let cosh_horizontal_distance =
+            -position.mip(&cylinder.center) / sqrtf(1.0 + math::sqr(position.mip(&cylinder.axis)));
+        tracing::info!("cosh_horizontal_distance: {}", cosh_horizontal_distance);
+    }
 }
 
 pub struct CastleChunk {
