@@ -176,7 +176,7 @@ impl StraightWallCylinder {
 
         let closest_axis_point = (self.axis_point.as_ref() * -point.mip(&self.axis_point)
             + self.axis_direction.as_ref() * point.mip(&self.axis_direction))
-        .normalized_point();
+            / libm::sqrtf(sqr(point.mip(&self.axis_point)) - sqr(point.mip(&self.axis_direction)));
 
         let cosh_closest_axis_point_distance = -point.mip(&closest_axis_point);
 
