@@ -151,7 +151,7 @@ impl StraightWallCylinder {
         let cosh_horizontal_distance =
             -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)));
         cosh_horizontal_distance < coshf(self.center_radius)
-            && cosh_horizontal_distance.acosh().fract() < 0.1
+            && (self.center_radius + 0.01 - cosh_horizontal_distance.acosh()).fract() < 0.1
     }
 
     pub fn renormalize(&mut self) {
