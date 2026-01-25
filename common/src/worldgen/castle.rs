@@ -156,7 +156,17 @@ impl StraightWallCylinder {
 
     pub fn renormalize(&mut self) {
         let mut center = *self.center.as_ref();
-        center -= self.axis.as_ref() * center.mip(&self.axis);
+
+        // Try to make sure center is orthogonal to axis, but add a bit of extra logic to avoid
+        // catastrophic cancellation
+        let estimated_mip = center.mip(&self.axis);
+        let w_product = center.w * self.axis.w;
+        let safe_mip = (estimated_mip.abs() - w_product.abs() * 1.0e-5).max(0.0) * estimated_mip.signum();
+        center -= self.axis.as_ref() * safe_mip;
+
+        // I want to normalize "center" to ensure that x^2+y^2+z^2-w^2 = -1. The traditional way
+        // to do this is to scale the vector "center" by "sqrt(-mip(center, center))", but this risks
+        // catastrophic cancellation. Instead, we only modify the w-coordinate.
         center.w = libm::sqrtf(1.0 + center.xyz().norm_squared());
         self.center = MPoint::new_unchecked(center.x, center.y, center.z, center.w);
     }
