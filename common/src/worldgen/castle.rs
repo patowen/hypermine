@@ -17,12 +17,16 @@ pub struct CastleNode {
 }
 
 impl CastleNode {
-    pub fn new(graph: &Graph, node_id: NodeId) -> Option<CastleNode> {
-        CastleNode::create_from_parents(graph, node_id)
-            .or_else(|| CastleNode::maybe_create_fresh(graph, node_id))
+    pub fn new(graph: &Graph, node_id: NodeId, up: &MDirection<f32>) -> Option<CastleNode> {
+        CastleNode::create_from_parents(graph, node_id, up)
+            .or_else(|| CastleNode::maybe_create_fresh(graph, node_id, up))
     }
 
-    fn create_from_parents(graph: &Graph, node_id: NodeId) -> Option<CastleNode> {
+    fn create_from_parents(
+        graph: &Graph,
+        node_id: NodeId,
+        up: &MDirection<f32>,
+    ) -> Option<CastleNode> {
         // Rather than selecting an arbitrary parent CastleNode, we average all of them. This
         // is important because otherwise, the propagation of floating point precision errors could
         // create a seam. This ensures that all errors average out, keeping the horosphere smooth.
@@ -34,7 +38,7 @@ impl CastleNode {
                         .node_state(parent_id)
                         .castle
                         .as_ref()
-                        .and_then(|c| c.propagate(parent_side))
+                        .and_then(|c| c.propagate(parent_side, up))
                 });
 
         let mut castle_node = cylinders_to_average_iter.next()?;
@@ -52,7 +56,11 @@ impl CastleNode {
         Some(castle_node)
     }
 
-    fn maybe_create_fresh(graph: &Graph, node_id: NodeId) -> Option<CastleNode> {
+    fn maybe_create_fresh(
+        graph: &Graph,
+        node_id: NodeId,
+        up: &MDirection<f32>,
+    ) -> Option<CastleNode> {
         if node_id != NodeId::ROOT {
             return None;
         }
@@ -62,17 +70,20 @@ impl CastleNode {
                 center: Vertex::A.dual_to_node()
                     * MIsometry::translation_along(&na::Vector3::new(0.0, 30.0 + 1.5, 0.0))
                     * MPoint::origin(),
-                axis: *Side::A.normal(),
+                axis: *up,
                 center_radius: 30.0,
             },
         })
     }
 
-    fn propagate(&self, side: Side) -> Option<CastleNode> {
+    fn propagate(&self, side: Side, up: &MDirection<f32>) -> Option<CastleNode> {
         // TODO: Don't propagate beyond the already-computed bounds of the `HorosphereNode`.
 
+        let mut new_cylinder = side.reflection() * self.cylinder;
+        new_cylinder.axis = *up;
+
         Some(CastleNode {
-            cylinder: side.reflection() * self.cylinder,
+            cylinder: new_cylinder,
         })
     }
 
@@ -137,13 +148,17 @@ impl StraightWallCylinder {
         -<p,c> / sqrt(1 + <p,a>*<p,a>)
          */
 
-        let cosh_horizontal_distance = -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)));
-        cosh_horizontal_distance < coshf(self.center_radius) && cosh_horizontal_distance.acosh().fract() < 0.1
+        let cosh_horizontal_distance =
+            -point.mip(&self.center) / sqrtf(1.0 + math::sqr(point.mip(&self.axis)));
+        cosh_horizontal_distance < coshf(self.center_radius)
+            && cosh_horizontal_distance.acosh().fract() < 0.1
     }
 
     pub fn renormalize(&mut self) {
-        //self.center = self.center.as_ref().normalized_point();
-        //self.axis = self.axis.as_ref().normalized_direction();
+        let mut center = *self.center.as_ref();
+        center -= self.axis.as_ref() * center.mip(&self.axis);
+        center.w = libm::sqrtf(1.0 + center.xyz().norm_squared());
+        self.center = MPoint::new_unchecked(center.x, center.y, center.z, center.w);
     }
 }
 

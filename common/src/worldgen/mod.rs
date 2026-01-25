@@ -142,17 +142,19 @@ impl NodeState {
             .candidate_horosphere
             .filter(|h| h.should_generate(graph, node));
 
+        let surface = match kind {
+            Land => Plane::from(Side::A),
+            Sky => -Plane::from(Side::A),
+            _ => parents[0].map(|p| p.side * p.node_state.surface).unwrap(),
+        };
+
         Self {
             kind,
-            surface: match kind {
-                Land => Plane::from(Side::A),
-                Sky => -Plane::from(Side::A),
-                _ => parents[0].map(|p| p.side * p.node_state.surface).unwrap(),
-            },
+            surface,
             road_state,
             enviro,
             horosphere,
-            castle: CastleNode::new(graph, node),
+            castle: CastleNode::new(graph, node, &surface.maybe_overflowing_normal()),
         }
     }
 

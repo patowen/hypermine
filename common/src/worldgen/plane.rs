@@ -73,6 +73,11 @@ impl Plane {
         &self.scaled_normal
     }
 
+    pub fn maybe_overflowing_normal(&self) -> MDirection<f32> {
+        let normal = self.scaled_normal * libm::expf(self.exponent);
+        MDirection::new_unchecked(normal.x, normal.y, normal.z, normal.w)
+    }
+
     /// Shortest distance between the plane and a point
     pub fn distance_to(&self, point: &MPoint<f32>) -> f32 {
         if self.exponent == 0.0 {
