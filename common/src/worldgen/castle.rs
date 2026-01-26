@@ -185,13 +185,62 @@ impl StraightWallCylinder {
                 * libm::sqrtf(sqr(cosh_closest_axis_point_distance) - 1.0);
 
         if debugging {
-            // Nothing to debug yet
+            tracing::info!(
+                "axis_direction: {:?}, axis_point: {:?} sanity: {}, {}, {}",
+                self.axis_direction,
+                self.axis_point,
+                self.axis_direction.mip(&self.axis_direction),
+                self.axis_point.mip(&self.axis_point),
+                self.axis_point.mip(&self.axis_direction),
+            );
         }
 
-        test_point.mip(&self.tangent_plane) > 0.0
+        //test_point.mip(&self.tangent_plane) > 0.0
+        cosh_closest_axis_point_distance < 1.1
     }
 
-    pub fn renormalize(&mut self) {}
+    pub fn renormalize(&mut self) {
+        /*
+           Minimize w in terms of t for `(c+ta)/sqrt(-<c+ta, c+ta>)`
+           = (c+ta)/sqrt(-[<c,c> + t<c,a> + t<a,c> + t^2<a,a>])
+           = (c+ta)/sqrt(1 - t^2)
+           if w(t) = (c.w + t*a.w) / sqrt(1 - t^2) + (c.w + t*a.w) * (1 - t^2)^(-1/2)
+               Derivative of `(1 - t^2)^(-1/2)` is `t * (1 - t^2)^(-3/2)`
+           then w'(t) = (c.w + t*a.w) * t * (1 - t^2)^(-3/2) + a.w * (1 - t^2)^(-1/2).
+           w'(t)*(1 - t^2)^(3/2) = (c.w + t*a.w) * t + a.w * (1 - t^2)
+               = t*c.w + t^2*a.w + a.w - t^2*a.w
+               = a.w + t * c.w
+
+           Set to 0: t = -a.w / c.w
+        */
+        let required_distance = -self.axis_direction.w / self.axis_point.w;
+        let mut closest_axis_point = (self.axis_point.as_ref()
+            + self.axis_direction.as_ref() * required_distance)
+            / libm::sqrtf(1.0 - sqr(required_distance));
+        closest_axis_point.w = libm::sqrtf(1.0 + closest_axis_point.xyz().norm_squared());
+        self.axis_point = closest_axis_point.to_point_unchecked();
+
+        /*
+            Add multiple of updated axis_point to make w equal to 0 in
+            (a+tc')/sqrt(<a+tc', a+tc'>)
+            = (a+tc')/sqrt(<a,a> + 2t*<a,c'> + t^2*<c',c'>)
+            = (a+tc')/sqrt(1 + 2t*<a,c'> - t^2)
+            t /= -a.w / c'.w
+            Not currently used
+        */
+        let mut origin_to_closest_axis_point = closest_axis_point;
+        origin_to_closest_axis_point.w = 0.0;
+        let origin_to_closest_axis_point = origin_to_closest_axis_point.normalized_direction(); // TODO: What if closest_axis_point is at the origin?
+        let mut closest_axis_direction = *self.axis_direction.as_ref();
+        closest_axis_direction -= origin_to_closest_axis_point.as_ref()
+            * closest_axis_direction.mip(&origin_to_closest_axis_point);
+        closest_axis_direction.w = 0.0; // Also project away origin
+        if closest_axis_direction.mip_self() > 0.0 {
+            closest_axis_direction /= libm::sqrtf(closest_axis_direction.mip_self());
+        }
+
+        self.axis_direction = closest_axis_direction.to_direction_unchecked();
+    }
 
     pub fn set_axis(&mut self, axis: MDirection<f32>) {
         // TODO

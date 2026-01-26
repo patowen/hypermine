@@ -41,9 +41,15 @@ use simba::scalar::SupersetOf;
 /// to avoid dot products and related operations such as vector magnitude, as
 /// these operations are meaningless in Minkowski space and are not preserved by
 /// isometries.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(transparent)]
 pub struct MVector<N: Scalar>(na::Vector4<N>);
+
+impl<N: Scalar> std::fmt::Debug for MVector<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
 
 impl<N: RealField + Copy> MVector<N> {
     /// Normalizes the vector so that the Minkowski inner product between the
@@ -86,6 +92,14 @@ impl<N: RealField + Copy> MVector<N> {
         MDirection(*self / scale_factor)
     }
 
+    pub fn to_point_unchecked(&self) -> MPoint<N> {
+        MPoint(*self)
+    }
+
+    pub fn to_direction_unchecked(&self) -> MDirection<N> {
+        MDirection(*self)
+    }
+
     /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
     /// product, but the product of the w-components is negated. This is the
     /// main operation that distinguishes Minkowski space from Euclidean
@@ -93,6 +107,10 @@ impl<N: RealField + Copy> MVector<N> {
     pub fn mip(&self, other: &impl AsRef<MVector<N>>) -> N {
         let other = other.as_ref();
         self.x * other.x + self.y * other.y + self.z * other.z - self.w * other.w
+    }
+
+    pub fn mip_self(&self) -> N {
+        self.mip(self)
     }
 
     /// The Minkowski-space equivalent of the outer product of two vectors. This
@@ -371,9 +389,15 @@ impl<N: RealField> std::ops::DivAssign<N> for MVector<N> {
 /// An `MVector` with the constraint that the Minkowski inner product between
 /// the vector and itself is -1. Such a vector can be used to represent a point
 /// in hyperbolic space.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(transparent)]
 pub struct MPoint<N: Scalar>(MVector<N>);
+
+impl<N: Scalar> std::fmt::Debug for MPoint<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
 
 impl<N: RealField + Copy> MPoint<N> {
     /// Returns the midpoint between this vector and the given vector.
@@ -463,9 +487,15 @@ impl<N: Scalar> AsRef<MVector<N>> for MPoint<N> {
 /// An `MVector` with the constraint that the Minkowski inner product between
 /// the vector and itself is 1. Such a vector can be used to represent a
 /// direction in hyperbolic space.
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Copy, Clone, Serialize, Deserialize, PartialEq)]
 #[repr(transparent)]
 pub struct MDirection<N: Scalar>(MVector<N>);
+
+impl<N: Scalar> std::fmt::Debug for MDirection<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
 
 impl<N: RealField + Copy> MDirection<N> {
     /// The column vector with components `[1, 0, 0, 0]`.
