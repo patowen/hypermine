@@ -195,8 +195,8 @@ impl StraightWallCylinder {
             );
         }
 
-        //test_point.mip(&self.tangent_plane) > 0.0
-        cosh_closest_axis_point_distance < 1.1
+        test_point.mip(&self.tangent_plane) > 0.0
+        //cosh_closest_axis_point_distance < 1.1
     }
 
     pub fn renormalize(&mut self) {
@@ -220,14 +220,7 @@ impl StraightWallCylinder {
         closest_axis_point.w = libm::sqrtf(1.0 + closest_axis_point.xyz().norm_squared());
         self.axis_point = closest_axis_point.to_point_unchecked();
 
-        /*
-            Add multiple of updated axis_point to make w equal to 0 in
-            (a+tc')/sqrt(<a+tc', a+tc'>)
-            = (a+tc')/sqrt(<a,a> + 2t*<a,c'> + t^2*<c',c'>)
-            = (a+tc')/sqrt(1 + 2t*<a,c'> - t^2)
-            t /= -a.w / c'.w
-            Not currently used
-        */
+        // normalize axis_direction
         let mut origin_to_closest_axis_point = closest_axis_point;
         origin_to_closest_axis_point.w = 0.0;
         let origin_to_closest_axis_point = origin_to_closest_axis_point.normalized_direction(); // TODO: What if closest_axis_point is at the origin?
@@ -235,11 +228,26 @@ impl StraightWallCylinder {
         closest_axis_direction -= origin_to_closest_axis_point.as_ref()
             * closest_axis_direction.mip(&origin_to_closest_axis_point);
         closest_axis_direction.w = 0.0; // Also project away origin
-        if closest_axis_direction.mip_self() > 0.0 {
-            closest_axis_direction /= libm::sqrtf(closest_axis_direction.mip_self());
-        }
+        self.axis_direction = closest_axis_direction.normalized_direction();
 
-        self.axis_direction = closest_axis_direction.to_direction_unchecked();
+        // Rotate axis_to_tangent to point from the axis to the origin
+        /*
+            If o is origin and c is axis_point, then we want to find
+               (o + c*<c,o>) / sqrt (<o + c*<c,o>, o + c*<c,o>>)
+             = (o + c*<c,o>) / sqrt (<o,o> + 2<c,o>^2 + <c,c><c,o>^2)
+             = (o + c*<c,o>) / sqrt (-1 + 2<c,o>^2 - <c,o>^2)
+             = (o + c*<c,o>) / sqrt (-1 + <c,o>^2)
+        */
+        let new_axis_to_tangent = (MPoint::origin().as_ref()
+            - self.axis_point.as_ref() * self.axis_point.w)
+            / libm::sqrtf(-1.0 + sqr(self.axis_point.w));
+        // Now, take tangent_plane, subtract out its projection to axis_to_tangent,
+        // and add back the same factor of new_axis_to_tangent.
+        let axis_to_tangent_projection = self.tangent_plane.mip(&self.axis_to_tangent);
+        self.tangent_plane = (self.tangent_plane.as_ref()
+            + (new_axis_to_tangent - self.axis_to_tangent.as_ref()) * axis_to_tangent_projection)
+            .to_direction_unchecked();
+        self.axis_to_tangent = new_axis_to_tangent.to_direction_unchecked();
     }
 
     pub fn set_axis(&mut self, axis: MDirection<f32>) {
