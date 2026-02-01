@@ -185,14 +185,12 @@ impl StraightWallCylinder {
                 * libm::sqrtf(sqr(cosh_closest_axis_point_distance) - 1.0);
 
         if debugging {
-            tracing::info!(
-                "axis_direction: {:?}, axis_point: {:?} sanity: {}, {}, {}",
-                self.axis_direction,
-                self.axis_point,
-                self.axis_direction.mip(&self.axis_direction),
-                self.axis_point.mip(&self.axis_point),
-                self.axis_point.mip(&self.axis_direction),
-            );
+            /*tracing::info!(
+                "tangent_plane: {:?}, axis_to_tangent: {:?} ({})",
+                self.tangent_plane,
+                self.axis_to_tangent,
+                self.axis_to_tangent.as_ref().mip_self(),
+            );*/
         }
 
         test_point.mip(&self.tangent_plane) > 0.0
@@ -244,6 +242,8 @@ impl StraightWallCylinder {
         // Now, take tangent_plane, subtract out its projection to axis_to_tangent,
         // and add back the same factor of new_axis_to_tangent.
         let axis_to_tangent_projection = self.tangent_plane.mip(&self.axis_to_tangent);
+        tracing::info!("From: {:?}, To: {:?}", self.axis_to_tangent, new_axis_to_tangent);
+        tracing::info!("{:?}", MIsometry::rotation(&self.axis_to_tangent, &new_axis_to_tangent.to_direction_unchecked()));
         self.tangent_plane = (self.tangent_plane.as_ref()
             + (new_axis_to_tangent - self.axis_to_tangent.as_ref()) * axis_to_tangent_projection)
             .to_direction_unchecked();

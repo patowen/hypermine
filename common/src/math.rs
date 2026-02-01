@@ -663,7 +663,7 @@ impl<N: RealField + Copy> MIsometry<N> {
         // `(a+b) / sqrt(2-2a*b)`
 
         // Therefore, the derivation of the translation formula is as follows:
-        // `reflect_about((a+b) / -(a*b)) * reflect_about(a)`
+        // `reflect_about((a+b) / sqrt(2-2a*b)) * reflect_about(a)`
         // `(-I - 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I - 2aa*)`
         // `(-I - 2(a+b)(a+b)*/(2-2a*b)) (-I - 2aa*)`
         // `(-I - (a+b)(a+b)*/(1-a*b)) (-I - 2aa*)`
@@ -678,6 +678,33 @@ impl<N: RealField + Copy> MIsometry<N> {
             na::Matrix4::<N>::identity()
                 - b.as_ref().minkowski_outer_product(a.as_ref()) * na::convert::<_, N>(2.0)
                 + a_plus_b.minkowski_outer_product(&a_plus_b) / (N::one() - a.mip(b)),
+        )
+    }
+
+    pub fn rotation(a: &MDirection<N>, b: &MDirection<N>) -> MIsometry<N> {
+        // Reflection: I - 2vv*
+        // Midpoint: `(a+b) / sqrt((a+b)*(a+b))`
+        // `(a+b) / sqrt((a*a + a*b + b*a + b*b))`
+        // `(a+b) / sqrt((a*a + 2a*b + b*b))`
+        // `(a+b) / sqrt((1 + 2a*b + 1))`
+        // `(a+b) / sqrt(2+2a*b)`
+
+        // Then
+        // `reflect_about((a+b) / sqrt(2+2a*b)) * reflect_about(a)`
+        // `(I - 2((a+b) / sqrt(2+2a*b))((a+b) / sqrt(2+2a*b))*) (I - 2aa*)`
+        // `(I - 2(a+b)(a+b)*/(2+2a*b))(I - 2aa*)`
+        // `(I - (a+b)(a+b)*/(1+a*b))(I - 2aa*)`
+        // `I - (a+b)(a+b)*/(1+a*b) - 2aa* + 2(a+b)(a+b)*aa*/(1+a*b)`
+        // Using `(1+a*b) = (a*a+a*b) = a*(a+b) = (a+b)*a`
+        // `I - (a+b)(a+b)*/(1+a*b) - 2aa* + 2(a+b)((a+b)*a)a*/((a+b)*a)`
+        // `I - (a+b)(a+b)*/(1+a*b) - 2aa* + 2(a+b)a*`
+        // `I - (a+b)(a+b)*/(1+a*b) - 2aa* + 2aa* + 2ba*`
+        // `I + 2ba* - (a+b)(a+b)*/(1+a*b)`
+        let a_plus_b = a.as_ref() + b.as_ref();
+        Self(
+            na::Matrix4::<N>::identity()
+                + b.as_ref().minkowski_outer_product(a.as_ref()) * na::convert::<_, N>(2.0)
+                - a_plus_b.minkowski_outer_product(&a_plus_b) / (N::one() + a.mip(b)),
         )
     }
 
