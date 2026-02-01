@@ -32,6 +32,7 @@ pub struct Server {
     cfg: Arc<SimConfig>,
     sim: Sim,
     clients: DenseSlotMap<ClientId, Client>,
+    #[expect(unused)]
     save: Save,
     endpoint: Option<quinn::Endpoint>,
 
@@ -219,9 +220,9 @@ impl Server {
         }
 
         // Save the world. Could be less frequent if it becomes a bottleneck.
-        if let Err(e) = self.sim.save(&mut self.save) {
+        /*if let Err(e) = self.sim.save(&mut self.save) {
             error!("couldn't save: {}", e);
-        }
+        }*/
     }
 
     fn on_client_event(&mut self, client_id: ClientId, event: ClientEvent) {

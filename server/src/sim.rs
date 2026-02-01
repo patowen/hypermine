@@ -50,7 +50,7 @@ pub struct Sim {
 }
 
 impl Sim {
-    pub fn new(cfg: Arc<SimConfig>, save: &save::Save) -> Self {
+    pub fn new(cfg: Arc<SimConfig>, _save: &save::Save) -> Self {
         let mut result = Self {
             rng: SmallRng::from_os_rng(),
             step: 0,
@@ -66,18 +66,19 @@ impl Sim {
             cfg,
         };
 
-        result
+        /*result
             .load_all_voxels(save)
             .expect("save file must be of a valid format");
         result
             .load_all_entities(save)
-            .expect("save file must be of a valid format");
+            .expect("save file must be of a valid format");*/
         // As no players have logged in yet, and `snapshot` may be called before the first call of `step`,
         // make sure that `accumulated_changes` is empty to avoid accidental double-spawns of anything.
         result.accumulated_changes = AccumulatedChanges::default();
         result
     }
 
+    #[expect(unused)]
     pub fn save(&mut self, save: &mut save::Save) -> Result<(), save::DbError> {
         fn path_from_origin(graph: &Graph, mut node: NodeId) -> Vec<u8> {
             let mut result = Vec::new();
@@ -118,6 +119,7 @@ impl Sim {
 
     /// Loads all entities from the given save file. Note that this must be called before any players
     /// log in, as `accumulated_changes` will not properly reflect the entities that were loaded in.
+    #[expect(unused)]
     fn load_all_entities(&mut self, save: &save::Save) -> anyhow::Result<()> {
         let mut read = save.read()?;
         for node_hash in read.get_all_entity_node_ids()? {
@@ -233,6 +235,7 @@ impl Sim {
         Ok(())
     }
 
+    #[expect(unused)]
     fn load_all_voxels(&mut self, save: &save::Save) -> anyhow::Result<()> {
         let mut read = save.read()?;
         for node_hash in read.get_all_voxel_node_ids()? {
