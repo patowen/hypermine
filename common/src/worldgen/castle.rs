@@ -72,9 +72,7 @@ impl CastleNode {
                     * MPoint::origin(),
                 axis_direction: Vertex::A.dual_to_node() * MDirection::x(),
                 tangent_plane: Vertex::A.dual_to_node() * MDirection::y(),
-                axis_to_tangent: Vertex::A.dual_to_node()
-                    * MIsometry::translation_along(&na::Vector3::new(0.0, 0.5, 0.0))
-                    * -MDirection::y(),
+                horizontal_tangent_vector: Vertex::A.dual_to_node() * MDirection::z(),
             },
         })
     }
@@ -144,7 +142,7 @@ pub struct StraightWallCylinder {
     axis_point: MPoint<f32>,
     axis_direction: MDirection<f32>,
     tangent_plane: MDirection<f32>,
-    axis_to_tangent: MDirection<f32>, // Vector starting at axis_point and pointing in the direction of the tangent point
+    horizontal_tangent_vector: MDirection<f32>,
 }
 
 impl StraightWallCylinder {
@@ -167,11 +165,30 @@ impl StraightWallCylinder {
             - Project the point so that it's on the plane containing the axis and point of tangency.
             - Then, put the point back on the hyperboloid by moving it away from the axis.
 
-        New idea (current):
+        New idea:
             - Find the distance from the point to the axis
             - Find the plane the point lies on that is orthogonal to the axis
             - Find the point on that plane in a suitable direction relative to tangent_plane that is the same distance from the axis as the point
             - See whether that point is in front or behind the tangent_plane
+
+        New idea:
+            - Regardless of the approach we take, I would like to know the equation for this shape.
+            - It's a cylinder in the Beltrami Klein projection, so we have (x/w)^2 + (y/w)^2 = k^2 for some k
+            - Expand this out, and it becomes x^2 + y^2 - k^2*w^2 = 0. This equation is suitable when close to the center
+            - Note that an alternative equation is 0 = x^2 + y^2 - k^2*w^2 = x^2 + y^2 - k^2*(x^2+y^2+z^2+1) = (1-k^2)x^2 + (1-k^2)y^2 - k^2z^2 - k^2 = 0
+            - Lorentz-boost to edge of surface: x -> ax+bw, w = bx+aw with a^2 = b^2+1
+                (ax+bw)^2 + y^2 - k^2*(bx+aw)^2 = 0
+                a^2x^2 + 2abxw + b^2w^2 + y^2 - k^2b^2x^2 - 2k^2abxw - k^2a^2w^2 = 0
+                    Want: Origin = (0,0,0,1) to be on shape. Plug in origin and get 0 = b^2 - k^2a^2 = a^2 - 1 - k^2a^2 = -1 + (1-k^2)a^2. So, a^2 = 1/(1-k^2) and b^2 = k^2/(1-k^2). So, ab = k/(1-k^2)
+                x^2 + 2kxw + k^2w^2 + y^2(1-k^2) - k^4x^2 - 2k^3xw - k^2w^2 = 0
+                (1-k^4)x^2 + 2k(1-k^2)xw + (1-k^2)y^2 = 0
+                (1-k^2)(1+k^2)x^2 + 2k(1-k^2)xw + (1-k^2)y^2 = 0
+                (1+k^2)x^2 + 2kxw + y^2 = 0
+            - Lorentz-boost away from surface: z -> az+bw, w = bz+aw
+                (1+k^2)x^2 + 2kx(bz+aw) + y^2 = 0
+            - There doesn't seem to be any signs of numerical instability. However, we would need
+              to find k and w of the pre-zw-Lorentz-boosted version. I don't belive k and x's values
+              would need to be particularly precise, though.
         */
 
         let closest_axis_point = (self.axis_point.as_ref() * -point.mip(&self.axis_point)
@@ -180,9 +197,12 @@ impl StraightWallCylinder {
 
         let cosh_closest_axis_point_distance = -point.mip(&closest_axis_point);
 
-        let test_point = closest_axis_point.as_ref() * cosh_closest_axis_point_distance
-            + self.axis_to_tangent.as_ref()
-                * libm::sqrtf(sqr(cosh_closest_axis_point_distance) - 1.0);
+        let projected_point = point.as_ref()
+            - self.horizontal_tangent_vector.as_ref() * self.horizontal_tangent_vector.mip(&point);
+
+        /*let test_point = closest_axis_point.as_ref() * cosh_closest_axis_point_distance
+        + self.axis_to_tangent.as_ref()
+            * libm::sqrtf(sqr(cosh_closest_axis_point_distance) - 1.0);*/
 
         if debugging {
             /*tracing::info!(
@@ -193,7 +213,7 @@ impl StraightWallCylinder {
             );*/
         }
 
-        test_point.mip(&self.tangent_plane) > 0.0
+        point.mip(&self.tangent_plane) > 0.0
         //cosh_closest_axis_point_distance < 1.1
     }
 
@@ -228,26 +248,28 @@ impl StraightWallCylinder {
         closest_axis_direction.w = 0.0; // Also project away origin
         self.axis_direction = closest_axis_direction.normalized_direction();
 
-        // Rotate axis_to_tangent to point from the axis to the origin
-        /*
-            If o is origin and c is axis_point, then we want to find
-               (o + c*<c,o>) / sqrt (<o + c*<c,o>, o + c*<c,o>>)
-             = (o + c*<c,o>) / sqrt (<o,o> + 2<c,o>^2 + <c,c><c,o>^2)
-             = (o + c*<c,o>) / sqrt (-1 + 2<c,o>^2 - <c,o>^2)
-             = (o + c*<c,o>) / sqrt (-1 + <c,o>^2)
-        */
-        let new_axis_to_tangent = (MPoint::origin().as_ref()
-            - self.axis_point.as_ref() * self.axis_point.w)
-            / libm::sqrtf(-1.0 + sqr(self.axis_point.w));
-        // Now, take tangent_plane, subtract out its projection to axis_to_tangent,
-        // and add back the same factor of new_axis_to_tangent.
-        let axis_to_tangent_projection = self.tangent_plane.mip(&self.axis_to_tangent);
-        tracing::info!("From: {:?}, To: {:?}", self.axis_to_tangent, new_axis_to_tangent);
-        tracing::info!("{:?}", MIsometry::rotation(&self.axis_to_tangent, &new_axis_to_tangent.to_direction_unchecked()));
-        self.tangent_plane = (self.tangent_plane.as_ref()
-            + (new_axis_to_tangent - self.axis_to_tangent.as_ref()) * axis_to_tangent_projection)
-            .to_direction_unchecked();
-        self.axis_to_tangent = new_axis_to_tangent.to_direction_unchecked();
+        let new_horizontal_tangent_vector = self
+            .axis_direction
+            .as_ref()
+            .xyz()
+            .cross(&self.axis_point.as_ref().xyz())
+            .normalize();
+        let new_horizontal_tangent_vector = MVector::new(
+            new_horizontal_tangent_vector.x,
+            new_horizontal_tangent_vector.y,
+            new_horizontal_tangent_vector.z,
+            0.0,
+        );
+        // TODO: Better handle things near the origin
+        let rotation = MIsometry::rotation(
+            &self.horizontal_tangent_vector,
+            &new_horizontal_tangent_vector.to_direction_unchecked(),
+        );
+        /*self.tangent_plane = (self.tangent_plane.as_ref()
+        + (new_axis_to_tangent - self.axis_to_tangent.as_ref()) * axis_to_tangent_projection)
+        .to_direction_unchecked();*/
+        self.tangent_plane = rotation * self.tangent_plane;
+        self.horizontal_tangent_vector = new_horizontal_tangent_vector.to_direction_unchecked();
     }
 
     pub fn set_axis(&mut self, axis: MDirection<f32>) {
@@ -263,7 +285,7 @@ impl std::ops::Mul<StraightWallCylinder> for &MIsometry<f32> {
             axis_point: self * rhs.axis_point,
             axis_direction: self * rhs.axis_direction,
             tangent_plane: self * rhs.tangent_plane,
-            axis_to_tangent: self * rhs.axis_to_tangent,
+            horizontal_tangent_vector: -(self * rhs.horizontal_tangent_vector), // TODO: Handle reflections better than this ad-hoc negation
         }
     }
 }
