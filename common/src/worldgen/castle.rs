@@ -66,14 +66,7 @@ impl CastleNode {
         }
 
         Some(CastleNode {
-            cylinder: StraightWallCylinder {
-                axis_point: Vertex::A.dual_to_node()
-                    * MIsometry::translation_along(&na::Vector3::new(0.0, 0.5, 0.0))
-                    * MPoint::origin(),
-                axis_direction: Vertex::A.dual_to_node() * MDirection::x(),
-                tangent_plane: Vertex::A.dual_to_node() * MDirection::y(),
-                horizontal_tangent_vector: Vertex::A.dual_to_node() * MDirection::z(),
-            },
+            cylinder: StraightWallCylinder::new(),
         })
     }
 
@@ -143,36 +136,26 @@ pub struct StraightWallCylinder {
     axis_direction: MDirection<f32>,
     tangent_plane: MDirection<f32>,
     horizontal_tangent_vector: MDirection<f32>,
+    center_plane: MDirection<f32>,
+    tanh_radius: f32,
 }
 
 impl StraightWallCylinder {
+    pub fn new() -> Self {
+        StraightWallCylinder {
+            axis_point: Vertex::A.dual_to_node()
+                * MIsometry::translation_along(&na::Vector3::new(0.0, 0.5, 0.0))
+                * MPoint::origin(),
+            axis_direction: Vertex::A.dual_to_node() * MDirection::x(),
+            tangent_plane: Vertex::A.dual_to_node() * MDirection::y(),
+            horizontal_tangent_vector: Vertex::A.dual_to_node() * MDirection::z(),
+            center_plane: Vertex::A.dual_to_node() * MDirection::x(),
+            tanh_radius: libm::tanhf(0.5),
+        }
+    }
+
     pub fn contains_point(&self, point: &MPoint<f32>, debugging: bool) -> bool {
         /*
-        Let axis_point = c (for center)
-        Let axis_direction = a (for axis)
-        Let tangent_plane = n (for normal)
-        Let point = p (for point)
-        Constraints: <c,c> = -1, <a,a> = 1, <n,n> = 1, <p,p> = -1, <c,a> = 0
-        First question: What reflection (Householder reflection?) can keep c and a fixed but move p to be spanned by c, a, and n?
-            Call this reflection vector r. Contraints: <r,c> = 0, <r,a> = 0, <r,r> = 1
-            Applying the reflection to p yields p-2r<p,r>
-
-        New idea: Store a point on the surface and the normal at that point. To find the distance from `p` to the surface,
-            - Slide the point of tangency along the vertical direction to be as close to `p` as possible.
-            - Consider the plane at this new point of tangency perpendicular to this vertical direction. The intersection between this plane and the cylinder is a conic.
-
-        New idea:
-            - Project the point so that it's on the plane containing the axis and point of tangency.
-            - Then, put the point back on the hyperboloid by moving it away from the axis.
-
-        New idea:
-            - Find the distance from the point to the axis
-            - Find the plane the point lies on that is orthogonal to the axis
-            - Find the point on that plane in a suitable direction relative to tangent_plane that is the same distance from the axis as the point
-            - See whether that point is in front or behind the tangent_plane
-
-        New idea:
-            - Regardless of the approach we take, I would like to know the equation for this shape.
             - It's a cylinder in the Beltrami Klein projection, so we have (x/w)^2 + (y/w)^2 = k^2 for some k
             - Expand this out, and it becomes x^2 + y^2 - k^2*w^2 = 0. This equation is suitable when close to the center
             - Note that an alternative equation is 0 = x^2 + y^2 - k^2*w^2 = x^2 + y^2 - k^2*(x^2+y^2+z^2+1) = (1-k^2)x^2 + (1-k^2)y^2 - k^2z^2 - k^2 = 0
@@ -190,31 +173,17 @@ impl StraightWallCylinder {
               to find k and w of the pre-zw-Lorentz-boosted version. I don't belive k and x's values
               would need to be particularly precise, though.
         */
-
-        let closest_axis_point = (self.axis_point.as_ref() * -point.mip(&self.axis_point)
-            + self.axis_direction.as_ref() * point.mip(&self.axis_direction))
-            / libm::sqrtf(sqr(point.mip(&self.axis_point)) - sqr(point.mip(&self.axis_direction)));
-
-        let cosh_closest_axis_point_distance = -point.mip(&closest_axis_point);
-
-        let projected_point = point.as_ref()
-            - self.horizontal_tangent_vector.as_ref() * self.horizontal_tangent_vector.mip(&point);
-
-        /*let test_point = closest_axis_point.as_ref() * cosh_closest_axis_point_distance
-        + self.axis_to_tangent.as_ref()
-            * libm::sqrtf(sqr(cosh_closest_axis_point_distance) - 1.0);*/
+        let x = -point.mip(&self.tangent_plane);
+        let y = point.mip(&self.horizontal_tangent_vector);
+        let z = point.mip(&self.center_plane);
+        let w = libm::sqrtf(x * x + y * y + z * z + 1.0);
+        let k = self.tanh_radius;
 
         if debugging {
-            /*tracing::info!(
-                "tangent_plane: {:?}, axis_to_tangent: {:?} ({})",
-                self.tangent_plane,
-                self.axis_to_tangent,
-                self.axis_to_tangent.as_ref().mip_self(),
-            );*/
+            // Put println debugging info here
         }
 
-        point.mip(&self.tangent_plane) > 0.0
-        //cosh_closest_axis_point_distance < 1.1
+        (1.0 + k * k) * x * x + 2.0 * k * x * w + y * y < 0.0
     }
 
     pub fn renormalize(&mut self) {
@@ -286,6 +255,8 @@ impl std::ops::Mul<StraightWallCylinder> for &MIsometry<f32> {
             axis_direction: self * rhs.axis_direction,
             tangent_plane: self * rhs.tangent_plane,
             horizontal_tangent_vector: -(self * rhs.horizontal_tangent_vector), // TODO: Handle reflections better than this ad-hoc negation
+            center_plane: self * rhs.center_plane,
+            tanh_radius: rhs.tanh_radius,
         }
     }
 }
