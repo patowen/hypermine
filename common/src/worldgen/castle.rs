@@ -179,17 +179,19 @@ impl StraightWallCylinder {
         let w = libm::sqrtf(x * x + y * y + z * z + 1.0);
         let k = self.tanh_radius;
 
-        if debugging {
-            // Put println debugging info here
-        }
-
         // This logic belongs elsewhere, but I need to have some kind of demo available, so I'll put it here for now.
         let value = (1.0 + k * k) * x * x + 2.0 * k * x * w + y * y;
+        let value_cutoff = -0.2 * libm::sqrtf(z * z + 1.0);
+
+        if debugging {
+            tracing::info!("{}, {}, {}, {}, {}, {}, {}", x, y, z, w, k, value, value_cutoff);
+        }
+
         if value > 0.0 {
             return false; // Outside of cylinder
         }
-        // TODO: -0.2 * w is not invariant to the particular perspective chosen. Do some more math.
-        if value > -0.2 * w {
+        // TODO: value_cutoff is not yet confirmed to be invariant to the particular perspective chosen. Do some more math.
+        if value > value_cutoff {
             // Outer wall
             return true;
         }
