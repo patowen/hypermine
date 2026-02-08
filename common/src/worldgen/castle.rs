@@ -184,7 +184,7 @@ impl StraightWallCylinder {
         let value_cutoff = -0.2 * libm::sqrtf(z * z + 1.0);
 
         if debugging {
-            tracing::info!("{}, {}, {}, {}, {}, {}, {}", x, y, z, w, k, value, value_cutoff);
+            // Put println debugging here
         }
 
         if value > 0.0 {
@@ -209,6 +209,27 @@ impl StraightWallCylinder {
     }
 
     pub fn renormalize(&mut self) {
+        if self.center_plane.w.abs() < 100.0 {
+            /*
+               Project c (axis_point) onto a (center_plane) but maintain its length.
+               (c - a*<a,c>)/sqrt(-<c - a*<a,c>,c - a*<a,c>>)
+               = (c - a*<a,c>)/sqrt(-<c,c> + 2<a,c>^2 - <a,a><a,c>)
+               = (c - a*<a,c>)/sqrt(1 + 2<a,c>^2 - <a,c>)
+
+               Not good enough.
+            */
+            let mut projected_axis_point = self.axis_point.as_ref()
+                - self.center_plane.as_ref() * self.axis_point.mip(&self.center_plane);
+            /*projected_axis_point /= libm::sqrtf(
+                1.0 + 2.0 * sqr(self.axis_point.mip(&self.center_plane))
+                    - self.axis_point.mip(&self.center_plane),
+            );*/
+            //projected_axis_point.w = libm::sqrtf(1.0 + projected_axis_point.xyz().norm_squared());
+            tracing::info!("{:?}, {}, {:?}", self.axis_point, self.axis_point.mip(&self.center_plane), projected_axis_point);
+            self.axis_point = projected_axis_point.to_point_unchecked();
+            self.axis_direction = self.center_plane;
+        }
+
         /*
            Minimize w in terms of t for `(c+ta)/sqrt(-<c+ta, c+ta>)`
            = (c+ta)/sqrt(-[<c,c> + t<c,a> + t<a,c> + t^2<a,a>])
@@ -260,6 +281,7 @@ impl StraightWallCylinder {
     }
 
     pub fn set_axis(&mut self, axis: MDirection<f32>) {
+        self.center_plane = axis;
         // TODO
     }
 }
