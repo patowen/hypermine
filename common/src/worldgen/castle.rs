@@ -187,6 +187,11 @@ impl StraightWallCylinder {
             // Put println debugging here
         }
 
+        let distance_to_axis = libm::acoshf(libm::sqrtf(
+            sqr(point.mip(&self.axis_point)) - sqr(point.mip(&self.axis_direction)),
+        ));
+        return distance_to_axis.fract() < 0.1;
+
         if value > 0.0 {
             return false; // Outside of cylinder
         }
@@ -210,7 +215,7 @@ impl StraightWallCylinder {
 
     pub fn renormalize(&mut self) {
         if self.center_plane.w.abs() < 100.0 {
-            // Project origin onto center plane
+            /*// Project origin onto center plane
             let center_plane_point = (MVector::origin()
                 + self.center_plane.as_ref() * self.center_plane.w)
                 .normalized_point();
@@ -225,15 +230,30 @@ impl StraightWallCylinder {
             let mut grounded_axis_point =
                 self.axis_point.as_ref() + self.axis_direction.as_ref() * required_distance;
             grounded_axis_point /= libm::sqrtf(1.0 - sqr(required_distance));
+            grounded_axis_point.w = libm::sqrtf(1.0 + grounded_axis_point.xyz().norm_squared());
             /*projected_axis_point /= libm::sqrtf(
                 1.0 + 2.0 * sqr(self.axis_point.mip(&self.center_plane))
                     - self.axis_point.mip(&self.center_plane),
             );*/
             //projected_axis_point.w = libm::sqrtf(1.0 + projected_axis_point.xyz().norm_squared());
-            if self.axis_direction.mip(&self.center_plane) < 0.0 {
-                tracing::info!("{}", self.axis_direction.mip(&self.center_plane));
-            }
             self.axis_point = grounded_axis_point.to_point_unchecked();
+            self.axis_direction = self.center_plane;
+            tracing::info!("{}, {}", self.axis_point.mip(&self.axis_direction), center_plane_point.mip(&self.center_plane));*/
+            let center_plane_point = (MVector::origin()
+                + self.center_plane.as_ref() * self.center_plane.w)
+                .normalized_point();
+            let expected_cosh_dist = libm::sqrtf(
+                sqr(center_plane_point.mip(&self.axis_point))
+                    - sqr(center_plane_point.mip(&self.axis_direction)),
+            );
+            let mut projected_axis_point = self.axis_point.as_ref()
+                - self.center_plane.as_ref() * self.axis_point.mip(&self.center_plane);
+            let actual_cosh_dist = -center_plane_point.mip(&projected_axis_point);
+            tracing::info!("{}, {}", expected_cosh_dist, actual_cosh_dist);
+            projected_axis_point *= expected_cosh_dist / actual_cosh_dist;
+            let actual_cosh_dist = -center_plane_point.mip(&projected_axis_point);
+            tracing::info!("{}, {}", expected_cosh_dist, actual_cosh_dist);
+            self.axis_point = projected_axis_point.to_point_unchecked();
             self.axis_direction = self.center_plane;
         }
 
