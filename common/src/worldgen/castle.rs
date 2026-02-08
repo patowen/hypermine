@@ -143,7 +143,7 @@ pub struct StraightWallCylinder {
 
 impl StraightWallCylinder {
     pub fn new() -> Self {
-        let radius = 30.0;
+        let radius = 8.0; // A higher radius reveals bugs
         StraightWallCylinder {
             axis_point: Vertex::A.dual_to_node()
                 * MIsometry::translation_along(&na::Vector3::new(0.0, radius, 0.0))
@@ -184,7 +184,8 @@ impl StraightWallCylinder {
         let value_cutoff = -0.2 * libm::sqrtf(z * z + 1.0);
 
         if debugging {
-            // Put println debugging here
+            // Things still don't quite work. I will hold off on debugging this further for now.
+            //tracing::info!("{} vs {}", value, value_cutoff);
         }
 
         /*let distance_to_axis = libm::acoshf(libm::sqrtf(
@@ -249,10 +250,8 @@ impl StraightWallCylinder {
             let mut projected_axis_point = self.axis_point.as_ref()
                 - self.center_plane.as_ref() * self.axis_point.mip(&self.center_plane);
             let actual_cosh_dist = -center_plane_point.mip(&projected_axis_point);
-            tracing::info!("{}, {}", expected_cosh_dist, actual_cosh_dist);
             projected_axis_point *= expected_cosh_dist / actual_cosh_dist;
             let actual_cosh_dist = -center_plane_point.mip(&projected_axis_point);
-            tracing::info!("{}, {}", expected_cosh_dist, actual_cosh_dist);
             self.axis_point = projected_axis_point.to_point_unchecked();
             self.axis_direction = -self.center_plane; // TODO: Why must this be negative?
         }
