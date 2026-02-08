@@ -390,3 +390,124 @@ impl std::ops::Mul<StraightWallCylinderOld> for &MIsometry<f32> {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+struct Bivector {
+    xy: f32,
+    xz: f32,
+    xw: f32,
+    yz: f32,
+    yw: f32,
+    zw: f32,
+}
+
+impl Bivector {
+    fn from_wedge_product(a: MVector<f32>, b: MVector<f32>) -> Bivector {
+        Bivector {
+            xy: a.x * b.y - a.y * b.x,
+            xz: a.x * b.z - a.z * b.x,
+            xw: a.x * b.w - a.w * b.x,
+            yz: a.y * b.z - a.z * b.y,
+            yw: a.y * b.w - a.w * b.y,
+            zw: a.z * b.w - a.w * b.z,
+        }
+    }
+
+    fn dot_self(&self) -> f32 {
+        -self.xy * self.xy - self.xz * self.xz + self.xw * self.xw - self.yz * self.yz
+            + self.yw * self.yw
+            + self.zw * self.zw
+    }
+
+    fn wedge_self(&self) -> f32 {
+        // Obtain the pseudo-scalar component xyzw when self-multiplying
+        // We like simple bivectors, so we want this to be 0. One possible appraoch may
+        // be to split the multivector into two simple bivectors that commute and are orthogonal.
+        // Turning a bivector into a simple bivector in general is quite hard
+        // (projection onto the Grassmannian, requires an SVD), but seems manageable in 4D.
+        (self.xy * self.zw - self.xz * self.yw + self.xw * self.yz) * 2.0
+    }
+
+    fn restore_simplicity(&mut self) {
+        // Want: wedge_self of 0.
+        // Rather than doing things the "right way", just update the most sensitive component.
+        let max = (self.xy.abs())
+            .max(self.xz.abs())
+            .max(self.xw.abs())
+            .max(self.yz.abs())
+            .max(self.yw.abs())
+            .max(self.zw.abs());
+        let half_wedge_self = self.wedge_self() / 2.0;
+        if self.xy.abs() == max {
+            self.zw -= half_wedge_self / self.xy;
+        } else if self.xz.abs() == max {
+            self.yw += half_wedge_self / self.xz;
+        } else if self.xw.abs() == max {
+            self.yz -= half_wedge_self / self.xw;
+        } else if self.yz.abs() == max {
+            self.xw -= half_wedge_self / self.yz;
+        } else if self.yw.abs() == max {
+            self.xz += half_wedge_self / self.yw;
+        } else if self.zw.abs() == max {
+            self.xy -= half_wedge_self / self.zw;
+        } else {
+            unreachable!();
+        }
+    }
+
+    fn renormalize_rotation(&mut self) {
+        // Want: dot_self of -1 and wedge_self of 0.
+        // Idea: Scale xy, xz, and yz all by the same amount. Since this can be factored out of the
+        // wedge_self equation, it shouldn't break simplicity.
+        self.restore_simplicity();
+        let dot_self_positive_component = self.xw * self.xw + self.yw * self.yw + self.zw * self.zw;
+        let dot_self_negative_component = self.xy * self.xy + self.xz * self.xz + self.yz * self.yz;
+        let factor = (dot_self_positive_component + 1.0) / dot_self_negative_component;
+        self.xy *= factor;
+        self.xz *= factor;
+        self.yz *= factor;
+    }
+}
+
+impl std::ops::Add for Bivector {
+    type Output = Bivector;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Bivector {
+            xy: self.xy + rhs.xy,
+            xz: self.xz + rhs.xz,
+            xw: self.xw + rhs.xw,
+            yz: self.yz + rhs.yz,
+            yw: self.yw + rhs.yw,
+            zw: self.zw + rhs.zw,
+        }
+    }
+}
+
+impl std::ops::Mul<f32> for Bivector {
+    type Output = Bivector;
+
+    fn mul(self, rhs: f32) -> Self::Output {
+        Bivector {
+            xy: self.xy * rhs,
+            xz: self.xz * rhs,
+            xw: self.xw * rhs,
+            yz: self.yz * rhs,
+            yw: self.yw * rhs,
+            zw: self.zw * rhs,
+        }
+    }
+}
+
+impl std::ops::Mul<Bivector> for &MIsometry<f32> {
+    type Output = Bivector;
+
+    fn mul(self, rhs: Bivector) -> Self::Output {
+        Bivector::from_wedge_product(self * MVector::x(), self * MVector::y()) * rhs.xy
+            + Bivector::from_wedge_product(self * MVector::x(), self * MVector::z()) * rhs.xz
+            + Bivector::from_wedge_product(self * MVector::x(), self * MVector::w()) * rhs.xw
+            + Bivector::from_wedge_product(self * MVector::y(), self * MVector::z()) * rhs.yz
+            + Bivector::from_wedge_product(self * MVector::y(), self * MVector::w()) * rhs.yw
+            + Bivector::from_wedge_product(self * MVector::z(), self * MVector::w()) * rhs.zw
+    }
+}
