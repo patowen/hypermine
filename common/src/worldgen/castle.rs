@@ -210,23 +210,30 @@ impl StraightWallCylinder {
 
     pub fn renormalize(&mut self) {
         if self.center_plane.w.abs() < 100.0 {
+            // Project origin onto center plane
+            let center_plane_point = (MVector::origin()
+                + self.center_plane.as_ref() * self.center_plane.w)
+                .normalized_point();
             /*
-               Project c (axis_point) onto a (center_plane) but maintain its length.
-               (c - a*<a,c>)/sqrt(-<c - a*<a,c>,c - a*<a,c>>)
-               = (c - a*<a,c>)/sqrt(-<c,c> + 2<a,c>^2 - <a,a><a,c>)
-               = (c - a*<a,c>)/sqrt(1 + 2<a,c>^2 - <a,c>)
+               Move c (axis_point) along a (axis_direction) to make it as close as possible to p (center_plane_point).
+               This math is already worked out below. t = -<a,p> / <c,p>
 
-               Not good enough.
+               Note: <c+ta,c+ta> = <c,c> + 2t<a,c> + t^2<a,a> = -1 + t^2
             */
-            let mut projected_axis_point = self.axis_point.as_ref()
-                - self.center_plane.as_ref() * self.axis_point.mip(&self.center_plane);
+            let required_distance = -self.axis_direction.mip(&center_plane_point)
+                / self.axis_point.mip(&center_plane_point);
+            let mut grounded_axis_point =
+                self.axis_point.as_ref() + self.axis_direction.as_ref() * required_distance;
+            grounded_axis_point /= libm::sqrtf(1.0 - sqr(required_distance));
             /*projected_axis_point /= libm::sqrtf(
                 1.0 + 2.0 * sqr(self.axis_point.mip(&self.center_plane))
                     - self.axis_point.mip(&self.center_plane),
             );*/
             //projected_axis_point.w = libm::sqrtf(1.0 + projected_axis_point.xyz().norm_squared());
-            tracing::info!("{:?}, {}, {:?}", self.axis_point, self.axis_point.mip(&self.center_plane), projected_axis_point);
-            self.axis_point = projected_axis_point.to_point_unchecked();
+            if self.axis_direction.mip(&self.center_plane) < 0.0 {
+                tracing::info!("{}", self.axis_direction.mip(&self.center_plane));
+            }
+            self.axis_point = grounded_axis_point.to_point_unchecked();
             self.axis_direction = self.center_plane;
         }
 
