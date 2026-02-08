@@ -391,7 +391,7 @@ impl std::ops::Mul<StraightWallCylinderOld> for &MIsometry<f32> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct Bivector {
     xy: f32,
     xz: f32,
@@ -462,7 +462,7 @@ impl Bivector {
         self.restore_simplicity();
         let dot_self_positive_component = self.xw * self.xw + self.yw * self.yw + self.zw * self.zw;
         let dot_self_negative_component = self.xy * self.xy + self.xz * self.xz + self.yz * self.yz;
-        let factor = (dot_self_positive_component + 1.0) / dot_self_negative_component;
+        let factor = libm::sqrtf((dot_self_positive_component + 1.0) / dot_self_negative_component);
         self.xy *= factor;
         self.xz *= factor;
         self.yz *= factor;
@@ -509,5 +509,34 @@ impl std::ops::Mul<Bivector> for &MIsometry<f32> {
             + Bivector::from_wedge_product(self * MVector::y(), self * MVector::z()) * rhs.yz
             + Bivector::from_wedge_product(self * MVector::y(), self * MVector::w()) * rhs.yw
             + Bivector::from_wedge_product(self * MVector::z(), self * MVector::w()) * rhs.zw
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{math::{MIsometry, MVector}, worldgen::castle::Bivector};
+
+    #[test]
+    fn bivector_example() {
+        let mut bivector = Bivector::from_wedge_product(MVector::x(), MVector::y());
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector.renormalize_rotation();
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector = &MIsometry::translation_along(&na::Vector3::new(1.0, 0.2, 0.1)) * bivector;
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector.renormalize_rotation();
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector = &MIsometry::translation_along(&na::Vector3::new(2.0, 1.1, 8.1)) * bivector;
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector.renormalize_rotation();
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector = &MIsometry::translation_along(&na::Vector3::new(2.0, 1.1, 8.1)) * bivector;
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector.renormalize_rotation();
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector = &MIsometry::translation_along(&na::Vector3::new(8.0, 1.1, 3.1)) * bivector;
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
+        bivector.renormalize_rotation();
+        println!("{:?}, {}, {}", bivector, bivector.dot_self(), bivector.wedge_self());
     }
 }
