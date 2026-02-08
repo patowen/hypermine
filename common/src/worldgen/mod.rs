@@ -111,7 +111,7 @@ impl NodeState {
 
         let enviro = match (parents[0], parents[1]) {
             (None, None) => EnviroFactors {
-                max_elevation: -20.0,
+                max_elevation: -5.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
