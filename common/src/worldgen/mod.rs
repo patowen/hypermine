@@ -111,7 +111,7 @@ impl NodeState {
 
         let enviro = match (parents[0], parents[1]) {
             (None, None) => EnviroFactors {
-                max_elevation: 0.0,
+                max_elevation: -20.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
@@ -274,11 +274,11 @@ impl ChunkParams {
             horosphere.generate(&mut voxels, self.dimension);
         }
 
-        if self.is_road {
+        /*if self.is_road {
             self.generate_road(&mut voxels);
         } else if self.is_road_support {
             self.generate_road_support(&mut voxels);
-        }
+        }*/
 
         if let Some(castle) = &self.castle {
             castle.generate(&mut voxels, self.dimension);

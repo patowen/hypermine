@@ -1,4 +1,5 @@
 use libm::{coshf, sqrtf};
+use na::ComplexField;
 
 use crate::{
     dodeca::{Side, Vertex},
@@ -142,15 +143,16 @@ pub struct StraightWallCylinder {
 
 impl StraightWallCylinder {
     pub fn new() -> Self {
+        let radius = 30.0;
         StraightWallCylinder {
             axis_point: Vertex::A.dual_to_node()
-                * MIsometry::translation_along(&na::Vector3::new(0.0, 0.5, 0.0))
+                * MIsometry::translation_along(&na::Vector3::new(0.0, radius, 0.0))
                 * MPoint::origin(),
             axis_direction: Vertex::A.dual_to_node() * MDirection::x(),
             tangent_plane: Vertex::A.dual_to_node() * MDirection::y(),
             horizontal_tangent_vector: Vertex::A.dual_to_node() * MDirection::z(),
             center_plane: Vertex::A.dual_to_node() * MDirection::x(),
-            tanh_radius: libm::tanhf(0.5),
+            tanh_radius: libm::tanhf(radius),
         }
     }
 
@@ -169,9 +171,7 @@ impl StraightWallCylinder {
                 (1+k^2)x^2 + 2kxw + y^2 = 0
             - Lorentz-boost away from surface: z -> az+bw, w = bz+aw
                 (1+k^2)x^2 + 2kx(bz+aw) + y^2 = 0
-            - There doesn't seem to be any signs of numerical instability. However, we would need
-              to find k and w of the pre-zw-Lorentz-boosted version. I don't belive k and x's values
-              would need to be particularly precise, though.
+            - There doesn't seem to be any signs of numerical instability.
         */
         let x = -point.mip(&self.tangent_plane);
         let y = point.mip(&self.horizontal_tangent_vector);
@@ -183,7 +183,27 @@ impl StraightWallCylinder {
             // Put println debugging info here
         }
 
-        (1.0 + k * k) * x * x + 2.0 * k * x * w + y * y < 0.0
+        // This logic belongs elsewhere, but I need to have some kind of demo available, so I'll put it here for now.
+        let value = (1.0 + k * k) * x * x + 2.0 * k * x * w + y * y;
+        if value > 0.0 {
+            return false; // Outside of cylinder
+        }
+        // TODO: -0.2 * w is not invariant to the particular perspective chosen. Do some more math.
+        if value > -0.2 * w {
+            // Outer wall
+            return true;
+        }
+        // Add a floor pattern for easier debugging
+        if z > -0.05 && z < 0.0 {
+            let distance_to_axis = libm::acoshf(libm::sqrtf(
+                sqr(point.mip(&self.axis_point)) - sqr(point.mip(&self.axis_direction)),
+            ));
+            if distance_to_axis.fract() < 0.1 {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn renormalize(&mut self) {
@@ -223,12 +243,8 @@ impl StraightWallCylinder {
             .xyz()
             .cross(&self.axis_point.as_ref().xyz())
             .normalize();
-        let new_horizontal_tangent_vector = MVector::new(
-            new_horizontal_tangent_vector.x,
-            new_horizontal_tangent_vector.y,
-            new_horizontal_tangent_vector.z,
-            0.0,
-        );
+        let new_horizontal_tangent_vector =
+            MVector::from(new_horizontal_tangent_vector.to_homogeneous());
         // TODO: Better handle things near the origin
         let rotation = MIsometry::rotation(
             &self.horizontal_tangent_vector,
