@@ -108,7 +108,9 @@ impl NodeState {
 
         let enviro = match (parents[0], parents[1]) {
             (None, None) => EnviroFactors {
-                max_elevation: 0.0,
+                elevation1: 0.0,
+                elevation2: 0.0,
+                elevation3: 0.0,
                 temperature: 0.0,
                 rainfall: 0.0,
                 blockiness: 0.0,
@@ -532,7 +534,9 @@ struct NeighborData {
 
 #[derive(Copy, Clone)]
 struct EnviroFactors {
-    max_elevation: f32,
+    elevation1: f32,
+    elevation2: f32,
+    elevation3: f32,
     temperature: f32,
     rainfall: f32,
     blockiness: f32,
@@ -541,10 +545,11 @@ impl EnviroFactors {
     fn varied_from(parent: Self, spice: u64) -> Self {
         let mut rng = rand_pcg::Pcg64Mcg::seed_from_u64(spice);
         let unif = Uniform::new_inclusive(-1.0, 1.0).unwrap();
-        let max_elevation = parent.max_elevation + rng.sample(Normal::new(0.0, 4.0).unwrap());
 
         Self {
-            max_elevation,
+            elevation1: parent.elevation1 + rng.sample(Normal::new(0.0, 1.0).unwrap()),
+            elevation2: parent.elevation2 + rng.sample(Normal::new(0.0, 1.0).unwrap()),
+            elevation3: parent.elevation3 + rng.sample(Normal::new(0.0, 1.0).unwrap()),
             temperature: parent.temperature + rng.sample(unif),
             rainfall: parent.rainfall + rng.sample(unif),
             blockiness: parent.blockiness + rng.sample(unif),
@@ -552,7 +557,9 @@ impl EnviroFactors {
     }
     fn continue_from(a: Self, b: Self, ab: Self) -> Self {
         Self {
-            max_elevation: a.max_elevation + (b.max_elevation - ab.max_elevation),
+            elevation1: a.elevation1 + (b.elevation1 - ab.elevation1),
+            elevation2: a.elevation2 + (b.elevation2 - ab.elevation2),
+            elevation3: a.elevation3 + (b.elevation3 - ab.elevation3),
             temperature: a.temperature + (b.temperature - ab.temperature),
             rainfall: a.rainfall + (b.rainfall - ab.rainfall),
             blockiness: a.blockiness + (b.blockiness - ab.blockiness),
@@ -562,7 +569,10 @@ impl EnviroFactors {
 impl From<EnviroFactors> for (f32, f32, f32, f32) {
     fn from(envirofactors: EnviroFactors) -> Self {
         (
-            envirofactors.max_elevation,
+            envirofactors.elevation1
+                + libm::sinf(envirofactors.elevation2 * 0.1)
+                    * libm::sinf(envirofactors.elevation3 * 0.2)
+                    * 60.0,
             envirofactors.temperature,
             envirofactors.rainfall,
             envirofactors.blockiness,
@@ -742,7 +752,7 @@ mod test {
 
             // assigning state
             g.ensure_node_state(new_node);
-            g[new_node].state.as_mut().unwrap().enviro.max_elevation = i as f32 + 1.0;
+            g[new_node].state.as_mut().unwrap().enviro.elevation1 = i as f32 + 1.0;
         }
 
         let enviros = chunk_incident_enviro_factors(&mut g, ChunkId::new(NodeId::ROOT, Vertex::A));
