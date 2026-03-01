@@ -88,10 +88,40 @@ cosh(b)^2 * (-sinh(b)cosh(U) + cosh(b)sinh(U)) + cosh(b)sinh(b) * (cosh(b)cosh(U
 = sinh(U)cosh(b)[ cosh(b)^2 - sinh(b)^2 ]
 = sinh(U)cosh(b)
 
-Divide by the denominator again
+Divide by the denominator, (cosh(b)cosh(U) - sinh(b)sinh(U)), again
 
 z = sinh(U)cosh(b) / (cosh(b)cosh(U) - sinh(b)sinh(U))
   = sinh(U) / (cosh(U) - tanh(b)sinh(U))
 ```
 
 This final formula is numerically stable, approaching `sinh(U) / (cosh(U) - sinh(U))` as b approaches infinity. Since `U` remains small, this is fine.
+
+Now, what happens if sqrt(1 - X^2 - Y^2) is not equal to 1? Since it will be close to 1, let's say it's equal to `1-f`.
+```
+z = c^2 * sqrt(1 - X^2 - Y^2) * tanh(Z) + c * s
+  = c^2 * (1-f) * tanh(Z) + c * s
+  = cosh(b)^2 * (1-f) * tanh(-b + U) + cosh(b) * sinh(b)
+  = cosh(b)^2 * (1-f) * (-sinh(b)cosh(U) + cosh(b)sinh(U)) / (cosh(b)cosh(U) - sinh(b)sinh(U)) + cosh(b) * sinh(b)
+
+Try multiplying this by (cosh(b)cosh(U) - sinh(b)sinh(U)) to see if we can cancel anything in the numerator
+
+cosh(b)^2 * (1-f) * (-sinh(b)cosh(U) + cosh(b)sinh(U)) + cosh(b)sinh(b) * (cosh(b)cosh(U) - sinh(b)sinh(U))
+= -sinh(b)cosh(b)^2cosh(U) + cosh(b)^3sinh(U) + f*sinh(b)cosh(b)^2cosh(U) - f*cosh(b)^3sinh(U) + cosh(b)^2sinh(b)cosh(U) - cosh(b)sinh(b)^2sinh(U)
+= cosh(U)[ -sinh(b)cosh(b)^2 + f*sinh(b)cosh(b)^2 + cosh(b)^2sinh(b) ] + sinh(U)[ cosh(b)^3 - f*cosh(b)^3 - cosh(b)sinh(b)^2 ]
+= cosh(U)[ f*sinh(b)cosh(b)^2 ] + sinh(U)[ cosh(b) - f*cosh(b)^3 ]
+= cosh(U)[ f*sinh(b)cosh(b)^2 ] + sinh(U)cosh(b) [ 1 - f*cosh(b)^2 ]
+
+Simplify by letting g = f*cosh(b)^2, so f = g/cosh(b)^2
+= cosh(U)[ g*sinh(b) ] + sinh(U)cosh(b)[ 1 - g ]
+
+Divide by the denominator, (cosh(b)cosh(U) - sinh(b)sinh(U)), again
+
+z = [cosh(U)[ g*sinh(b) ] + sinh(U)cosh(b)[ 1 - g ]] / (cosh(b)cosh(U) - sinh(b)sinh(U))
+  = g * cosh(U)sinh(b) / (cosh(b)cosh(U) - sinh(b)sinh(U)) + sinh(U)(1 - g) / (cosh(U) - tanh(b)sinh(U))
+  = g * cosh(U)tanh(b) / (cosh(U) - tanh(b)sinh(U)) + sinh(U)(1 - g) / (cosh(U) - tanh(b)sinh(U))
+  = [ cosh(U)tanh(b) * g + sinh(U) * (1 - g) ] / (cosh(U) - tanh(b)sinh(U))
+```
+
+This should be stable, as everything involving b is expressed in terms of `tanh(b)`, and everything else stays small. Unit tests will be needed to ensure that a math error wasn't made somewhere.
+
+All that's left is a formula for w. Dealing with X and Y should be relatively simple, as we just need to move along two vectors with coefficients proportional to X and Y, and the main extra work needed is to find `g`.
