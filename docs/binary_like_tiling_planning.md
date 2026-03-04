@@ -125,3 +125,40 @@ z = [cosh(U)[ g*sinh(b) ] + sinh(U)cosh(b)[ 1 - g ]] / (cosh(b)cosh(U) - sinh(b)
 This should be stable, as everything involving b is expressed in terms of `tanh(b)`, and everything else stays small. Unit tests will be needed to ensure that a math error wasn't made somewhere.
 
 All that's left is a formula for w. Dealing with X and Y should be relatively simple, as we just need to move along two vectors with coefficients proportional to X and Y, and the main extra work needed is to find `g`.
+
+What is w?
+```
+w = c^2 + c * s * sqrt(1 - X^2 - Y^2) * tanh(Z)
+If g = 0
+w = c^2 + c * s * tanh(Z)
+  = cosh(b)^2 + cosh(b) * sinh(b) * tanh(Z)
+  = cosh(b)^2 + cosh(b) * sinh(b) * tanh(-b + U)
+  = cosh(b)^2 + cosh(b) * sinh(b) * (-sinh(b)cosh(U) + cosh(b)sinh(U)) / (cosh(b)cosh(U) - sinh(b)sinh(U))
+
+Try multiplying this by (cosh(b)cosh(U) - sinh(b)sinh(U)) to see if we can cancel anything in the numerator
+
+cosh(b)^3cosh(U) - cosh(b)^2sinh(b)sinh(U) - cosh(b)sinh(b)^2cosh(U) + cosh(b)^2sinh(b)sinh(U)
+= cosh(U) [ cosh(b)^3 - cosh(b)sinh(b)^2 ]
+= cosh(U)cosh(b) [ cosh(b)^2 - sinh(b)^2 ]
+= cosh(U)cosh(b)
+
+Divide by the denominator, (cosh(b)cosh(U) - sinh(b)sinh(U)), again
+
+w = cosh(U) / (cosh(U) - tanh(b)sinh(U))
+
+If g is unrestricted
+w = c^2 + c * s * (1 - f) * tanh(Z)
+  = cosh(b)^2 + cosh(b) * sinh(b) * (1 - f) * tanh(Z)
+  = cosh(b)^2 + cosh(b) * sinh(b) * (1 - f) * tanh(-b + U)
+  = cosh(b)^2 + cosh(b) * sinh(b) * (1 - f) * (-sinh(b)cosh(U) + cosh(b)sinh(U)) / (cosh(b)cosh(U) - sinh(b)sinh(U))
+
+Try multiplying this by (cosh(b)cosh(U) - sinh(b)sinh(U)) to see if we can cancel anything in the numerator
+
+cosh(b)^3cosh(U) - cosh(b)^2sinh(b)sinh(U) - cosh(b)sinh(b)^2cosh(U) + cosh(b)^2sinh(b)sinh(U) + f * cosh(b)sinh(b)^2cosh(U) - f * cosh(b)^2sinh(b)sinh(U)
+= cosh(U) [ cosh(b)^3 - cosh(b)sinh(b)^2 + f * cosh(b)sinh(b)^2 ] - sinh(U) [ f * cosh(b)^2sinh(b) ]
+= cosh(U)cosh(b) [ cosh(b)^2 - sinh(b)^2 + f * sinh(b)^2 ] - sinh(U)sinh(b) [ f * cosh(b) ^ 2 ]
+= cosh(U)cosh(b) [ cosh(b)^2 - sinh(b)^2 + f * (cosh(b)^2 - 1) ] - g * sinh(U)sinh(b)
+= cosh(U)cosh(b) [ 1 + g - g/cosh(b)^2 ] - g * sinh(U)sinh(b)
+
+This is a bit of a mess. I'd like to test what I have so far before proceeding.
+```

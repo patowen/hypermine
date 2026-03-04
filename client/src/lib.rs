@@ -11,6 +11,7 @@ macro_rules! cstr {
 }
 
 extern crate nalgebra as na;
+mod binary_like_tiling;
 mod config;
 pub mod graphics;
 mod lahar_deprecated;
