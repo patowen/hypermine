@@ -11,12 +11,12 @@ use common::defer;
 const VERT: &[u32] = include_glsl!("shaders/mesh.vert");
 const FRAG: &[u32] = include_glsl!("shaders/mesh.frag");
 
-pub struct Meshes {
+pub struct VoxelMeshes {
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
 }
 
-impl Meshes {
+impl VoxelMeshes {
     pub fn new(gfx: &Base, ds_layout: vk::DescriptorSetLayout) -> Self {
         let device = &*gfx.device;
         unsafe {
@@ -69,7 +69,7 @@ impl Meshes {
                             &vk::PipelineVertexInputStateCreateInfo::default()
                                 .vertex_binding_descriptions(&[vk::VertexInputBindingDescription {
                                     binding: 0,
-                                    stride: mem::size_of::<Vertex>() as u32,
+                                    stride: mem::size_of::<VoxelMeshVertex>() as u32,
                                     input_rate: vk::VertexInputRate::VERTEX,
                                 }])
                                 .vertex_attribute_descriptions(&[
@@ -77,19 +77,19 @@ impl Meshes {
                                         location: 0,
                                         binding: 0,
                                         format: vk::Format::R32G32B32_SFLOAT,
-                                        offset: offset_of!(Vertex, position) as u32,
+                                        offset: offset_of!(VoxelMeshVertex, position) as u32,
                                     },
                                     vk::VertexInputAttributeDescription {
                                         location: 1,
                                         binding: 0,
                                         format: vk::Format::R32G32_SFLOAT,
-                                        offset: offset_of!(Vertex, texcoords) as u32,
+                                        offset: offset_of!(VoxelMeshVertex, texcoords) as u32,
                                     },
                                     vk::VertexInputAttributeDescription {
                                         location: 2,
                                         binding: 0,
                                         format: vk::Format::R32G32B32_SFLOAT,
-                                        offset: offset_of!(Vertex, normal) as u32,
+                                        offset: offset_of!(VoxelMeshVertex, normal) as u32,
                                     },
                                 ]),
                         )
@@ -167,7 +167,7 @@ impl Meshes {
         device: &Device,
         common_ds: vk::DescriptorSet,
         cmd: vk::CommandBuffer,
-        mesh: &Mesh,
+        mesh: &VoxelMesh,
         transform: &na::Matrix4<f32>,
     ) {
         unsafe {
@@ -212,14 +212,14 @@ impl Meshes {
 }
 
 #[repr(C)]
-pub struct Vertex {
+pub struct VoxelMeshVertex {
     pub position: na::Point3<f32>,
-    pub texcoords: na::Vector2<f32>,
+    pub texcoords: na::Vector3<f32>,
     pub normal: na::Unit<na::Vector3<f32>>,
 }
 
 #[derive(Copy, Clone)]
-pub struct Mesh {
+pub struct VoxelMesh {
     pub vertices: BufferRegionAlloc,
     pub indices: BufferRegionAlloc,
     pub index_count: u32,
@@ -230,7 +230,7 @@ pub struct Mesh {
     pub color_view: vk::ImageView,
 }
 
-impl crate::loader::Cleanup for Mesh {
+impl crate::loader::Cleanup for VoxelMesh {
     unsafe fn cleanup(mut self, gfx: &Base) {
         unsafe {
             let device = &*gfx.device;

@@ -9,6 +9,7 @@ mod gltf_mesh;
 mod gui;
 mod meshes;
 mod png_array;
+mod voxel_meshes;
 pub mod voxels;
 mod window;
 
