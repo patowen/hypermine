@@ -5,19 +5,22 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
 
+use crate::loader::{Asset, Loader};
+
 use super::Base;
 use common::defer;
 
-const VERT: &[u32] = include_glsl!("shaders/mesh.vert");
-const FRAG: &[u32] = include_glsl!("shaders/mesh.frag");
+const VERT: &[u32] = include_glsl!("shaders/voxel_mesh.vert");
+const FRAG: &[u32] = include_glsl!("shaders/voxel_mesh.frag");
 
 pub struct VoxelMeshes {
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    colors: Asset<DedicatedImage>,
 }
 
 impl VoxelMeshes {
-    pub fn new(gfx: &Base, ds_layout: vk::DescriptorSetLayout) -> Self {
+    pub fn new(gfx: &Base, loader: &mut Loader, ds_layout: vk::DescriptorSetLayout) -> Self {
         let device = &*gfx.device;
         unsafe {
             // Construct the shader modules
@@ -82,7 +85,7 @@ impl VoxelMeshes {
                                     vk::VertexInputAttributeDescription {
                                         location: 1,
                                         binding: 0,
-                                        format: vk::Format::R32G32_SFLOAT,
+                                        format: vk::Format::R32G32B32_SFLOAT,
                                         offset: offset_of!(VoxelMeshVertex, texcoords) as u32,
                                     },
                                     vk::VertexInputAttributeDescription {
@@ -148,16 +151,25 @@ impl VoxelMeshes {
                 .into_iter();
 
             let pipeline = pipelines.next().unwrap();
-            gfx.set_name(pipeline, cstr!("sky"));
+            gfx.set_name(pipeline, cstr!("voxel_mesh"));
 
             // Clean up the shaders explicitly, so the defer guards don't hold onto references we're
             // moving into `Self` to be returned
             v_guard.invoke();
             f_guard.invoke();
 
+            let colors = loader.load(
+                "voxel materials",
+                crate::graphics::PngArray {
+                    path: "materials".into(),
+                    size: common::world::Material::COUNT - 1,
+                },
+            );
+
             Self {
                 pipeline_layout,
                 pipeline,
+                colors,
             }
         }
     }
