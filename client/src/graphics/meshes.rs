@@ -82,7 +82,7 @@ impl Meshes {
                                     vk::VertexInputAttributeDescription {
                                         location: 1,
                                         binding: 0,
-                                        format: vk::Format::R32G32_SFLOAT,
+                                        format: vk::Format::R32G32B32_SFLOAT,
                                         offset: offset_of!(Vertex, texcoords) as u32,
                                     },
                                     vk::VertexInputAttributeDescription {
@@ -148,7 +148,7 @@ impl Meshes {
                 .into_iter();
 
             let pipeline = pipelines.next().unwrap();
-            gfx.set_name(pipeline, cstr!("sky"));
+            gfx.set_name(pipeline, cstr!("meshes"));
 
             // Clean up the shaders explicitly, so the defer guards don't hold onto references we're
             // moving into `Self` to be returned
@@ -214,7 +214,7 @@ impl Meshes {
 #[repr(C)]
 pub struct Vertex {
     pub position: na::Point3<f32>,
-    pub texcoords: na::Vector2<f32>,
+    pub texcoords: na::Vector3<f32>,
     pub normal: na::Unit<na::Vector3<f32>>,
 }
 

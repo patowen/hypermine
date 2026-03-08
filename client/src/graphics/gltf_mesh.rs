@@ -147,7 +147,7 @@ async fn load_primitive(
             .create_image_view(
                 &vk::ImageViewCreateInfo::default()
                     .image(color.handle)
-                    .view_type(vk::ImageViewType::TYPE_2D)
+                    .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
                     .format(vk::Format::R8G8B8A8_SRGB)
                     .subresource_range(vk::ImageSubresourceRange {
                         aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -265,9 +265,10 @@ async fn load_geom(
                 transform * (na::Point3::from(pos)).to_homogeneous(),
             )
             .unwrap_or_else(na::Point3::origin),
-            texcoords: texcoords
-                .as_mut()
-                .map_or_else(na::zero, |x| x.next().unwrap().into()),
+            texcoords: texcoords.as_mut().map_or_else(na::zero, |x| {
+                let coords = x.next().unwrap();
+                na::Vector3::<f32>::new(coords[0], coords[1], 0.0)
+            }),
             normal: na::Unit::new_normalize(
                 (normal_transform * na::Vector3::from(norm).to_homogeneous()).xyz(),
             ),

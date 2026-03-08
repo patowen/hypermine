@@ -3,10 +3,10 @@
 #include "common.h"
 
 layout(location = 0) in vec3 position;
-layout(location = 1) in vec2 texcoords;
+layout(location = 1) in vec3 texcoords;
 layout(location = 2) in vec3 normal;
 
-layout(location = 0) out vec2 texcoords_out;
+layout(location = 0) out vec3 texcoords_out;
 layout(location = 1) out vec4 normal_out;
 
 layout(push_constant) uniform PushConstants {
