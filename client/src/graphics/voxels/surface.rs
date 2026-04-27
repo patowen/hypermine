@@ -362,7 +362,7 @@ impl Frame {
     }
 
     pub fn transforms_mut(&mut self) -> &mut [na::Matrix4<f32>] {
-        &mut self.transforms
+        unsafe { self.transforms.as_mut() }
     }
 }
 
