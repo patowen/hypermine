@@ -2,9 +2,9 @@
 
 #include "common.h"
 
-layout(location = 0) in vec3 position;
+layout(location = 0) in vec4 position;
 layout(location = 1) in vec3 texcoords;
-layout(location = 2) in vec3 normal;
+layout(location = 2) in vec4 normal;
 
 layout(location = 0) out vec3 texcoords_out;
 layout(location = 1) out vec4 normal_out;
@@ -14,7 +14,7 @@ layout(push_constant) uniform PushConstants {
 };
 
 void main() {
-    gl_Position = view_projection * transform * vec4(position, 1);
+    gl_Position = view_projection * transform * position;
     texcoords_out = texcoords;
-    normal_out = transform * vec4(normal, 0);
+    normal_out = transform * normal;
 }

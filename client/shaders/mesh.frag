@@ -8,5 +8,5 @@ layout(location = 0) out vec4 color_out;
 layout(set = 1, binding = 0) uniform sampler2DArray color;
 
 void main() {
-    color_out = texture(color, texcoords);
+    color_out = texture(color, texcoords) * abs(normal.x);
 }

@@ -6,7 +6,7 @@ use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
 
 use super::Base;
-use common::defer;
+use common::{defer, math};
 
 const VERT: &[u32] = include_glsl!("shaders/mesh.vert");
 const FRAG: &[u32] = include_glsl!("shaders/mesh.frag");
@@ -213,9 +213,9 @@ impl Meshes {
 
 #[repr(C)]
 pub struct Vertex {
-    pub position: na::Point3<f32>,
+    pub position: math::MPoint<f32>,
     pub texcoords: na::Vector3<f32>,
-    pub normal: na::Unit<na::Vector3<f32>>,
+    pub normal: math::MDirection<f32>,
 }
 
 #[derive(Copy, Clone)]

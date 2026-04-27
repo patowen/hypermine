@@ -487,7 +487,7 @@ impl Draw {
                     for &entity in sim.graph_entities.get(node) {
                         if sim.local_character == Some(entity) {
                             // Don't draw ourself
-                            continue;
+                            //continue; (Draw self to debug mesh drawing)
                         }
                         let pos = sim
                             .world

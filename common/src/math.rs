@@ -66,6 +66,10 @@ impl<N: RealField + Copy> MVector<N> {
         MPoint(*self / scale_factor)
     }
 
+    pub fn to_point_unchecked(&self) -> MPoint<N> {
+        MPoint(*self)
+    }
+
     /// Normalizes the vector so that the Minkowski inner product between the
     /// vector and itself is 1. It should be called on vectors with a positive
     /// self-mip, generally representing directions.
@@ -84,6 +88,10 @@ impl<N: RealField + Copy> MVector<N> {
         }
         let scale_factor = scale_factor_squared.sqrt();
         MDirection(*self / scale_factor)
+    }
+
+    pub fn to_direction_unchecked(&self) -> MDirection<N> {
+        MDirection(*self)
     }
 
     /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot

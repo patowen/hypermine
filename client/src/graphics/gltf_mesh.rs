@@ -9,7 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow, bail};
 use ash::vk;
-use common::Anonymize;
+use common::{Anonymize, math};
 use futures_util::future::{BoxFuture, FutureExt, try_join_all};
 use lahar::{BufferRegionAlloc, DedicatedImage};
 use tracing::{error, trace};
@@ -261,20 +261,17 @@ async fn load_geom(
         .zip(v_staging.chunks_exact_mut(mem::size_of::<Vertex>()))
     {
         let v = Vertex {
-            position: na::Point3::from_homogeneous(
-                transform * (na::Point3::from(pos)).to_homogeneous(),
-            )
-            .unwrap_or_else(na::Point3::origin),
+            position: math::MVector::from(transform * (na::Point3::from(pos)).to_homogeneous())
+                .to_point_unchecked(),
             texcoords: texcoords.as_mut().map_or_else(na::zero, |x| {
                 let coords = x.next().unwrap();
                 na::Vector3::<f32>::new(coords[0], coords[1], 0.0)
             }),
-            normal: na::Unit::new_normalize(
-                (normal_transform * na::Vector3::from(norm).to_homogeneous()).xyz(),
-            ),
+            normal: math::MVector::from(
+                normal_transform * na::Vector3::from(norm).to_homogeneous(),
+            )
+            .to_direction_unchecked(),
         };
-        // write_unaligned accepts misaligned pointers
-        #[allow(clippy::cast_ptr_alignment)]
         unsafe {
             ptr::write_unaligned(storage.as_ptr() as *mut Vertex, v);
         }
