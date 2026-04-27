@@ -2,9 +2,7 @@ use std::{
     borrow::Cow,
     fs::{self, File},
     io::Cursor,
-    mem,
     path::{Path, PathBuf},
-    ptr,
 };
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -15,7 +13,10 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use tracing::{error, trace};
 
 use super::{Base, Mesh, meshes::Vertex};
-use crate::loader::{Cleanup, LoadCtx, LoadFuture, Loadable};
+use crate::{
+    graphics::meshes::Geometry,
+    loader::{Cleanup, LoadCtx, LoadFuture, Loadable},
+};
 
 pub struct GlbFile {
     pub path: PathBuf,
@@ -191,21 +192,13 @@ async fn load_primitive(
         );
 
         Ok(Mesh {
-            vertices: geom.vertices,
-            indices: geom.indices,
-            index_count: geom.index_count,
+            geom,
             pool,
             ds,
             color,
             color_view,
         })
     }
-}
-
-struct Geometry {
-    vertices: BufferRegionAlloc,
-    indices: BufferRegionAlloc,
-    index_count: u32,
 }
 
 async fn load_geom(
@@ -249,125 +242,28 @@ async fn load_geom(
     {
         bail!("inconsistent vertex attribute counts");
     }
-    let byte_size = vertex_count * mem::size_of::<Vertex>();
 
-    let mut v_staging = ctx
-        .staging
-        .alloc(byte_size)
-        .await
-        .ok_or_else(|| anyhow!("too large"))?;
-    for ((pos, norm), storage) in positions
-        .zip(normals)
-        .zip(v_staging.chunks_exact_mut(mem::size_of::<Vertex>()))
-    {
-        let v = Vertex {
-            position: math::MVector::from(transform * (na::Point3::from(pos)).to_homogeneous())
-                .to_point_unchecked(),
-            texcoords: texcoords.as_mut().map_or_else(na::zero, |x| {
-                let coords = x.next().unwrap();
-                na::Vector3::<f32>::new(coords[0], coords[1], 0.0)
+    unsafe {
+        Ok(Geometry::new(
+            ctx,
+            positions.zip(normals).map(|(pos, norm)| Vertex {
+                position: math::MVector::from(transform * (na::Point3::from(pos)).to_homogeneous())
+                    .to_point_unchecked(),
+                texcoords: texcoords.as_mut().map_or_else(na::zero, |x| {
+                    let coords = x.next().unwrap();
+                    na::Vector3::<f32>::new(coords[0], coords[1], 0.0)
+                }),
+                normal: math::MVector::from(
+                    normal_transform * na::Vector3::from(norm).to_homogeneous(),
+                )
+                .to_direction_unchecked(),
             }),
-            normal: math::MVector::from(
-                normal_transform * na::Vector3::from(norm).to_homogeneous(),
-            )
-            .to_direction_unchecked(),
-        };
-        unsafe {
-            ptr::write_unaligned(storage.as_ptr() as *mut Vertex, v);
-        }
+            prim.read_indices()
+                .ok_or_else(|| anyhow!("indices missing"))?
+                .into_u32(),
+        )
+        .await?)
     }
-
-    let indices = prim
-        .read_indices()
-        .ok_or_else(|| anyhow!("indices missing"))?
-        .into_u32();
-    let index_count = indices.len();
-    let mut i_staging = ctx
-        .staging
-        .alloc(index_count * 4)
-        .await
-        .ok_or_else(|| anyhow!("too large"))?;
-    for (idx, storage) in indices.zip(i_staging.chunks_exact_mut(4)) {
-        storage.copy_from_slice(&idx.to_ne_bytes());
-    }
-
-    let vert_alloc =
-        ctx.vertex_alloc
-            .lock()
-            .unwrap()
-            .alloc(&ctx.gfx.device, byte_size as vk::DeviceSize, 4);
-    let staging_buffer = ctx.staging.buffer();
-    let vert_buffer = vert_alloc.buffer;
-    let vert_src_offset = v_staging.offset();
-    let vert_dst_offset = vert_alloc.offset;
-    let vertex_upload = unsafe {
-        ctx.transfer.run(move |xf, cmd| {
-            xf.device.cmd_copy_buffer(
-                cmd,
-                staging_buffer,
-                vert_buffer,
-                &[vk::BufferCopy {
-                    src_offset: vert_src_offset,
-                    dst_offset: vert_dst_offset,
-                    size: byte_size as vk::DeviceSize,
-                }],
-            );
-            xf.stages |= vk::PipelineStageFlags::VERTEX_INPUT;
-            xf.buffer_barriers.push(
-                vk::BufferMemoryBarrier::default()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
-                    .src_queue_family_index(xf.queue_family)
-                    .dst_queue_family_index(xf.dst_queue_family)
-                    .buffer(vert_buffer)
-                    .offset(vert_dst_offset)
-                    .size(byte_size as vk::DeviceSize),
-            );
-        })
-    };
-
-    let idx_alloc = ctx.index_alloc.lock().unwrap().alloc(
-        &ctx.gfx.device,
-        index_count as vk::DeviceSize * 4,
-        4,
-    );
-    let idx_buffer = idx_alloc.buffer;
-    let idx_src_offset = i_staging.offset();
-    let idx_dst_offset = idx_alloc.offset;
-    let index_upload = unsafe {
-        ctx.transfer.run(move |xf, cmd| {
-            xf.device.cmd_copy_buffer(
-                cmd,
-                staging_buffer,
-                idx_buffer,
-                &[vk::BufferCopy {
-                    src_offset: idx_src_offset,
-                    dst_offset: idx_dst_offset,
-                    size: index_count as vk::DeviceSize * 4,
-                }],
-            );
-            xf.stages |= vk::PipelineStageFlags::VERTEX_INPUT;
-            xf.buffer_barriers.push(
-                vk::BufferMemoryBarrier::default()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::INDEX_READ)
-                    .src_queue_family_index(xf.queue_family)
-                    .dst_queue_family_index(xf.dst_queue_family)
-                    .buffer(idx_buffer)
-                    .offset(idx_dst_offset)
-                    .size(index_count as vk::DeviceSize * 4),
-            );
-        })
-    };
-    // Upload concurrently
-    let (r1, r2) = tokio::join!(vertex_upload, index_upload);
-    r1?;
-    r2?;
-    Ok(Geometry {
-        vertices: vert_alloc,
-        indices: idx_alloc,
-        index_count: index_count as u32,
-    })
 }
 
 async fn load_material(

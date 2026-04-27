@@ -1,9 +1,12 @@
 use std::mem;
 
+use anyhow::{Ok, Result, anyhow};
 use ash::{Device, vk};
 use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
+
+use crate::loader::LoadCtx;
 
 use super::Base;
 use common::{defer, math};
@@ -190,16 +193,16 @@ impl Meshes {
             device.cmd_bind_vertex_buffers(
                 cmd,
                 0,
-                &[mesh.vertices.buffer],
-                &[mesh.vertices.offset],
+                &[mesh.geom.vertices.buffer],
+                &[mesh.geom.vertices.offset],
             );
             device.cmd_bind_index_buffer(
                 cmd,
-                mesh.indices.buffer,
-                mesh.indices.offset,
+                mesh.geom.indices.buffer,
+                mesh.geom.indices.offset,
                 vk::IndexType::UINT32,
             );
-            device.cmd_draw_indexed(cmd, mesh.index_count, 1, 0, 0, 0);
+            device.cmd_draw_indexed(cmd, mesh.geom.index_count, 1, 0, 0, 0);
         }
     }
 
@@ -219,10 +222,127 @@ pub struct Vertex {
 }
 
 #[derive(Copy, Clone)]
+pub struct Geometry {
+    vertices: BufferRegionAlloc,
+    indices: BufferRegionAlloc,
+    index_count: u32,
+}
+
+impl Geometry {
+    pub async unsafe fn new(
+        ctx: &LoadCtx,
+        vertices: impl ExactSizeIterator<Item = Vertex>,
+        indices: impl ExactSizeIterator<Item = u32>,
+    ) -> Result<Geometry> {
+        let vertex_byte_size = vertices.len() * mem::size_of::<Vertex>();
+        let mut v_staging = ctx
+            .staging
+            .alloc(vertex_byte_size)
+            .await
+            .ok_or_else(|| anyhow!("too large"))?;
+        for (vertex, storage) in vertices.zip(v_staging.chunks_exact_mut(mem::size_of::<Vertex>()))
+        {
+            unsafe {
+                std::ptr::write_unaligned(storage.as_ptr() as *mut Vertex, vertex);
+            }
+        }
+
+        let num_indices = indices.len();
+        let index_byte_size = num_indices * mem::size_of::<u32>();
+        let mut i_staging = ctx
+            .staging
+            .alloc(indices.len() * mem::size_of::<u32>())
+            .await
+            .ok_or_else(|| anyhow!("too large"))?;
+        for (idx, storage) in indices.zip(i_staging.chunks_exact_mut(mem::size_of::<u32>())) {
+            storage.copy_from_slice(&idx.to_ne_bytes());
+        }
+
+        let vert_alloc = ctx.vertex_alloc.lock().unwrap().alloc(
+            &ctx.gfx.device,
+            vertex_byte_size as vk::DeviceSize,
+            4,
+        );
+        let staging_buffer = ctx.staging.buffer();
+        let vert_buffer = vert_alloc.buffer;
+        let vert_src_offset = v_staging.offset();
+        let vert_dst_offset = vert_alloc.offset;
+        let vertex_upload = unsafe {
+            ctx.transfer.run(move |xf, cmd| {
+                xf.device.cmd_copy_buffer(
+                    cmd,
+                    staging_buffer,
+                    vert_buffer,
+                    &[vk::BufferCopy {
+                        src_offset: vert_src_offset,
+                        dst_offset: vert_dst_offset,
+                        size: vertex_byte_size as vk::DeviceSize,
+                    }],
+                );
+                xf.stages |= vk::PipelineStageFlags::VERTEX_INPUT;
+                xf.buffer_barriers.push(
+                    vk::BufferMemoryBarrier::default()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(xf.queue_family)
+                        .dst_queue_family_index(xf.dst_queue_family)
+                        .buffer(vert_buffer)
+                        .offset(vert_dst_offset)
+                        .size(vertex_byte_size as vk::DeviceSize),
+                );
+            })
+        };
+
+        let idx_alloc = ctx.index_alloc.lock().unwrap().alloc(
+            &ctx.gfx.device,
+            index_byte_size as vk::DeviceSize,
+            4,
+        );
+        let idx_buffer = idx_alloc.buffer;
+        let idx_src_offset = i_staging.offset();
+        let idx_dst_offset = idx_alloc.offset;
+        let index_upload = unsafe {
+            ctx.transfer.run(move |xf, cmd| {
+                xf.device.cmd_copy_buffer(
+                    cmd,
+                    staging_buffer,
+                    idx_buffer,
+                    &[vk::BufferCopy {
+                        src_offset: idx_src_offset,
+                        dst_offset: idx_dst_offset,
+                        size: index_byte_size as vk::DeviceSize,
+                    }],
+                );
+                xf.stages |= vk::PipelineStageFlags::VERTEX_INPUT;
+                xf.buffer_barriers.push(
+                    vk::BufferMemoryBarrier::default()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::INDEX_READ)
+                        .src_queue_family_index(xf.queue_family)
+                        .dst_queue_family_index(xf.dst_queue_family)
+                        .buffer(idx_buffer)
+                        .offset(idx_dst_offset)
+                        .size(index_byte_size as vk::DeviceSize),
+                );
+            })
+        };
+
+        // Upload concurrently
+        let (r1, r2) = tokio::join!(vertex_upload, index_upload);
+        r1?;
+        r2?;
+
+        Ok(Geometry {
+            vertices: vert_alloc,
+            indices: idx_alloc,
+            index_count: num_indices as u32,
+        })
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct Mesh {
-    pub vertices: BufferRegionAlloc,
-    pub indices: BufferRegionAlloc,
-    pub index_count: u32,
+    pub geom: Geometry,
     pub pool: vk::DescriptorPool,
     pub ds: vk::DescriptorSet,
     // TODO: Make shareable
