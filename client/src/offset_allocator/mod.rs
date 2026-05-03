@@ -50,9 +50,9 @@ pub struct Allocator<NI: NodeIndex = u32> {
     /// The total size of the buffer
     size: u32,
     /// The maximum number of "nodes", or continuous blocks the allocator can handle. The actual supported number of allocations is less than this.
-    max_allocs: u32,
+    max_nodes: u32,
     /// The total amount of remaining available space in the buffer. Fragmentation and rounding means that an allocation of this size is not always possible,
-    /// but as long as this is non-zero, and `max_allocs` isn't exceeded, it's always possible to create an allocation of size 1.
+    /// but as long as this is non-zero, and `max_nodes` isn't exceeded, it's always possible to create an allocation of size 1.
     free_storage: u32,
     /// A [`BinsMap`] that keeps track of all nodes that are not part of an existing allocation
     bins_map: BinsMap<NI>,
@@ -167,21 +167,27 @@ impl<NI: NodeIndex> Allocator<NI> {
     /// Creates a new allocator, managing a contiguous block of memory of `size`
     /// units, with the maximum allocations set as high as possible.
     pub fn new(size: u32) -> Self {
-        Allocator::with_max_allocs(size, NI::NUM_VALID)
+        Allocator::with_max_nodes(size, NI::NUM_VALID)
     }
 
     /// Creates a new allocator, managing a contiguous block of memory of `size`
-    /// units, with the given number of maximum allocations.
+    /// units, with the given number of maximum nodes.
+    /// 
+    /// Note that even if no memory is freed, the maximum number of allocations
+    /// allowed is 1 less than the maximum number of nodes, since a node is needed
+    /// to keep track of the remaining free space. If memory is freed, due to fragmentation,
+    /// it is not guaranteed that another allocation will become available.
     ///
-    /// Note that the maximum number of allocations must be at most
-    /// [`NodeIndex::NUM_VALID`]. If this restriction is violated, this
+    /// Note also that the maximum number of nodes must be at most
+    /// [`NodeIndex::NUM_VALID`] at at least 1. If this restriction is violated, this
     /// constructor will panic.
-    pub fn with_max_allocs(size: u32, max_allocs: u32) -> Self {
-        assert!(max_allocs <= NI::NUM_VALID);
+    pub fn with_max_nodes(size: u32, max_nodes: u32) -> Self {
+        assert!(max_nodes > 0);
+        assert!(max_nodes <= NI::NUM_VALID);
 
         let mut this = Self {
             size,
-            max_allocs,
+            max_nodes,
             free_storage: 0,
             bins_map: BinsMap::default(),
             nodes: NodeSlab::new(),
@@ -192,7 +198,7 @@ impl<NI: NodeIndex> Allocator<NI> {
 
     /// Clears out all allocations.
     pub fn reset(&mut self) {
-        *self = Self::with_max_allocs(self.size, self.max_allocs);
+        *self = Self::with_max_nodes(self.size, self.max_nodes);
     }
 
     /// Allocates a block of `size` elements and returns its allocation.
@@ -201,7 +207,7 @@ impl<NI: NodeIndex> Allocator<NI> {
     /// None.
     pub fn allocate(&mut self, size: u32) -> Option<Allocation<NI>> {
         // Out of allocations?
-        if self.nodes.len() >= self.max_allocs {
+        if self.nodes.len() >= self.max_nodes {
             return None;
         }
 
@@ -404,7 +410,7 @@ impl<NI: NodeIndex> Allocator<NI> {
     /// Returns a structure containing the amount of free space remaining, as
     /// well as the largest amount that can be allocated at once.
     pub fn storage_report(&self) -> StorageReport {
-        if self.nodes.len() >= self.max_allocs {
+        if self.nodes.len() >= self.max_nodes {
             // Out of allocations? -> Zero free space
             return StorageReport {
                 total_free_space: 0,
