@@ -1,11 +1,12 @@
 use std::fmt::{Debug, Display};
 
-/// Determines the number of allocations that the allocator supports.
+/// The index used to identify nodes in the allocator. Determines the number of allocations
+/// that the allocator supports.
 ///
 /// By default, [`Allocator`] and related functions use `u32`, which allows for
-/// `u32::MAX - 1` allocations. You can, however, use `u16` instead, which
+/// `u32::MAX` allocations. You can, however, use `u16` instead, which
 /// causes the allocator to use less memory but limits the number of allocations
-/// within a single allocator to at most 65,534. (TODO: No longer true)
+/// within a single allocator to at most 65,535.
 pub trait NodeIndex: Display + Debug + Clone + Copy + PartialEq + Eq {
     /// An invalid representation in its type, used as the `None` type of `NodeIndexOption`.
     const INVALID: Self;
@@ -20,16 +21,21 @@ pub trait NodeIndex: Display + Debug + Clone + Copy + PartialEq + Eq {
     fn to_usize(self) -> usize;
 }
 
+/// A type much like [`Option<NodeIndex>`] but made to use the maximum integer value as the `None`
+/// value instead of requiring a separate discriminant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NodeIndexOption<NI: NodeIndex>(NI);
 
 impl<NI: NodeIndex> NodeIndexOption<NI> {
+    /// Equivalent to [`Option::None`]
     pub const NONE: Self = NodeIndexOption(NodeIndex::INVALID);
 
+    /// Initializes what is equivalent to an [`Option::Some`] for the given node index
     pub fn some(inner: NI) -> Self {
         Self(inner)
     }
 
+    /// Converts to the [`Option`] type for easier processing
     #[inline]
     pub fn to_option(self) -> Option<NI> {
         if self == Self::NONE {
@@ -39,11 +45,13 @@ impl<NI: NodeIndex> NodeIndexOption<NI> {
         }
     }
 
+    /// Whether the option holds no value
     #[inline]
     pub fn is_none(self) -> bool {
         self == Self::NONE
     }
 
+    /// Returns the value contained within the option. Panics if there is no such option.
     #[inline]
     pub fn unwrap(self) -> NI {
         assert!(self != Self::NONE);

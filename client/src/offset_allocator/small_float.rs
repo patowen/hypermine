@@ -1,17 +1,34 @@
+//! This module handles operations around [`SmallFloat`], a custom struct that represents an
+//! 8-bit unsigned floating point value that represents integer values using a 3-bit mantissa
+//! and a 5-bit exponent. Each of these 256 values correspond to a specific bin, which determines
+//! the size of the allocations supported by each bin.
+
+/// An 8-bit unsigned floating point value representing an integer using a 3-bit mantissa and a 5-bit exponent
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SmallFloat(u32);
 
 impl SmallFloat {
+    /// The number of bits that represent the mantissa
     const MANTISSA_BITS: u32 = 3;
+
+    /// The number of bits that represent the exponent
     const EXPONENT_BITS: u32 = 5;
+
+    /// The number of possible values that can be stored in this `SmallFloat`
     const NUM_VALUES: usize = 1 << (Self::MANTISSA_BITS + Self::EXPONENT_BITS);
+
+    /// The number of possible mantissa values. This number is a power of 2.
     const MANTISSA_VALUE: u32 = 1 << Self::MANTISSA_BITS;
+
+    /// A mask that can be bitwise-anded with the float to get just the mantissa
     const MANTISSA_MASK: u32 = Self::MANTISSA_VALUE - 1;
 
+    /// All possible values of a [`SmallFloat`] from smallest to largest
     pub fn values() -> impl ExactSizeIterator<Item = Self> {
         (0..Self::NUM_VALUES).map(|i| Self(i as u32))
     }
 
+    /// The least [`SmallFloat`] greater than or equal to the given value
     pub fn from_u32_round_up(value: u32) -> Self {
         let mut exp = 0;
         let mut mantissa;
@@ -34,10 +51,11 @@ impl SmallFloat {
             }
         }
 
-        // + allows mantissa->exp overflow for round up
+        // Using `+` instead of `|` allows mantissa->exp overflow for round up
         SmallFloat((exp << Self::MANTISSA_BITS) + mantissa)
     }
 
+    /// The greatest [`SmallFloat`] less than or equal to the given value
     pub fn from_u32_round_down(value: u32) -> Self {
         let mut exp = 0;
         let mantissa;
@@ -56,6 +74,7 @@ impl SmallFloat {
         SmallFloat((exp << Self::MANTISSA_BITS) | mantissa)
     }
 
+    /// The `u32` that holds the same value as the [`SmallFloat`]
     pub fn to_u32(self) -> u32 {
         let exponent = self.0 >> Self::MANTISSA_BITS;
         let mantissa = self.0 & Self::MANTISSA_MASK;
@@ -66,17 +85,20 @@ impl SmallFloat {
         }
     }
 
+    /// Reinterprets the bits of the [`SmallFloat`] as a `u32` instead
     #[inline]
     pub fn reinterpret_as_u32(self) -> u32 {
         self.0
     }
 
+    /// Reinterprets the bits of the `u32` as a [`SmallFloat`] instead
     #[inline]
     pub fn reinterpret_u32(data: u32) -> Self {
         Self(data)
     }
 }
 
+/// A map whose key is a [`SmallFloat`]. Internally represented as an array
 #[derive(Debug)]
 pub struct SmallFloatMap<T>([T; SmallFloat::NUM_VALUES]);
 

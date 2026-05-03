@@ -9,12 +9,12 @@ const LEAF_BINS_INDEX_MASK: u32 = 7;
 
 /// A map from each bin to the node at the head of the linked list for that bin. The name of this struct is `BinsMap` instead of `BinMap` to avoid confusion with binary maps.
 pub struct BinsMap<NI: NodeIndex> {
-    /// (Patrick) A bit-vector showing which `top_bin_index`es are "used"
+    /// A bit-vector showing which `occupied_bins` entries are nonzero, used for faster lookup of nonempty bins
     occupied_bins_top: u32,
-    /// (Patrick) An array of 32 bit-vectors showing which `leaf_bin_index`es are "used" for the given top bin, usually indexed by `top_bin_index`
+    /// An array of 32 bit-vectors that show which bins are nonempty, used for faster lookup of nonempty bins
     occupied_bins: [u8; NUM_TOP_BINS],
-    /// (Patrick) An array of 256 `node_index`es (each being a head of a doubly-linked list of nodes in that bin), usually indexed by `bin_index` (a combo of `top_bin_index` and `leaf_bin_index`).
-    head_nodes: SmallFloatMap<NodeIndexOption<NI>>,
+    /// A map that points to the head node of each bin
+    bins: SmallFloatMap<NodeIndexOption<NI>>,
 }
 
 impl<NI: NodeIndex> Default for BinsMap<NI> {
@@ -22,14 +22,16 @@ impl<NI: NodeIndex> Default for BinsMap<NI> {
         Self {
             occupied_bins_top: 0,
             occupied_bins: [0; NUM_TOP_BINS],
-            head_nodes: SmallFloatMap::default(),
+            bins: SmallFloatMap::default(),
         }
     }
 }
 
 impl<NI: NodeIndex> BinsMap<NI> {
+    /// Returns the minimum bin index greater than or equal to `min` that corresponds to a nonempty bin
     pub fn min_occupied_since(&self, min: SmallFloat) -> Option<SmallFloat> {
-        /// Find the lowest bit that is set to 1, as long as it's at least start_bit_index. Return `None` if there is no such bit.
+        /// Out of bits at position greater than or equal to `start_bit_index`, Returns the position of the
+        /// lowest-position bit that is set to 1. Return `None` if there is no such bit.
         fn find_lowest_bit_set_after(bit_mask: u32, start_bit_index: u32) -> Option<u32> {
             let mask_before_start_index = (1 << start_bit_index) - 1;
             let mask_after_start_index = !mask_before_start_index;
@@ -76,6 +78,7 @@ impl<NI: NodeIndex> BinsMap<NI> {
         ))
     }
 
+    /// Returns the maximum bin index that corresponds to a nonempty bin
     pub fn max_occupied(&self) -> Option<SmallFloat> {
         if self.occupied_bins_top == 0 {
             return None;
@@ -87,7 +90,26 @@ impl<NI: NodeIndex> BinsMap<NI> {
         ))
     }
 
-    pub fn mark_bin_empty(&mut self, bin_index: SmallFloat) {
+    /// Replace the [`NodeIndexOption`] pointed to by the specific bin index with a new [`NodeIndexOption`]
+    pub fn replace_bin_node(
+        &mut self,
+        bin_index: SmallFloat,
+        node: NodeIndexOption<NI>,
+    ) -> NodeIndexOption<NI> {
+        let old_node = std::mem::replace(&mut self.bins[bin_index], node);
+        if node.is_none() && !old_node.is_none() {
+            // Newly empty
+            self.mark_bin_empty(bin_index);
+        } else if !node.is_none() && old_node.is_none() {
+            // Newly filled
+            self.mark_bin_occupied(bin_index);
+        }
+        old_node
+    }
+
+    /// Internal method to ensure that [`Self::occupied_bins`] and [`Self::occupied_bins_top`] are correct
+    /// after a bin has been emptied out
+    fn mark_bin_empty(&mut self, bin_index: SmallFloat) {
         let top_bin_index = bin_index.reinterpret_as_u32() >> TOP_BINS_INDEX_SHIFT;
         let leaf_bin_index = bin_index.reinterpret_as_u32() & LEAF_BINS_INDEX_MASK;
 
@@ -101,7 +123,9 @@ impl<NI: NodeIndex> BinsMap<NI> {
         }
     }
 
-    pub fn mark_bin_occupied(&mut self, bin_index: SmallFloat) {
+    /// Internal method to ensure that [`Self::occupied_bins`] and [`Self::occupied_bins_top`] are correct
+    /// after an empty bin has been occupied
+    fn mark_bin_occupied(&mut self, bin_index: SmallFloat) {
         let top_bin_index = bin_index.reinterpret_as_u32() >> TOP_BINS_INDEX_SHIFT;
         let leaf_bin_index = bin_index.reinterpret_as_u32() & LEAF_BINS_INDEX_MASK;
 
@@ -115,12 +139,6 @@ impl<NI: NodeIndex> std::ops::Index<SmallFloat> for BinsMap<NI> {
     type Output = NodeIndexOption<NI>;
 
     fn index(&self, index: SmallFloat) -> &Self::Output {
-        &self.head_nodes[index]
-    }
-}
-
-impl<NI: NodeIndex> std::ops::IndexMut<SmallFloat> for BinsMap<NI> {
-    fn index_mut(&mut self, index: SmallFloat) -> &mut Self::Output {
-        &mut self.head_nodes[index]
+        &self.bins[index]
     }
 }
