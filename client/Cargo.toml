@@ -13,7 +13,7 @@ common = { path = "../common" }
 server = { path = "../server" }
 tracing = "0.1.10"
 ash = { version = "0.38.0", default-features = false, features = ["loaded", "debug", "std"] }
-lahar = { git = "https://github.com/Ralith/lahar", rev = "5eb105560b4ade19cd1946f728c8b9b1fff94baa" }
+lahar = { git = "https://github.com/Ralith/lahar", rev = "52d6a2eb40b491bc3f72103f7a0ec3382609115b" }
 yakui = "0.3.0"
 yakui-vulkan = "0.3.0"
 winit = "0.30.4"
@@ -40,6 +40,7 @@ metrics = "0.24.0"
 hdrhistogram = { version = "7", default-features = false }
 save = { path = "../save" }
 lru-slab = "0.1.2"
+skid-steer = { git = "https://github.com/Ralith/skid-steer", rev = "0086739afb9e8e8cad28e88343c7c68c890ffccb" }
 
 [features]
 default = ["use-repo-assets"]

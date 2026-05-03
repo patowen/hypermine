@@ -18,6 +18,7 @@ mod loader;
 mod local_character_controller;
 pub mod metrics;
 pub mod net;
+pub mod offset_allocator; // TODO: Make private
 mod prediction;
 pub mod sim;
 mod worldgen_driver;
