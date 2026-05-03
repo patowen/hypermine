@@ -1,5 +1,6 @@
 //! This module is a modified version of the https://github.com/pcwalton/offset-allocator crate,
 //! updated for improved readability and optimized for Hypermine's use case.
+//! It is based on commit 9449d4d81be91396938b05894fad443f63093077.
 
 mod bins_map;
 mod node_index;
@@ -7,6 +8,7 @@ mod small_float;
 
 use std::fmt::{Debug, Formatter};
 
+use slab::Slab;
 use tracing::debug;
 
 use crate::offset_allocator::{
@@ -25,64 +27,7 @@ pub struct Allocator<NI: NodeIndex = u32> {
 
     bins_map: BinsMap<NI>,
 
-    nodes: NodeMap<NI>,
-    free_nodes: FreeNodeStack<NI>,
-}
-
-struct NodeMap<NI: NodeIndex>(Vec<Node<NI>>);
-
-impl<NI: NodeIndex> NodeMap<NI> {
-    fn with_max_allocs(max_allocs: u32) -> Self {
-        Self(vec![Node::default(); max_allocs as usize])
-    }
-}
-
-impl<NI: NodeIndex> std::ops::Index<NI> for NodeMap<NI> {
-    type Output = Node<NI>;
-
-    fn index(&self, index: NI) -> &Self::Output {
-        &self.0[index.to_usize()]
-    }
-}
-
-impl<NI: NodeIndex> std::ops::IndexMut<NI> for NodeMap<NI> {
-    fn index_mut(&mut self, index: NI) -> &mut Self::Output {
-        &mut self.0[index.to_usize()]
-    }
-}
-
-struct FreeNodeStack<NI: NodeIndex>(Vec<NI>);
-
-impl<NI: NodeIndex> FreeNodeStack<NI> {
-    fn with_max_allocs(max_allocs: u32) -> Self {
-        Self((0..max_allocs).rev().map(|i| NI::from_u32(i)).collect())
-    }
-
-    #[inline]
-    fn is_exhausted(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    #[inline]
-    fn push(&mut self, node_index: NI) {
-        debug!(
-            "Putting node {} into freelist[{}] (free)",
-            node_index,
-            self.0.len()
-        );
-        self.0.push(node_index);
-    }
-
-    #[inline]
-    fn pop_required(&mut self) -> NI {
-        let node_index = self.0.pop().expect("Stack must not be exhausted");
-        debug!(
-            "Getting node {} from freelist[{}]",
-            node_index,
-            self.0.len()
-        );
-        node_index
-    }
+    nodes: NodeSlab<NI>,
 }
 
 /// A single allocation.
@@ -120,10 +65,7 @@ pub struct StorageReportFullRegion {
 }
 
 #[derive(Clone, Copy)]
-struct Node<NI = u32>
-where
-    NI: NodeIndex,
-{
+struct Node<NI: NodeIndex = u32> {
     /// The offset of the node in the address space of the heap
     data_offset: u32,
     /// The size of the node in the address space of the heap
@@ -154,6 +96,47 @@ impl<NI: NodeIndex> Default for Node<NI> {
     }
 }
 
+struct NodeSlab<NI: NodeIndex>(Slab<Node<NI>>);
+
+impl<NI: NodeIndex> NodeSlab<NI> {
+    #[inline]
+    pub fn new() -> Self {
+        NodeSlab(Slab::new())
+    }
+
+    #[inline]
+    pub fn len(&self) -> u32 {
+        self.0.len() as u32
+    }
+
+    #[inline]
+    pub fn insert(&mut self, node: Node<NI>) -> NI {
+        assert!(self.len() != u32::MAX);
+        NI::from_u32(self.0.insert(node) as u32)
+    }
+
+    #[inline]
+    pub fn remove(&mut self, index: NI) -> Node<NI> {
+        self.0.remove(index.to_usize())
+    }
+}
+
+impl<NI: NodeIndex> std::ops::Index<NI> for NodeSlab<NI> {
+    type Output = Node<NI>;
+
+    #[inline]
+    fn index(&self, index: NI) -> &Self::Output {
+        &self.0[index.to_usize()]
+    }
+}
+
+impl<NI: NodeIndex> std::ops::IndexMut<NI> for NodeSlab<NI> {
+    #[inline]
+    fn index_mut(&mut self, index: NI) -> &mut Self::Output {
+        &mut self.0[index.to_usize()]
+    }
+}
+
 impl<NI> Allocator<NI>
 where
     NI: NodeIndex,
@@ -168,7 +151,7 @@ where
     /// units, with the given number of maximum allocations.
     ///
     /// Note that the maximum number of allocations must be less than
-    /// [`NodeIndex::MAX`] minus one. If this restriction is violated, this
+    /// [`NodeIndex::NUM_VALID`]. If this restriction is violated, this
     /// constructor will panic.
     pub fn with_max_allocs(size: u32, max_allocs: u32) -> Self {
         assert!(max_allocs < NI::NUM_VALID);
@@ -178,8 +161,7 @@ where
             max_allocs,
             free_storage: 0,
             bins_map: BinsMap::default(),
-            nodes: NodeMap::with_max_allocs(max_allocs),
-            free_nodes: FreeNodeStack::with_max_allocs(max_allocs),
+            nodes: NodeSlab::new(),
         };
         this.insert_node_into_bin(size, 0);
         this
@@ -196,7 +178,7 @@ where
     /// None.
     pub fn allocate(&mut self, size: u32) -> Option<Allocation<NI>> {
         // Out of allocations?
-        if self.free_nodes.is_exhausted() {
+        if self.nodes.len() >= self.max_allocs {
             // TODO: Do we want to allow an allocation that doesn't create a new node?
             return None;
         }
@@ -284,13 +266,10 @@ where
                 offset = prev_node.data_offset;
                 size += prev_node.data_size;
 
-                // Remove node from the bin linked list and put it in the
-                // freelist
-                self.remove_node_from_bin(neighbor_prev);
-
                 let prev_node = &self.nodes[neighbor_prev];
                 debug_assert_eq!(prev_node.neighbor_next, NodeIndexOption::some(node_index));
                 self.nodes[node_index].neighbor_prev = prev_node.neighbor_prev;
+                self.remove_node_from_bin(neighbor_prev);
             }
         }
 
@@ -301,13 +280,10 @@ where
                 let next_node = &self.nodes[neighbor_next];
                 size += next_node.data_size;
 
-                // Remove node from the bin linked list and put it in the
-                // freelist
-                self.remove_node_from_bin(neighbor_next);
-
                 let next_node = &self.nodes[neighbor_next];
                 debug_assert_eq!(next_node.neighbor_prev, NodeIndexOption::some(node_index));
                 self.nodes[node_index].neighbor_next = next_node.neighbor_next;
+                self.remove_node_from_bin(neighbor_next);
             }
         }
 
@@ -317,8 +293,7 @@ where
             ..
         } = self.nodes[node_index];
 
-        // Insert the removed node to freelist
-        self.free_nodes.push(node_index);
+        self.nodes.remove(node_index);
 
         // Insert the (combined) free node to bin
         let combined_node_index = self.insert_node_into_bin(size, offset);
@@ -346,13 +321,12 @@ where
 
         // Take a freelist node and insert on top of the bin linked list (next = old top)
         let top_node_index = self.bins_map[bin_index];
-        let node_index = self.free_nodes.pop_required();
-        self.nodes[node_index] = Node {
+        let node_index = self.nodes.insert(Node {
             data_offset,
             data_size: size,
             bin_list_next: top_node_index,
             ..Node::default()
-        };
+        });
         if let Some(top_node_index) = top_node_index.to_option() {
             self.nodes[top_node_index].bin_list_prev = NodeIndexOption::some(node_index);
         }
@@ -397,7 +371,7 @@ where
         }
 
         // Insert the node to freelist
-        self.free_nodes.push(node_index);
+        self.nodes.remove(node_index);
 
         self.free_storage -= node.data_size;
         debug!(
@@ -417,7 +391,7 @@ where
     /// Returns a structure containing the amount of free space remaining, as
     /// well as the largest amount that can be allocated at once.
     pub fn storage_report(&self) -> StorageReport {
-        if self.free_nodes.is_exhausted() {
+        if self.nodes.len() >= self.max_allocs {
             // Out of allocations? -> Zero free space
             return StorageReport {
                 total_free_space: 0,

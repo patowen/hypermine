@@ -40,6 +40,7 @@ metrics = "0.24.0"
 hdrhistogram = { version = "7", default-features = false }
 save = { path = "../save" }
 lru-slab = "0.1.2"
+slab = "0.4.12"
 skid-steer = { git = "https://github.com/Ralith/skid-steer", rev = "0086739afb9e8e8cad28e88343c7c68c890ffccb" }
 
 [features]
