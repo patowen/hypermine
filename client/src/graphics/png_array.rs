@@ -7,13 +7,14 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, bail};
-use ash::vk::{self, BufferUsageFlags};
+use ash::vk::{self, BufferUsageFlags, PhysicalDeviceMemoryProperties};
 use common::{Anonymize, defer};
 use lahar::{DedicatedImage, DedicatedMapping, TimelineRing, parallel_queue};
 use tracing::trace;
 
 use crate::{
     Config,
+    graphics::Base,
     loader::{LoadCtx, LoadFuture, Loadable},
 };
 
@@ -24,15 +25,15 @@ pub struct PngArray {
 
 struct AssetLoader;
 
-/*struct ProtectedWork<'a> {
-    handle: &'a Mutex<parallel_queue::Handle>,
-    work: parallel_queue::Work,
-    active: bool,
-}*/
-
 pub struct StagingRing {
     timeline_ring: Mutex<TimelineRing>,
     backing_memory: DedicatedMapping<[u8]>,
+}
+
+pub struct Allocation<'a> {
+    // TODO: Consider encapsulating these fields
+    pub bytes: &'a mut [u8],
+    pub offset: u64,
 }
 
 impl StagingRing {
@@ -46,18 +47,25 @@ impl StagingRing {
     }
 
     /// Safety: The allocation is not allowed to be freed before the returned reference's lifetime ends. (TODO: Explain this better)
-    pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<&mut [u8]> {
+    pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<Allocation> {
         let offset = self
             .timeline_ring
             .lock()
             .unwrap()
             .alloc(size, align, free_at)?;
         Some(unsafe {
-            std::slice::from_raw_parts_mut(
-                (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
-                size,
-            )
+            Allocation {
+                bytes: std::slice::from_raw_parts_mut(
+                    (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
+                    size,
+                ),
+                offset: offset.try_into().unwrap(),
+            }
         })
+    }
+
+    pub fn buffer(&self) -> vk::Buffer {
+        self.backing_memory.buffer()
     }
 }
 
@@ -65,7 +73,7 @@ impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         let cfg: &Config = context.get().unwrap();
         let handle: &Mutex<parallel_queue::Handle> = context.get().unwrap();
-        let device: &ash::Device = context.get().unwrap();
+        let gfx: &Arc<Base> = context.get().unwrap();
         let staging_buffer: &StagingRing = context.get().unwrap();
         let full_path = cfg
             .find_asset(&self.path)
@@ -91,9 +99,8 @@ impl PngArray {
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
         let handle = handle.lock().unwrap();
-        let mut work = unsafe { handle.begin(device) };
-        let mut mem2: Option<&mut [u8]> = None;
-        let mut mem: Option<crate::lahar_deprecated::staging::Alloc<'_>> = None;
+        let mut work = unsafe { handle.begin(&gfx.device) };
+        let mut mem2: Option<Allocation> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
             let file = File::open(path)
@@ -128,8 +135,39 @@ impl PngArray {
             let mem2 = mem2.as_mut().unwrap();
             let step_size = info.width as usize * info.height as usize * 4;
             reader
-                .next_frame(&mut mem2[i * step_size..(i + 1) * step_size])
+                .next_frame(&mut mem2.bytes[i * step_size..(i + 1) * step_size])
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
+        }
+        let (width, height) = dims.unwrap();
+        let mem2 = mem2.unwrap();
+        unsafe {
+            let image = DedicatedImage::new(
+                &gfx.device,
+                &gfx.memory_properties,
+                &vk::ImageCreateInfo::default()
+                    .image_type(vk::ImageType::TYPE_2D)
+                    .format(vk::Format::R8G8B8A8_SRGB)
+                    .extent(vk::Extent3D {
+                        width,
+                        height,
+                        depth: 1,
+                    })
+                    .mip_levels(1)
+                    .array_layers(self.size as u32)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
+            );
+
+            let range = vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: self.size as u32,
+            };
+            let src = staging_buffer.buffer();
+            let buffer_offset = mem2.offset;
+            let dst = image.handle;
         }
         work.end();
         todo!()
