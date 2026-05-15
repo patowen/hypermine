@@ -2,19 +2,138 @@ use std::{
     fs::{self, File},
     io::BufReader,
     path::PathBuf,
+    ptr::NonNull,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, anyhow, bail};
-use ash::vk;
-use common::Anonymize;
-use lahar::DedicatedImage;
+use ash::vk::{self, BufferUsageFlags};
+use common::{Anonymize, defer};
+use lahar::{DedicatedImage, DedicatedMapping, TimelineRing, parallel_queue};
 use tracing::trace;
 
-use crate::loader::{LoadCtx, LoadFuture, Loadable};
+use crate::{
+    Config,
+    loader::{LoadCtx, LoadFuture, Loadable},
+};
 
 pub struct PngArray {
     pub path: PathBuf,
     pub size: usize,
+}
+
+struct AssetLoader;
+
+/*struct ProtectedWork<'a> {
+    handle: &'a Mutex<parallel_queue::Handle>,
+    work: parallel_queue::Work,
+    active: bool,
+}*/
+
+pub struct StagingRing {
+    timeline_ring: Mutex<TimelineRing>,
+    backing_memory: DedicatedMapping<[u8]>,
+}
+
+impl StagingRing {
+    pub fn new(size: usize) {
+        StagingRing {
+            timeline_ring: Mutex::new(TimelineRing::new(size)),
+            backing_memory: unsafe {
+                DedicatedMapping::zeroed_array(todo!(), todo!(), todo!(), size)
+            },
+        };
+    }
+
+    /// Safety: The allocation is not allowed to be freed before the returned reference's lifetime ends. (TODO: Explain this better)
+    pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<&mut [u8]> {
+        let offset = self
+            .timeline_ring
+            .lock()
+            .unwrap()
+            .alloc(size, align, free_at)?;
+        Some(unsafe {
+            std::slice::from_raw_parts_mut(
+                (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
+                size,
+            )
+        })
+    }
+}
+
+impl PngArray {
+    async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
+        let cfg: &Config = context.get().unwrap();
+        let handle: &Mutex<parallel_queue::Handle> = context.get().unwrap();
+        let device: &ash::Device = context.get().unwrap();
+        let staging_buffer: &StagingRing = context.get().unwrap();
+        let full_path = cfg
+            .find_asset(&self.path)
+            .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))
+            .inspect_err(|e| tracing::error!("{}", e))?;
+        let mut paths = fs::read_dir(&full_path)
+            .with_context(|| format!("reading {}", full_path.anonymize().display()))?
+            .map(|x| x.map(|x| x.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .with_context(|| format!("reading {}", full_path.anonymize().display()))?;
+        if paths.is_empty() {
+            bail!("{} is empty", full_path.anonymize().display());
+        }
+        if paths.len() < self.size {
+            bail!(
+                "{}: expected {} textures, found {}",
+                full_path.anonymize().display(),
+                self.size,
+                paths.len()
+            );
+        }
+        paths.sort();
+        paths.truncate(self.size);
+        let mut dims: Option<(u32, u32)> = None;
+        let handle = handle.lock().unwrap();
+        let mut work = unsafe { handle.begin(device) };
+        let mut mem2: Option<&mut [u8]> = None;
+        let mut mem: Option<crate::lahar_deprecated::staging::Alloc<'_>> = None;
+        for (i, path) in paths.iter().enumerate() {
+            tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
+            let file = File::open(path)
+                .with_context(|| format!("reading {}", path.anonymize().display()))?;
+            let decoder = png::Decoder::new(BufReader::new(file));
+            let mut reader = decoder
+                .read_info()
+                .with_context(|| format!("decoding {}", path.anonymize().display()))?;
+            let info = reader.info();
+            if let Some(dims) = dims {
+                if dims != (info.width, info.height) {
+                    bail!(
+                        "inconsistent dimensions: expected {}x{}, got {}x{}",
+                        dims.0,
+                        dims.1,
+                        info.width,
+                        info.height
+                    );
+                }
+            } else {
+                dims = Some((info.width, info.height));
+                mem2 = Some(unsafe {
+                    staging_buffer
+                        .alloc(
+                            info.width as usize * info.height as usize * 4 * self.size,
+                            1, /* TODO: Is an alignment of 1 safe? */
+                            work.time().get(),
+                        )
+                        .expect("TODO")
+                });
+            }
+            let mem2 = mem2.as_mut().unwrap();
+            let step_size = info.width as usize * info.height as usize * 4;
+            reader
+                .next_frame(&mut mem2[i * step_size..(i + 1) * step_size])
+                .with_context(|| format!("decoding {}", path.anonymize().display()))?;
+        }
+        work.end();
+        todo!()
+    }
 }
 
 impl Loadable for PngArray {
@@ -181,5 +300,16 @@ impl Loadable for PngArray {
                 Ok(image)
             }
         })
+    }
+}
+
+impl skid_steer::Source for PngArray {
+    type Output = DedicatedImage; // TODO: We may want a dedicated struct here.
+
+    async fn load(self, context: &skid_steer::Context<'_>) -> Option<DedicatedImage> {
+        self.load_inner(context)
+            .await
+            .inspect_err(|e| tracing::error!("{}", e))
+            .ok()
     }
 }
