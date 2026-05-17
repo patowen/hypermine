@@ -168,9 +168,72 @@ impl PngArray {
             let src = staging_buffer.buffer();
             let buffer_offset = mem2.offset;
             let dst = image.handle;
+
+            gfx.device.cmd_pipeline_barrier(
+                work.cmd(),
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::default(),
+                &[],
+                &[],
+                &[vk::ImageMemoryBarrier::default()
+                    .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .old_layout(vk::ImageLayout::UNDEFINED)
+                    .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .image(dst)
+                    .subresource_range(range)],
+            );
+            gfx.device.cmd_copy_buffer_to_image(
+                work.cmd(),
+                src,
+                dst,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[vk::BufferImageCopy {
+                    buffer_offset,
+                    image_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: range.layer_count,
+                    },
+                    image_extent: vk::Extent3D {
+                        width,
+                        height,
+                        depth: 1,
+                    },
+                    ..Default::default()
+                }],
+            );
+            gfx.device.cmd_pipeline_barrier(
+                work.cmd(),
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::default(),
+                &[],
+                &[],
+                &[vk::ImageMemoryBarrier::default()
+                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .src_queue_family_index(gfx.queue_family)
+                    .dst_queue_family_index(gfx.queue_family)
+                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image(dst)
+                    .subresource_range(range)],
+            );
+            work.end();
+            //TODO: Await work completion
+
+            trace!(
+                width = width,
+                height = height,
+                path = %full_path.anonymize().display(),
+                "loaded array"
+            );
+            Ok(image)
         }
-        work.end();
-        todo!()
     }
 }
 
