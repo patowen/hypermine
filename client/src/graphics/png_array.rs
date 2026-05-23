@@ -72,7 +72,7 @@ impl StagingRing {
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         let cfg: &Config = context.get().unwrap();
-        let handle: &Mutex<parallel_queue::Handle> = context.get().unwrap();
+        let handle: &parallel_queue::Handle = context.get().unwrap();
         let gfx: &Arc<Base> = context.get().unwrap();
         let staging_buffer: &StagingRing = context.get().unwrap();
         let full_path = cfg
@@ -98,8 +98,7 @@ impl PngArray {
         paths.sort();
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
-        let handle = handle.lock().unwrap();
-        let mut work = unsafe { handle.begin(&gfx.device) };
+        let work = unsafe { handle.begin(&gfx.device) };
         let mut mem2: Option<Allocation> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
