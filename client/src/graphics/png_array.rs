@@ -13,7 +13,7 @@ use tracing::trace;
 
 use crate::{
     Config,
-    asset_loader::{Allocation, StagingRing},
+    asset_loader::{Allocation, ParallelQueueWaiter, StagingRing},
     graphics::Base,
     loader::{LoadCtx, LoadFuture, Loadable},
 };
@@ -27,8 +27,9 @@ impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         let cfg: &Config = context.get().unwrap();
         let handle: &parallel_queue::Handle = context.get().unwrap();
-        let gfx: &Arc<Base> = context.get().unwrap();
+        let gfx: &Base = context.get().unwrap();
         let staging_buffer: &StagingRing = context.get().unwrap();
+        let parallel_queue_waiter: &ParallelQueueWaiter = context.get().unwrap();
         let full_path = cfg
             .find_asset(&self.path)
             .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))
@@ -53,6 +54,7 @@ impl PngArray {
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
         let work = unsafe { handle.begin(&gfx.device) };
+        let work_time = work.time().get();
         let mut mem2: Option<Allocation> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
@@ -80,7 +82,7 @@ impl PngArray {
                         .alloc(
                             info.width as usize * info.height as usize * 4 * self.size,
                             1, /* TODO: Is an alignment of 1 safe? */
-                            work.time().get(),
+                            work_time,
                         )
                         .expect("TODO")
                 });
@@ -177,7 +179,7 @@ impl PngArray {
                     .subresource_range(range)],
             );
             work.end();
-            //TODO: Await work completion
+            parallel_queue_waiter.wait_for_semaphore(work_time).await;
 
             trace!(
                 width = width,
