@@ -2,18 +2,18 @@ use std::{
     fs::{self, File},
     io::BufReader,
     path::PathBuf,
-    ptr::NonNull,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use anyhow::{Context, anyhow, bail};
-use ash::vk::{self, BufferUsageFlags, PhysicalDeviceMemoryProperties};
-use common::{Anonymize, defer};
-use lahar::{DedicatedImage, DedicatedMapping, TimelineRing, parallel_queue};
+use ash::vk;
+use common::Anonymize;
+use lahar::{DedicatedImage, parallel_queue};
 use tracing::trace;
 
 use crate::{
     Config,
+    asset_loader::{Allocation, StagingRing},
     graphics::Base,
     loader::{LoadCtx, LoadFuture, Loadable},
 };
@@ -21,52 +21,6 @@ use crate::{
 pub struct PngArray {
     pub path: PathBuf,
     pub size: usize,
-}
-
-struct AssetLoader;
-
-pub struct StagingRing {
-    timeline_ring: Mutex<TimelineRing>,
-    backing_memory: DedicatedMapping<[u8]>,
-}
-
-pub struct Allocation<'a> {
-    // TODO: Consider encapsulating these fields
-    pub bytes: &'a mut [u8],
-    pub offset: u64,
-}
-
-impl StagingRing {
-    pub fn new(size: usize) {
-        StagingRing {
-            timeline_ring: Mutex::new(TimelineRing::new(size)),
-            backing_memory: unsafe {
-                DedicatedMapping::zeroed_array(todo!(), todo!(), todo!(), size)
-            },
-        };
-    }
-
-    /// Safety: The allocation is not allowed to be freed before the returned reference's lifetime ends. (TODO: Explain this better)
-    pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<Allocation> {
-        let offset = self
-            .timeline_ring
-            .lock()
-            .unwrap()
-            .alloc(size, align, free_at)?;
-        Some(unsafe {
-            Allocation {
-                bytes: std::slice::from_raw_parts_mut(
-                    (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
-                    size,
-                ),
-                offset: offset.try_into().unwrap(),
-            }
-        })
-    }
-
-    pub fn buffer(&self) -> vk::Buffer {
-        self.backing_memory.buffer()
-    }
 }
 
 impl PngArray {

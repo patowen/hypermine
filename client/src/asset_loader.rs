@@ -5,7 +5,7 @@ use std::{
 };
 
 use ash::vk;
-use lahar::{DedicatedMapping, ParallelQueue, TimelineRing};
+use lahar::{DedicatedMapping, ParallelQueue, TimelineRing, parallel_queue::Handle};
 use skid_steer::Context;
 
 use crate::graphics::Base;
@@ -38,6 +38,7 @@ impl StagingRing {
 
     /// Safety: The allocation is not allowed to be freed before the returned reference's lifetime ends. (TODO: Explain this better)
     pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<Allocation<'_>> {
+        // TODO: Need a way to wait for an allocation
         let offset = self
             .timeline_ring
             .lock()
@@ -80,20 +81,23 @@ impl AssetLoader {
 
         let join_handle = {
             let gfx = gfx.clone();
+            let loader = loader.clone();
             thread::spawn(move || {
                 thread::scope(|s| {
+                    let loader = &loader;
+                    let staging = &staging;
                     // TODO: Use dynamic number of threads
                     for _ in 0..2 {
                         let handle = unsafe { queue.handle(&gfx.device) };
-                        let gfx = gfx.clone();
-                        let loader = loader.clone();
+                        let gfx: &Base = &gfx;
                         s.spawn(move || {
                             let runtime = tokio::runtime::LocalRuntime::new().unwrap();
                             runtime.block_on(async {
                                 while let Some(task) = loader.next_task().await {
                                     let mut context = Context::new();
-                                    context.insert(&gfx);
-                                    context.insert(&handle);
+                                    context.insert::<Base>(gfx);
+                                    context.insert::<Handle>(&handle);
+                                    context.insert::<StagingRing>(staging);
                                     task.run(&context).await;
                                 }
                             });
@@ -102,10 +106,14 @@ impl AssetLoader {
 
                     // Driver thread
                     while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
+                        loader.close();
                         unsafe { queue.drive(&gfx.device) };
-                        thread::sleep(Duration::from_secs_f32(1.0));
+                        thread::sleep(Duration::from_secs_f32(1.0)); // TODO: We want to park instead, but we need a semaphore for that.
                     }
                 });
+                unsafe { queue.drain(&gfx.device) };
+                unsafe { queue.destroy(&gfx.device) };
+                unsafe { staging.destroy(&gfx.device) };
             })
         };
 
