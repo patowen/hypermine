@@ -72,8 +72,8 @@ pub struct ParallelQueueWaiter {
 
 impl ParallelQueueWaiter {
     pub async fn wait_for_semaphore(&self, value: u64) {
-        let mut notified = self.progress_changed.notified();
         loop {
+            let notified = self.progress_changed.notified();
             if self
                 .current_progress
                 .load(std::sync::atomic::Ordering::Relaxed)
@@ -92,7 +92,6 @@ impl ParallelQueueWaiter {
                TODO: Is there a simpler mental model for this? Gaining confidence in the correct usage of atomics seems incredibly difficult.
             */
             notified.await;
-            notified = self.progress_changed.notified();
         }
     }
 }
