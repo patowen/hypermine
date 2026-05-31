@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, Mutex, atomic::AtomicU64, mpsc},
     thread::{self, JoinHandle},
     time::Duration,
 };
@@ -70,11 +70,15 @@ struct AssetLoader {
     join_handle: Option<JoinHandle<()>>,
     cancellation_send: mpsc::Sender<()>,
     cancellation_semaphore: vk::Semaphore,
+    progress_changed: Arc<tokio::sync::Notify>,
+    current_progress: Arc<AtomicU64>,
 }
 
 impl AssetLoader {
     pub fn new(gfx: Arc<Base>) -> Self {
         let (cancellation_send, cancellation_receive) = mpsc::channel::<()>();
+        let progress_changed = Arc::new(tokio::sync::Notify::new());
+        let current_progress = Arc::new(AtomicU64::new(0));
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
@@ -94,6 +98,8 @@ impl AssetLoader {
         let join_handle = {
             let gfx = gfx.clone();
             let loader = loader.clone();
+            let current_progress = current_progress.clone();
+            let progress_changed = progress_changed.clone();
             thread::spawn(move || {
                 thread::scope(|s| {
                     let loader = &loader;
@@ -121,6 +127,9 @@ impl AssetLoader {
                         unsafe { queue.drive(&gfx.device) };
                         let timeline_value =
                             unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
+                        current_progress
+                            .store(timeline_value, std::sync::atomic::Ordering::Relaxed);
+                        progress_changed.notify_waiters();
                     }
                 });
                 loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
@@ -136,6 +145,33 @@ impl AssetLoader {
             join_handle: Some(join_handle),
             cancellation_send,
             cancellation_semaphore,
+            progress_changed,
+            current_progress: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub async fn wait_for_parallel_queue_work_completion(&self, value: u64) {
+        let mut notified = self.progress_changed.notified();
+        loop {
+            if self
+                .current_progress
+                .load(std::sync::atomic::Ordering::Relaxed)
+                > value /* TODO: Check for off-by-one error. What do we actually want to wait on? */
+            {
+                return;
+            }
+            /*
+                Justification for why the following await shouldn't deadlock:
+                We just need to wait until `notify_waiters()` is called since `notified` was set, so the main question is:
+                    Is there any scenario in which the final call to `notify_waiters()` was already missed, but the atomic, when loaded, was not at the right value for exiting the loop?
+                Initializing and awaiting `notified` are both acquire operations on the state of the `Notify`, while `notify_waiters` is a release operation on the same state.
+                The only way `notified` can miss the `notify_waiters()` call is if it saw the state that `notify_waiters()` had already produced, meaning that `notify_waiters()` happened_before the setting of `notified`.
+                However, this would also mean that `current_progress` being set to the loop-exiting value must have happened_before `current_progress` was read, making this deadlock scenario impossible.
+
+                TODO: Is there a simpler mental model for this? Gaining confidence in the correct usage of atomics seems incredibly difficult.
+             */
+            notified.await;
+            notified = self.progress_changed.notified();
         }
     }
 }
