@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use ash::vk;
+use ash::vk::{self, SemaphoreSignalInfo};
 use lahar::{DedicatedMapping, ParallelQueue, TimelineRing, parallel_queue::Handle};
 use skid_steer::Context;
 
@@ -69,6 +69,7 @@ struct AssetLoader {
     gfx: Arc<Base>,
     join_handle: Option<JoinHandle<()>>,
     cancellation_send: mpsc::Sender<()>,
+    cancellation_semaphore: vk::Semaphore,
 }
 
 impl AssetLoader {
@@ -78,6 +79,17 @@ impl AssetLoader {
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
         let staging = StagingRing::new(&gfx, 32 * 1024 * 1024);
+        let cancellation_semaphore = unsafe {
+            gfx.device.create_semaphore(
+                &vk::SemaphoreCreateInfo::default().push_next(
+                    &mut vk::SemaphoreTypeCreateInfo::default()
+                        .semaphore_type(vk::SemaphoreType::TIMELINE)
+                        .initial_value(0),
+                ),
+                None,
+            )
+        }
+        .unwrap();
 
         let join_handle = {
             let gfx = gfx.clone();
@@ -106,13 +118,15 @@ impl AssetLoader {
 
                     // Driver thread
                     while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
-                        loader.close();
                         unsafe { queue.drive(&gfx.device) };
-                        thread::sleep(Duration::from_secs_f32(1.0)); // TODO: We want to park instead, but we need a semaphore for that.
+                        let timeline_value =
+                            unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
                     }
                 });
+                loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
                 unsafe { queue.drain(&gfx.device) };
                 unsafe { queue.destroy(&gfx.device) };
+                unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };
                 unsafe { staging.destroy(&gfx.device) };
             })
         };
@@ -121,6 +135,7 @@ impl AssetLoader {
             gfx,
             join_handle: Some(join_handle),
             cancellation_send,
+            cancellation_semaphore,
         }
     }
 }
@@ -128,6 +143,16 @@ impl AssetLoader {
 impl Drop for AssetLoader {
     fn drop(&mut self) {
         let _ = self.cancellation_send.send(());
+        unsafe {
+            self.gfx
+                .device
+                .signal_semaphore(
+                    &vk::SemaphoreSignalInfo::default()
+                        .semaphore(self.cancellation_semaphore)
+                        .value(1),
+                )
+                .unwrap()
+        };
         self.join_handle.take().unwrap().join().unwrap();
     }
 }
