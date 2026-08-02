@@ -16,6 +16,9 @@ struct AsyncTimelineRing {
     max_allocation: usize,
     request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<AllocationRequest>,
+    tick_sender: tokio::sync::mpsc::UnboundedSender<u64>,
+    tick_receiver: tokio::sync::mpsc::UnboundedReceiver<u64>,
+    blocked_allocation_request: Option<AllocationRequest>,
 }
 
 struct AsyncTimelineRingHandle {
@@ -34,12 +37,16 @@ impl AsyncTimelineRing {
         let timeline_ring = TimelineRing::new(size);
         let max_allocation = timeline_ring.capacity();
         let (request_sender, request_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let (tick_sender, tick_receiver) = tokio::sync::mpsc::unbounded_channel();
         AsyncTimelineRing {
             timeline_ring,
             size,
             max_allocation,
             request_sender,
             request_receiver,
+            tick_sender,
+            tick_receiver,
+            blocked_allocation_request: None,
         }
     }
 
@@ -49,8 +56,39 @@ impl AsyncTimelineRing {
         }
     }
 
-    fn drive(&mut self) {
-        // TODO
+    async fn drive(&mut self) {
+        loop {
+            tokio::select! {
+                biased;
+                Some(tick) = self.tick_receiver.recv() => {
+                    self.apply_tick(tick);
+                }
+                Some(request) = self.request_receiver.recv(), if self.blocked_allocation_request.is_none() => {
+                    self.apply_allocation_request(request);
+                }
+                else => { break; }
+            }
+        }
+    }
+
+    fn apply_tick(&mut self, time: u64) {
+        self.timeline_ring.tick(time);
+
+        // Re-attempt allocation request
+        if let Some(request) = self.blocked_allocation_request.take() {
+            self.apply_allocation_request(request);
+        }
+    }
+
+    fn apply_allocation_request(&mut self, request: AllocationRequest) {
+        if let Some(offset) = self
+            .timeline_ring
+            .alloc(request.size, request.align, request.free_at)
+        {
+            let _ = request.offset_sender.send(offset);
+        } else {
+            self.blocked_allocation_request = Some(request);
+        }
     }
 }
 
@@ -165,7 +203,7 @@ impl AssetLoader {
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
-        let timeline_ring = AsyncTimelineRing::new(32 * 1024 * 1024);
+        let mut timeline_ring = AsyncTimelineRing::new(32 * 1024 * 1024);
         let staging = StagingRing::new(&gfx, &timeline_ring);
         let cancellation_semaphore = unsafe {
             gfx.device.create_semaphore(
@@ -218,11 +256,24 @@ impl AssetLoader {
                                 .unwrap();
                         }
 
+                        let tick_sender = timeline_ring.tick_sender.clone();
+                        thread::Builder::new()
+                            .name("timeline_ring_driver".to_owned())
+                            .spawn_scoped(s, move || {
+                                let runtime = tokio::runtime::LocalRuntime::new().unwrap();
+                                runtime.block_on(async {
+                                    timeline_ring.drive().await;
+                                })
+                            })
+                            .unwrap();
+
                         // Driver thread
                         while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
                             unsafe { queue.drive(&gfx.device) };
-                            unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
+                            let semaphore_value =
+                                unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
                             parallel_queue_waiter.progress_changed.notify_waiters();
+                            let _ = tick_sender.send(semaphore_value);
                         }
                     });
                     loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
