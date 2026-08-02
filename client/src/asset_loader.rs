@@ -13,6 +13,8 @@ use crate::graphics::Base;
 pub struct StagingRing {
     timeline_ring: Mutex<TimelineRing>,
     backing_memory: DedicatedMapping<[u8]>,
+    new_space_available: tokio::sync::Notify,
+    max_allocation: usize,
 }
 
 pub struct Allocation<'a> {
@@ -23,8 +25,10 @@ pub struct Allocation<'a> {
 
 impl StagingRing {
     pub fn new(gfx: &Base, size: usize) -> Self {
+        let timeline_ring = TimelineRing::new(size);
+        let max_allocation = timeline_ring.capacity().min(isize::MAX as usize);
         StagingRing {
-            timeline_ring: Mutex::new(TimelineRing::new(size)),
+            timeline_ring: Mutex::new(timeline_ring),
             backing_memory: unsafe {
                 DedicatedMapping::zeroed_array(
                     &gfx.device,
@@ -33,12 +37,39 @@ impl StagingRing {
                     size,
                 )
             },
+            new_space_available: tokio::sync::Notify::new(),
+            max_allocation,
         }
     }
 
-    /// Safety: The allocation is not allowed to be freed before the returned reference's lifetime ends. (TODO: Explain this better)
-    pub unsafe fn alloc(&self, size: usize, align: usize, free_at: u64) -> Option<Allocation<'_>> {
-        // TODO: Need a way to wait for an allocation
+    pub async unsafe fn alloc_blocking(
+        &self,
+        size: usize,
+        align: usize,
+        free_at: u64,
+    ) -> Allocation<'_> {
+        // TODO: Instead of blocking in this haphazard way, try growing the timeline ring instead if it's too small.
+        // If we decide blocking is better, try queueing allocations instead of racing for a mutex for better fairness.
+        assert!(size <= self.max_allocation);
+        loop {
+            let notified = self.new_space_available.notified();
+            if let Some(alloc) = unsafe { self.try_alloc(size, align, free_at) } {
+                return alloc;
+            }
+            notified.await;
+        }
+    }
+
+    /// Safety: The Allocation must be dropped before the staging ring is able to reuse the space taken up by the
+    /// allocation. In practice, this means dropping it before calling the `lahar::parallel_queue::Work::end` function.
+    pub unsafe fn try_alloc(
+        &self,
+        size: usize,
+        align: usize,
+        free_at: u64,
+    ) -> Option<Allocation<'_>> {
+        // TODO: If we decide to queue allocations, then the raw allocation function will no longer need a mutex.
+        assert!(size <= self.max_allocation);
         let offset = self
             .timeline_ring
             .lock()
@@ -63,6 +94,8 @@ impl StagingRing {
     pub unsafe fn destroy(mut self, gfx: &Base) {
         unsafe { self.backing_memory.destroy(&gfx.device) };
     }
+
+    // TODO: tick
 }
 
 pub struct ParallelQueueWaiter {
