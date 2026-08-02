@@ -130,7 +130,7 @@ impl Draw {
                 .unwrap();
 
             let mut loader = Loader::new(cfg.clone(), gfx.clone());
-            let asset_loader = AssetLoader::new(gfx.clone());
+            let asset_loader = AssetLoader::new(gfx.clone(), cfg.clone());
 
             // Construct the per-frame states
             let states = cmds

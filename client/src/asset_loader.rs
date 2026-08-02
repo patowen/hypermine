@@ -7,7 +7,7 @@ use ash::vk;
 use lahar::{DedicatedMapping, ParallelQueue, TimelineRing, parallel_queue::Handle};
 use skid_steer::Context;
 
-use crate::graphics::Base;
+use crate::{Config, graphics::Base};
 
 struct AsyncTimelineRing {
     timeline_ring: TimelineRing,
@@ -196,7 +196,7 @@ pub struct AssetLoader {
 }
 
 impl AssetLoader {
-    pub fn new(gfx: Arc<Base>) -> Self {
+    pub fn new(gfx: Arc<Base>, config: Arc<Config>) -> Self {
         let (cancellation_send, cancellation_receive) = mpsc::channel::<()>();
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
@@ -217,6 +217,7 @@ impl AssetLoader {
 
         let join_handle = {
             let gfx = gfx.clone();
+            let config = config.clone();
             let loader = loader.clone();
             thread::Builder::new()
                 .name("asset_loader_driver".to_owned())
@@ -234,6 +235,7 @@ impl AssetLoader {
                         for i in 0..2 {
                             let handle = unsafe { queue.handle(&gfx.device) };
                             let gfx: &Base = &gfx;
+                            let config: &Config = &config;
                             thread::Builder::new()
                                 .name(format!("task_executor_{}", i).to_owned())
                                 .spawn_scoped(s, move || {
@@ -242,6 +244,7 @@ impl AssetLoader {
                                         while let Some(task) = loader.next_task().await {
                                             let mut context = Context::new();
                                             context.insert::<Base>(gfx);
+                                            context.insert::<Config>(&config); // TODO: I don't want `Config` in the context long-term
                                             context.insert::<Handle>(&handle);
                                             context.insert::<StagingRing>(staging);
                                             context.insert::<ParallelQueueWaiter>(
