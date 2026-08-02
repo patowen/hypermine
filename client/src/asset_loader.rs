@@ -13,15 +13,17 @@ struct AsyncTimelineRing {
     timeline_ring: TimelineRing,
     size: usize, // TODO: TimelineRing should probably expose this. Otherwise, someone might allocate a buffer of size timeline_ring.capacity() and get undefined behavior.
     max_allocation: usize,
-    request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
     request_receiver: tokio::sync::mpsc::UnboundedReceiver<AllocationRequest>,
-    tick_sender: tokio::sync::mpsc::UnboundedSender<u64>,
     tick_receiver: tokio::sync::mpsc::UnboundedReceiver<u64>,
     blocked_allocation_request: Option<AllocationRequest>,
 }
 
-struct AsyncTimelineRingHandle {
+struct AsyncTimelineRingRequestHandle {
     request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
+}
+
+struct AsyncTimelineRingTickHandle {
+    tick_sender: tokio::sync::mpsc::UnboundedSender<u64>,
 }
 
 struct AllocationRequest {
@@ -32,34 +34,41 @@ struct AllocationRequest {
 }
 
 impl AsyncTimelineRing {
-    fn new(size: usize) -> Self {
+    fn new(
+        size: usize,
+    ) -> (
+        Self,
+        AsyncTimelineRingRequestHandle,
+        AsyncTimelineRingTickHandle,
+    ) {
         let timeline_ring = TimelineRing::new(size);
         let max_allocation = timeline_ring.capacity();
         let (request_sender, request_receiver) = tokio::sync::mpsc::unbounded_channel();
         let (tick_sender, tick_receiver) = tokio::sync::mpsc::unbounded_channel();
-        AsyncTimelineRing {
-            timeline_ring,
-            size,
-            max_allocation,
-            request_sender,
-            request_receiver,
-            tick_sender,
-            tick_receiver,
-            blocked_allocation_request: None,
-        }
-    }
-
-    fn handle(&self) -> AsyncTimelineRingHandle {
-        AsyncTimelineRingHandle {
-            request_sender: self.request_sender.clone(),
-        }
+        (
+            AsyncTimelineRing {
+                timeline_ring,
+                size,
+                max_allocation,
+                request_receiver,
+                tick_receiver,
+                blocked_allocation_request: None,
+            },
+            AsyncTimelineRingRequestHandle { request_sender },
+            AsyncTimelineRingTickHandle { tick_sender },
+        )
     }
 
     async fn drive(&mut self) {
         loop {
+            println!("ParallelQueue loop iteration start");
             tokio::select! {
                 biased;
-                Some(tick) = self.tick_receiver.recv() => {
+                tick = self.tick_receiver.recv() => {
+                    let Some(tick) = tick else {
+                        // If the tick sender is closed, that can only mean that we're shutting down.
+                        break;
+                    };
                     self.apply_tick(tick);
                 }
                 Some(request) = self.request_receiver.recv(), if self.blocked_allocation_request.is_none() => {
@@ -68,6 +77,7 @@ impl AsyncTimelineRing {
                 else => { break; }
             }
         }
+        println!("ParallelQueue loop end");
     }
 
     fn apply_tick(&mut self, time: u64) {
@@ -91,7 +101,7 @@ impl AsyncTimelineRing {
     }
 }
 
-impl AsyncTimelineRingHandle {
+impl AsyncTimelineRingRequestHandle {
     pub async fn alloc(&self, size: usize, align: usize, free_at: u64) -> usize {
         let (offset_sender, offset_receiver) = tokio::sync::oneshot::channel::<usize>();
         let _ = self.request_sender.send(AllocationRequest {
@@ -108,7 +118,7 @@ impl AsyncTimelineRingHandle {
 }
 
 pub struct StagingRing {
-    timeline_ring: AsyncTimelineRingHandle,
+    timeline_ring: AsyncTimelineRingRequestHandle,
     backing_memory: DedicatedMapping<[u8]>,
     max_allocation: usize,
 }
@@ -120,9 +130,13 @@ pub struct Allocation<'a> {
 }
 
 impl StagingRing {
-    fn new(gfx: &Base, timeline_ring: &AsyncTimelineRing) -> Self {
+    fn new(
+        gfx: &Base,
+        timeline_ring: &AsyncTimelineRing,
+        timeline_ring_request_handle: AsyncTimelineRingRequestHandle,
+    ) -> Self {
         StagingRing {
-            timeline_ring: timeline_ring.handle(),
+            timeline_ring: timeline_ring_request_handle,
             backing_memory: unsafe {
                 DedicatedMapping::zeroed_array(
                     &gfx.device,
@@ -201,8 +215,9 @@ impl AssetLoader {
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
-        let mut timeline_ring = AsyncTimelineRing::new(32 * 1024 * 1024);
-        let staging = StagingRing::new(&gfx, &timeline_ring);
+        let (mut timeline_ring, timeline_ring_request_handle, timeline_ring_tick_handle) =
+            AsyncTimelineRing::new(32 * 1024 * 1024);
+        let staging = StagingRing::new(&gfx, &timeline_ring, timeline_ring_request_handle);
         let cancellation_semaphore = unsafe {
             gfx.device.create_semaphore(
                 &vk::SemaphoreCreateInfo::default().push_next(
@@ -233,7 +248,7 @@ impl AssetLoader {
                         let parallel_queue_waiter = &parallel_queue_waiter;
                         // TODO: Use dynamic number of threads
                         for i in 0..2 {
-                            let handle = unsafe { queue.handle(&gfx.device) };
+                            let mut handle = unsafe { queue.handle(&gfx.device) };
                             let gfx: &Base = &gfx;
                             let config: &Config = &config;
                             thread::Builder::new()
@@ -242,6 +257,7 @@ impl AssetLoader {
                                     let runtime = tokio::runtime::LocalRuntime::new().unwrap();
                                     runtime.block_on(async {
                                         while let Some(task) = loader.next_task().await {
+                                            println!("Found task");
                                             let mut context = Context::new();
                                             context.insert::<Base>(gfx);
                                             context.insert::<Config>(&config); // TODO: I don't want `Config` in the context long-term
@@ -251,13 +267,15 @@ impl AssetLoader {
                                                 parallel_queue_waiter,
                                             );
                                             task.run(&context).await;
+                                            println!("Asset loaded {}", i);
                                         }
+                                        println!("Ending task executor {}", i);
+                                        unsafe { handle.destroy(&gfx.device) };
                                     });
                                 })
                                 .unwrap();
                         }
 
-                        let tick_sender = timeline_ring.tick_sender.clone();
                         thread::Builder::new()
                             .name("timeline_ring_driver".to_owned())
                             .spawn_scoped(s, move || {
@@ -274,10 +292,13 @@ impl AssetLoader {
                             let semaphore_value =
                                 unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
                             parallel_queue_waiter.progress_changed.notify_waiters();
-                            let _ = tick_sender.send(semaphore_value);
+                            let _ = timeline_ring_tick_handle.tick_sender.send(semaphore_value);
                         }
+                        println!("Cancellation received. Should shut down AssetLoader");
+                        loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
+                        drop(timeline_ring_tick_handle);
                     });
-                    loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
+                    println!("All threads shut down");
                     unsafe { queue.drain(&gfx.device) };
                     unsafe { queue.destroy(&gfx.device) };
                     unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };

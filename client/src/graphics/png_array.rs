@@ -24,6 +24,7 @@ pub struct PngArray {
 
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
+        println!("Started loading png array");
         let cfg: &Config = context.get().unwrap();
         let handle: &parallel_queue::Handle = context.get().unwrap();
         let gfx: &Base = context.get().unwrap();
@@ -178,9 +179,11 @@ impl PngArray {
                     .subresource_range(range)],
             );
             work.end();
+            println!("Awaiting parallel queue");
             parallel_queue_waiter
                 .wait_for_semaphore(&gfx.device, work_time)
                 .await;
+            println!("Finished awaiting parallel queue");
 
             trace!(
                 width = width,
@@ -188,6 +191,7 @@ impl PngArray {
                 path = %full_path.anonymize().display(),
                 "loaded array"
             );
+            println!("Asset almost loaded");
             Ok(image)
         }
     }
@@ -368,5 +372,10 @@ impl skid_steer::Source for PngArray {
             .await
             .inspect_err(|e| tracing::error!("{}", e))
             .ok()
+    }
+
+    fn free(mut output: Self::Output, context: &skid_steer::Context) {
+        let gfx: &Base = context.get().unwrap();
+        unsafe { output.destroy(&gfx.device) }; // TODO: Also destroy on cancellation
     }
 }
