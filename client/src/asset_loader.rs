@@ -1,10 +1,10 @@
 use std::{
-    sync::{Arc, Mutex, atomic::AtomicU64, mpsc},
+    sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
     time::Duration,
 };
 
-use ash::vk::{self, SemaphoreSignalInfo};
+use ash::vk;
 use lahar::{DedicatedMapping, ParallelQueue, TimelineRing, parallel_queue::Handle};
 use skid_steer::Context;
 
@@ -22,7 +22,7 @@ pub struct Allocation<'a> {
 }
 
 impl StagingRing {
-    pub fn new(gfx: &Arc<Base>, size: usize) -> Self {
+    pub fn new(gfx: &Base, size: usize) -> Self {
         StagingRing {
             timeline_ring: Mutex::new(TimelineRing::new(size)),
             backing_memory: unsafe {
@@ -59,38 +59,26 @@ impl StagingRing {
         self.backing_memory.buffer()
     }
 
-    /// Safety: Device needs to be the same as the device passed to `new`
-    pub unsafe fn destroy(mut self, device: &ash::Device) {
-        unsafe { self.backing_memory.destroy(device) };
+    /// Safety: gfx needs to be the same as the Base passed to `new`
+    pub unsafe fn destroy(mut self, gfx: &Base) {
+        unsafe { self.backing_memory.destroy(&gfx.device) };
     }
 }
 
 pub struct ParallelQueueWaiter {
+    semaphore: vk::Semaphore,
     progress_changed: tokio::sync::Notify,
-    current_progress: AtomicU64,
 }
 
 impl ParallelQueueWaiter {
-    pub async fn wait_for_semaphore(&self, value: u64) {
+    pub async fn wait_for_semaphore(&self, device: &ash::Device, value: u64) {
         loop {
             let notified = self.progress_changed.notified();
-            if self
-                .current_progress
-                .load(std::sync::atomic::Ordering::Relaxed)
-                >= value
-            {
+            let current_progress =
+                unsafe { device.get_semaphore_counter_value(self.semaphore).unwrap() };
+            if current_progress >= value {
                 return;
             }
-            /*
-               Justification for why the following await shouldn't deadlock:
-               We just need to wait until `notify_waiters()` is called since `notified` was set, so the main question is:
-                   Is there any scenario in which the final call to `notify_waiters()` was already missed, but the atomic, when loaded, was not at the right value for exiting the loop?
-               Initializing and awaiting `notified` are both acquire operations on the state of the `Notify`, while `notify_waiters` is a release operation on the same state.
-               The only way `notified` can miss the `notify_waiters()` call is if it saw the state that `notify_waiters()` had already produced, meaning that `notify_waiters()` happened_before the setting of `notified`.
-               However, this would also mean that `current_progress` being set to the loop-exiting value must have happened_before `current_progress` was read, making this deadlock scenario impossible.
-
-               TODO: Is there a simpler mental model for this? Gaining confidence in the correct usage of atomics seems incredibly difficult.
-            */
             notified.await;
         }
     }
@@ -127,7 +115,7 @@ impl AssetLoader {
             let loader = loader.clone();
             thread::spawn(move || {
                 let parallel_queue_waiter = ParallelQueueWaiter {
-                    current_progress: AtomicU64::new(0),
+                    semaphore: queue.semaphore(),
                     progress_changed: tokio::sync::Notify::new(),
                 };
 
@@ -157,11 +145,7 @@ impl AssetLoader {
                     // Driver thread
                     while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
                         unsafe { queue.drive(&gfx.device) };
-                        let timeline_value =
-                            unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
-                        parallel_queue_waiter
-                            .current_progress
-                            .store(timeline_value, std::sync::atomic::Ordering::Relaxed);
+                        unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
                         parallel_queue_waiter.progress_changed.notify_waiters();
                     }
                 });
@@ -169,7 +153,7 @@ impl AssetLoader {
                 unsafe { queue.drain(&gfx.device) };
                 unsafe { queue.destroy(&gfx.device) };
                 unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };
-                unsafe { staging.destroy(&gfx.device) };
+                unsafe { staging.destroy(&gfx) };
             })
         };
 
@@ -199,6 +183,7 @@ impl Drop for AssetLoader {
     }
 }
 
+// TODO: This was an earlier draft. I should delete this.
 fn commence(gfx: Arc<Base>) {
     let mut queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
     let loader = skid_steer::Loader::new();
@@ -232,5 +217,5 @@ fn commence(gfx: Arc<Base>) {
     });
 
     unsafe { queue.destroy(&gfx.device) };
-    unsafe { staging.destroy(&gfx.device) };
+    unsafe { staging.destroy(&gfx) };
 }

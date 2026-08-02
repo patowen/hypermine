@@ -179,7 +179,9 @@ impl PngArray {
                     .subresource_range(range)],
             );
             work.end();
-            parallel_queue_waiter.wait_for_semaphore(work_time).await;
+            parallel_queue_waiter
+                .wait_for_semaphore(&gfx.device, work_time)
+                .await;
 
             trace!(
                 width = width,
