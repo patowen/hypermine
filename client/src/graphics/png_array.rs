@@ -78,7 +78,7 @@ impl PngArray {
                 dims = Some((info.width, info.height));
                 mem2 = Some(unsafe {
                     staging_buffer
-                        .alloc_blocking(
+                        .alloc_async(
                             info.width as usize * info.height as usize * 4 * self.size,
                             1, /* TODO: Is an alignment of 1 safe? */
                             work_time,

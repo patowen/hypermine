@@ -10,8 +10,68 @@ use skid_steer::Context;
 
 use crate::graphics::Base;
 
+struct AsyncTimelineRing {
+    timeline_ring: TimelineRing,
+    size: usize, // TODO: TimelineRing should probably expose this. Otherwise, someone might allocate a buffer of size timeline_ring.capacity() and get undefined behavior.
+    max_allocation: usize,
+    request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
+    request_receiver: tokio::sync::mpsc::UnboundedReceiver<AllocationRequest>,
+}
+
+struct AsyncTimelineRingHandle {
+    request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
+}
+
+struct AllocationRequest {
+    size: usize,
+    align: usize,
+    free_at: u64,
+    offset_sender: tokio::sync::oneshot::Sender<usize>,
+}
+
+impl AsyncTimelineRing {
+    fn new(size: usize) -> Self {
+        let timeline_ring = TimelineRing::new(size);
+        let max_allocation = timeline_ring.capacity();
+        let (request_sender, request_receiver) = tokio::sync::mpsc::unbounded_channel();
+        AsyncTimelineRing {
+            timeline_ring,
+            size,
+            max_allocation,
+            request_sender,
+            request_receiver,
+        }
+    }
+
+    fn handle(&self) -> AsyncTimelineRingHandle {
+        AsyncTimelineRingHandle {
+            request_sender: self.request_sender.clone(),
+        }
+    }
+
+    fn drive(&mut self) {
+        // TODO
+    }
+}
+
+impl AsyncTimelineRingHandle {
+    pub async fn alloc(&self, size: usize, align: usize, free_at: u64) -> usize {
+        let (offset_sender, offset_receiver) = tokio::sync::oneshot::channel::<usize>();
+        let _ = self.request_sender.send(AllocationRequest {
+            size,
+            align,
+            free_at,
+            offset_sender,
+        });
+        let allocation = offset_receiver.await.expect(
+            "all callers of alloc_blocking are dropped before the timeline ring is dropped.",
+        );
+        allocation // TODO: Does this allocation have a reasonable lifetime?
+    }
+}
+
 pub struct StagingRing {
-    timeline_ring: Mutex<TimelineRing>,
+    timeline_ring: AsyncTimelineRingHandle,
     backing_memory: DedicatedMapping<[u8]>,
     new_space_available: tokio::sync::Notify,
     max_allocation: usize,
@@ -24,58 +84,33 @@ pub struct Allocation<'a> {
 }
 
 impl StagingRing {
-    pub fn new(gfx: &Base, size: usize) -> Self {
-        let timeline_ring = TimelineRing::new(size);
-        let max_allocation = timeline_ring.capacity().min(isize::MAX as usize);
+    pub fn new(gfx: &Base, timeline_ring: &AsyncTimelineRing) -> Self {
         StagingRing {
-            timeline_ring: Mutex::new(timeline_ring),
+            timeline_ring: timeline_ring.handle(),
             backing_memory: unsafe {
                 DedicatedMapping::zeroed_array(
                     &gfx.device,
                     &gfx.memory_properties,
                     vk::BufferUsageFlags::TRANSFER_SRC,
-                    size,
+                    timeline_ring.size,
                 )
             },
             new_space_available: tokio::sync::Notify::new(),
-            max_allocation,
-        }
-    }
-
-    pub async unsafe fn alloc_blocking(
-        &self,
-        size: usize,
-        align: usize,
-        free_at: u64,
-    ) -> Allocation<'_> {
-        // TODO: Instead of blocking in this haphazard way, try growing the timeline ring instead if it's too small.
-        // If we decide blocking is better, try queueing allocations instead of racing for a mutex for better fairness.
-        assert!(size <= self.max_allocation);
-        loop {
-            let notified = self.new_space_available.notified();
-            if let Some(alloc) = unsafe { self.try_alloc(size, align, free_at) } {
-                return alloc;
-            }
-            notified.await;
+            max_allocation: timeline_ring.max_allocation.min(isize::MAX as usize),
         }
     }
 
     /// Safety: The Allocation must be dropped before the staging ring is able to reuse the space taken up by the
     /// allocation. In practice, this means dropping it before calling the `lahar::parallel_queue::Work::end` function.
-    pub unsafe fn try_alloc(
+    pub async unsafe fn alloc_async(
         &self,
         size: usize,
         align: usize,
         free_at: u64,
-    ) -> Option<Allocation<'_>> {
-        // TODO: If we decide to queue allocations, then the raw allocation function will no longer need a mutex.
+    ) -> Allocation<'_> {
         assert!(size <= self.max_allocation);
-        let offset = self
-            .timeline_ring
-            .lock()
-            .unwrap()
-            .alloc(size, align, free_at)?;
-        Some(unsafe {
+        let offset = self.timeline_ring.alloc(size, align, free_at).await;
+        unsafe {
             Allocation {
                 bytes: std::slice::from_raw_parts_mut(
                     (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
@@ -83,7 +118,7 @@ impl StagingRing {
                 ),
                 offset: offset.try_into().unwrap(),
             }
-        })
+        }
     }
 
     pub fn buffer(&self) -> vk::Buffer {
@@ -130,7 +165,8 @@ impl AssetLoader {
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
-        let staging = StagingRing::new(&gfx, 32 * 1024 * 1024);
+        let timeline_ring = AsyncTimelineRing::new(32 * 1024 * 1024);
+        let staging = StagingRing::new(&gfx, &timeline_ring);
         let cancellation_semaphore = unsafe {
             gfx.device.create_semaphore(
                 &vk::SemaphoreCreateInfo::default().push_next(
@@ -146,48 +182,56 @@ impl AssetLoader {
         let join_handle = {
             let gfx = gfx.clone();
             let loader = loader.clone();
-            thread::spawn(move || {
-                let parallel_queue_waiter = ParallelQueueWaiter {
-                    semaphore: queue.semaphore(),
-                    progress_changed: tokio::sync::Notify::new(),
-                };
+            thread::Builder::new()
+                .name("asset_loader_driver".to_owned())
+                .spawn(move || {
+                    let parallel_queue_waiter = ParallelQueueWaiter {
+                        semaphore: queue.semaphore(),
+                        progress_changed: tokio::sync::Notify::new(),
+                    };
 
-                thread::scope(|s| {
-                    let loader = &loader;
-                    let staging = &staging;
-                    let parallel_queue_waiter = &parallel_queue_waiter;
-                    // TODO: Use dynamic number of threads
-                    for _ in 0..2 {
-                        let handle = unsafe { queue.handle(&gfx.device) };
-                        let gfx: &Base = &gfx;
-                        s.spawn(move || {
-                            let runtime = tokio::runtime::LocalRuntime::new().unwrap();
-                            runtime.block_on(async {
-                                while let Some(task) = loader.next_task().await {
-                                    let mut context = Context::new();
-                                    context.insert::<Base>(gfx);
-                                    context.insert::<Handle>(&handle);
-                                    context.insert::<StagingRing>(staging);
-                                    context.insert::<ParallelQueueWaiter>(parallel_queue_waiter);
-                                    task.run(&context).await;
-                                }
-                            });
-                        });
-                    }
+                    thread::scope(|s| {
+                        let loader = &loader;
+                        let staging = &staging;
+                        let parallel_queue_waiter = &parallel_queue_waiter;
+                        // TODO: Use dynamic number of threads
+                        for i in 0..2 {
+                            let handle = unsafe { queue.handle(&gfx.device) };
+                            let gfx: &Base = &gfx;
+                            thread::Builder::new()
+                                .name(format!("task_executor_{}", i).to_owned())
+                                .spawn_scoped(s, move || {
+                                    let runtime = tokio::runtime::LocalRuntime::new().unwrap();
+                                    runtime.block_on(async {
+                                        while let Some(task) = loader.next_task().await {
+                                            let mut context = Context::new();
+                                            context.insert::<Base>(gfx);
+                                            context.insert::<Handle>(&handle);
+                                            context.insert::<StagingRing>(staging);
+                                            context.insert::<ParallelQueueWaiter>(
+                                                parallel_queue_waiter,
+                                            );
+                                            task.run(&context).await;
+                                        }
+                                    });
+                                })
+                                .unwrap();
+                        }
 
-                    // Driver thread
-                    while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
-                        unsafe { queue.drive(&gfx.device) };
-                        unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
-                        parallel_queue_waiter.progress_changed.notify_waiters();
-                    }
-                });
-                loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
-                unsafe { queue.drain(&gfx.device) };
-                unsafe { queue.destroy(&gfx.device) };
-                unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };
-                unsafe { staging.destroy(&gfx) };
-            })
+                        // Driver thread
+                        while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
+                            unsafe { queue.drive(&gfx.device) };
+                            unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
+                            parallel_queue_waiter.progress_changed.notify_waiters();
+                        }
+                    });
+                    loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
+                    unsafe { queue.drain(&gfx.device) };
+                    unsafe { queue.destroy(&gfx.device) };
+                    unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };
+                    unsafe { staging.destroy(&gfx) };
+                })
+                .unwrap()
         };
 
         AssetLoader {
@@ -214,41 +258,4 @@ impl Drop for AssetLoader {
         };
         self.join_handle.take().unwrap().join().unwrap();
     }
-}
-
-// TODO: This was an earlier draft. I should delete this.
-fn commence(gfx: Arc<Base>) {
-    let mut queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
-    let loader = skid_steer::Loader::new();
-    let staging = StagingRing::new(&gfx, 32 * 1024 * 1024);
-
-    thread::scope(|s| {
-        // TODO: Use dynamic number of threads
-        for _ in 0..2 {
-            let handle = unsafe { queue.handle(&gfx.device) };
-            let gfx = gfx.clone();
-            let loader = loader.clone();
-            s.spawn(move || {
-                let runtime = tokio::runtime::LocalRuntime::new().unwrap();
-                runtime.block_on(async {
-                    while let Some(task) = loader.next_task().await {
-                        let mut context = Context::new();
-                        context.insert(&gfx);
-                        context.insert(&handle);
-                        task.run(&context).await;
-                    }
-                });
-            });
-        }
-
-        // Driver thread
-        let gfx = gfx.clone();
-        loop {
-            unsafe { queue.drive(&gfx.device) };
-            thread::sleep(Duration::from_secs_f32(1.0));
-        }
-    });
-
-    unsafe { queue.destroy(&gfx.device) };
-    unsafe { staging.destroy(&gfx) };
 }
