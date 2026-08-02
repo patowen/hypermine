@@ -7,6 +7,7 @@ use lahar::Staged;
 use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
+use crate::asset_loader::AssetLoader;
 use crate::{Asset, Config, Loader, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
@@ -34,6 +35,7 @@ pub struct Draw {
 
     /// Drives async asset loading
     loader: Loader,
+    asset_loader: AssetLoader,
 
     //
     // Rendering pipelines
@@ -128,6 +130,7 @@ impl Draw {
                 .unwrap();
 
             let mut loader = Loader::new(cfg.clone(), gfx.clone());
+            let asset_loader = AssetLoader::new(gfx.clone());
 
             // Construct the per-frame states
             let states = cmds
@@ -214,6 +217,7 @@ impl Draw {
                 common_descriptor_pool,
 
                 loader,
+                asset_loader,
 
                 voxels: None,
                 meshes,
@@ -234,7 +238,7 @@ impl Draw {
         let voxels = Voxels::new(
             &self.gfx,
             self.cfg.clone(),
-            &mut self.loader,
+            &self.asset_loader,
             u32::from(cfg.chunk_size),
             PIPELINE_DEPTH,
         );
@@ -475,7 +479,6 @@ impl Draw {
             if let Some(ref mut voxels) = self.voxels {
                 voxels.draw(
                     device,
-                    &self.loader,
                     state.common_ds,
                     state.voxels.as_ref().unwrap(),
                     cmd,

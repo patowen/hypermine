@@ -1,7 +1,6 @@
 use std::{
-    sync::{Arc, Mutex, mpsc},
+    sync::{Arc, mpsc},
     thread::{self, JoinHandle},
-    time::Duration,
 };
 
 use ash::vk;
@@ -111,7 +110,6 @@ impl AsyncTimelineRingHandle {
 pub struct StagingRing {
     timeline_ring: AsyncTimelineRingHandle,
     backing_memory: DedicatedMapping<[u8]>,
-    new_space_available: tokio::sync::Notify,
     max_allocation: usize,
 }
 
@@ -122,7 +120,7 @@ pub struct Allocation<'a> {
 }
 
 impl StagingRing {
-    pub fn new(gfx: &Base, timeline_ring: &AsyncTimelineRing) -> Self {
+    fn new(gfx: &Base, timeline_ring: &AsyncTimelineRing) -> Self {
         StagingRing {
             timeline_ring: timeline_ring.handle(),
             backing_memory: unsafe {
@@ -133,7 +131,6 @@ impl StagingRing {
                     timeline_ring.size,
                 )
             },
-            new_space_available: tokio::sync::Notify::new(),
             max_allocation: timeline_ring.max_allocation.min(isize::MAX as usize),
         }
     }
@@ -190,11 +187,12 @@ impl ParallelQueueWaiter {
     }
 }
 
-struct AssetLoader {
+pub struct AssetLoader {
     gfx: Arc<Base>,
     join_handle: Option<JoinHandle<()>>,
     cancellation_send: mpsc::Sender<()>,
     cancellation_semaphore: vk::Semaphore,
+    loader: skid_steer::Loader,
 }
 
 impl AssetLoader {
@@ -290,7 +288,15 @@ impl AssetLoader {
             join_handle: Some(join_handle),
             cancellation_send,
             cancellation_semaphore,
+            loader,
         }
+    }
+
+    pub fn load<S: skid_steer::Source>(
+        &self,
+        source: S,
+    ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
+        self.loader.load(source)
     }
 }
 
