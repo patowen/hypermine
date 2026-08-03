@@ -178,17 +178,20 @@ impl StagingRing {
     pub unsafe fn destroy(mut self, gfx: &Base) {
         unsafe { self.backing_memory.destroy(&gfx.device) };
     }
-
-    // TODO: tick
 }
 
 pub struct ParallelQueueWaiter {
     semaphore: vk::Semaphore,
+    queue_unpark_semaphore: HelperSemaphore,
     progress_changed: tokio::sync::Notify,
 }
 
 impl ParallelQueueWaiter {
     pub async fn wait_for_semaphore(&self, device: &ash::Device, value: u64) {
+        // Since wait_for_semaphore is called after we submitted something to the queue,
+        // we want the `drive` function of `ParallelQueue` to see the new data, so we should
+        // unpark it.
+        unsafe { self.queue_unpark_semaphore.signal(device) };
         loop {
             let notified = self.progress_changed.notified();
             let current_progress =
@@ -201,11 +204,52 @@ impl ParallelQueueWaiter {
     }
 }
 
+#[derive(Clone, Copy)]
+struct HelperSemaphore(vk::Semaphore);
+
+impl HelperSemaphore {
+    unsafe fn new(device: &ash::Device) -> Self {
+        HelperSemaphore(unsafe {
+            device
+                .create_semaphore(
+                    &vk::SemaphoreCreateInfo::default().push_next(
+                        &mut vk::SemaphoreTypeCreateInfo::default()
+                            .semaphore_type(vk::SemaphoreType::TIMELINE)
+                            .initial_value(0),
+                    ),
+                    None,
+                )
+                .unwrap()
+        })
+    }
+
+    unsafe fn get_next_value(&self, device: &ash::Device) -> u64 {
+        unsafe { device.get_semaphore_counter_value(self.0).unwrap() + 1 }
+    }
+
+    unsafe fn signal(&self, device: &ash::Device) {
+        let next_value = unsafe { self.get_next_value(device) };
+        unsafe {
+            device
+                .signal_semaphore(
+                    &vk::SemaphoreSignalInfo::default()
+                        .semaphore(self.0)
+                        .value(next_value),
+                )
+                .unwrap()
+        }
+    }
+
+    unsafe fn destroy(self, device: &ash::Device) {
+        unsafe { device.destroy_semaphore(self.0, None) };
+    }
+}
+
 pub struct AssetLoader {
     gfx: Arc<Base>,
     join_handle: Option<JoinHandle<()>>,
     cancellation_send: mpsc::Sender<()>,
-    cancellation_semaphore: vk::Semaphore,
+    queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
 }
 
@@ -218,17 +262,7 @@ impl AssetLoader {
         let (mut timeline_ring, timeline_ring_request_handle, timeline_ring_tick_handle) =
             AsyncTimelineRing::new(32 * 1024 * 1024);
         let staging = StagingRing::new(&gfx, &timeline_ring, timeline_ring_request_handle);
-        let cancellation_semaphore = unsafe {
-            gfx.device.create_semaphore(
-                &vk::SemaphoreCreateInfo::default().push_next(
-                    &mut vk::SemaphoreTypeCreateInfo::default()
-                        .semaphore_type(vk::SemaphoreType::TIMELINE)
-                        .initial_value(0),
-                ),
-                None,
-            )
-        }
-        .unwrap();
+        let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
 
         let join_handle = {
             let gfx = gfx.clone();
@@ -239,6 +273,7 @@ impl AssetLoader {
                 .spawn(move || {
                     let parallel_queue_waiter = ParallelQueueWaiter {
                         semaphore: queue.semaphore(),
+                        queue_unpark_semaphore,
                         progress_changed: tokio::sync::Notify::new(),
                     };
 
@@ -287,10 +322,25 @@ impl AssetLoader {
                             .unwrap();
 
                         // Driver thread
-                        while cancellation_receive.try_recv() == Err(mpsc::TryRecvError::Empty) {
+                        loop {
+                            // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
+                            // that we don't park unless certain things are done. `ParallelQueueWaiter`
+                            // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
+                            // wants to ensure `cancellation_recieve` is checked. Therefore, we put these two
+                            // operations between reading and waiting on  `queue_unpark_semaphore`
+                            let queue_unpark_semaphore_next_value =
+                                unsafe { queue_unpark_semaphore.get_next_value(&gfx.device) };
                             unsafe { queue.drive(&gfx.device) };
-                            let semaphore_value =
-                                unsafe { queue.park(&gfx.device, cancellation_semaphore, 1) };
+                            if cancellation_receive.try_recv() != Err(mpsc::TryRecvError::Empty) {
+                                break;
+                            }
+                            let semaphore_value = unsafe {
+                                queue.park(
+                                    &gfx.device,
+                                    queue_unpark_semaphore.0,
+                                    queue_unpark_semaphore_next_value,
+                                )
+                            };
                             parallel_queue_waiter.progress_changed.notify_waiters();
                             let _ = timeline_ring_tick_handle.tick_sender.send(semaphore_value);
                         }
@@ -301,7 +351,7 @@ impl AssetLoader {
                     println!("All threads shut down");
                     unsafe { queue.drain(&gfx.device) };
                     unsafe { queue.destroy(&gfx.device) };
-                    unsafe { gfx.device.destroy_semaphore(cancellation_semaphore, None) };
+                    unsafe { queue_unpark_semaphore.destroy(&gfx.device) };
                     unsafe { staging.destroy(&gfx) };
                 })
                 .unwrap()
@@ -311,7 +361,7 @@ impl AssetLoader {
             gfx,
             join_handle: Some(join_handle),
             cancellation_send,
-            cancellation_semaphore,
+            queue_unpark_semaphore,
             loader,
         }
     }
@@ -327,16 +377,7 @@ impl AssetLoader {
 impl Drop for AssetLoader {
     fn drop(&mut self) {
         let _ = self.cancellation_send.send(());
-        unsafe {
-            self.gfx
-                .device
-                .signal_semaphore(
-                    &vk::SemaphoreSignalInfo::default()
-                        .semaphore(self.cancellation_semaphore)
-                        .value(1),
-                )
-                .unwrap()
-        };
+        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
         self.join_handle.take().unwrap().join().unwrap();
     }
 }
