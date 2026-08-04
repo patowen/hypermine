@@ -12,8 +12,9 @@ use tracing::trace;
 
 use crate::{
     Config,
-    asset_loader::{Allocation, ParallelQueueWaiter, StagingRing},
+    asset_loader::ParallelQueueWaiter,
     graphics::Base,
+    growable_ring::{Allocation, GrowableRing},
 };
 
 pub struct PngArray {
@@ -28,7 +29,7 @@ impl PngArray {
         let cfg: &Config = context.get().unwrap();
         let handle: &parallel_queue::Handle = context.get().unwrap();
         let gfx: &Base = context.get().unwrap();
-        let staging_buffer: &StagingRing = context.get().unwrap();
+        let staging_buffer: &GrowableRing = context.get().unwrap();
         let parallel_queue_waiter: &ParallelQueueWaiter = context.get().unwrap();
         let full_path = cfg
             .find_asset(&self.path)
@@ -56,7 +57,7 @@ impl PngArray {
         let mut dims: Option<(u32, u32)> = None;
         let work = unsafe { handle.begin(&gfx.device) }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
         let work_time = work.time().get();
-        let mut mem2: Option<Allocation> = None;
+        let mut mem: Option<Allocation<u8>> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
             let file = File::open(path)
@@ -78,24 +79,26 @@ impl PngArray {
                 }
             } else {
                 dims = Some((info.width, info.height));
-                mem2 = Some(unsafe {
-                    staging_buffer
-                        .alloc_async(
-                            info.width as usize * info.height as usize * 4 * self.size,
-                            1, /* TODO: Is an alignment of 1 safe? */
-                            work_time,
-                        )
-                        .await
-                });
+                mem = Some(staging_buffer.alloc(
+                    gfx,
+                    info.width as usize * info.height as usize * 4 * self.size,
+                    1, /* TODO: Is an alignment of 1 safe? */
+                    work_time,
+                ));
             }
-            let mem2 = mem2.as_mut().unwrap();
+            let mem2 = mem.as_mut().unwrap();
             let step_size = info.width as usize * info.height as usize * 4;
             reader
-                .next_frame(&mut mem2.bytes[i * step_size..(i + 1) * step_size])
+                .next_frame(unsafe {
+                    std::slice::from_raw_parts_mut(
+                        mem2.pointer.offset((i * step_size) as isize).as_ptr(),
+                        step_size,
+                    )
+                })
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
         }
         let (width, height) = dims.unwrap();
-        let mem2 = mem2.unwrap();
+        let mem2 = mem.unwrap();
         unsafe {
             let image = DedicatedImage::new(
                 &gfx.device,
@@ -121,7 +124,7 @@ impl PngArray {
                 base_array_layer: 0,
                 layer_count: self.size as u32,
             };
-            let src = staging_buffer.buffer();
+            let src = mem2.buffer;
             let buffer_offset = mem2.offset;
             let dst = image.handle;
 

@@ -4,181 +4,10 @@ use std::{
 };
 
 use ash::vk;
-use lahar::{DedicatedMapping, ParallelQueue, TimelineRing};
+use lahar::ParallelQueue;
 use skid_steer::Context;
 
-use crate::{Config, graphics::Base};
-
-struct AsyncTimelineRing {
-    timeline_ring: TimelineRing,
-    size: usize, // TODO: TimelineRing should probably expose this. Otherwise, someone might allocate a buffer of size timeline_ring.capacity() and get undefined behavior.
-    max_allocation: usize,
-    request_receiver: tokio::sync::mpsc::UnboundedReceiver<AllocationRequest>,
-    tick_receiver: tokio::sync::mpsc::UnboundedReceiver<u64>,
-    blocked_allocation_request: Option<AllocationRequest>,
-}
-
-struct AsyncTimelineRingRequestHandle {
-    request_sender: tokio::sync::mpsc::UnboundedSender<AllocationRequest>,
-}
-
-struct AsyncTimelineRingTickHandle {
-    tick_sender: tokio::sync::mpsc::UnboundedSender<u64>,
-}
-
-struct AllocationRequest {
-    size: usize,
-    align: usize,
-    free_at: u64,
-    offset_sender: tokio::sync::oneshot::Sender<usize>,
-}
-
-impl AsyncTimelineRing {
-    fn new(
-        size: usize,
-    ) -> (
-        Self,
-        AsyncTimelineRingRequestHandle,
-        AsyncTimelineRingTickHandle,
-    ) {
-        let timeline_ring = TimelineRing::new(size);
-        let max_allocation = timeline_ring.capacity();
-        let (request_sender, request_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let (tick_sender, tick_receiver) = tokio::sync::mpsc::unbounded_channel();
-        (
-            AsyncTimelineRing {
-                timeline_ring,
-                size,
-                max_allocation,
-                request_receiver,
-                tick_receiver,
-                blocked_allocation_request: None,
-            },
-            AsyncTimelineRingRequestHandle { request_sender },
-            AsyncTimelineRingTickHandle { tick_sender },
-        )
-    }
-
-    async fn drive(&mut self) {
-        loop {
-            tracing::trace!("ParallelQueue loop iteration start");
-            tokio::select! {
-                biased;
-                tick = self.tick_receiver.recv() => {
-                    let Some(tick) = tick else {
-                        // If the tick sender is closed, that can only mean that we're shutting down.
-                        break;
-                    };
-                    self.apply_tick(tick);
-                }
-                Some(request) = self.request_receiver.recv(), if self.blocked_allocation_request.is_none() => {
-                    self.apply_allocation_request(request);
-                }
-                else => { break; }
-            }
-        }
-        tracing::trace!("ParallelQueue loop end");
-    }
-
-    fn apply_tick(&mut self, time: u64) {
-        self.timeline_ring.tick(time);
-
-        // Re-attempt allocation request
-        if let Some(request) = self.blocked_allocation_request.take() {
-            self.apply_allocation_request(request);
-        }
-    }
-
-    fn apply_allocation_request(&mut self, request: AllocationRequest) {
-        if let Some(offset) = self
-            .timeline_ring
-            .alloc(request.size, request.align, request.free_at)
-        {
-            let _ = request.offset_sender.send(offset);
-        } else {
-            self.blocked_allocation_request = Some(request);
-        }
-    }
-}
-
-impl AsyncTimelineRingRequestHandle {
-    pub async fn alloc(&self, size: usize, align: usize, free_at: u64) -> usize {
-        let (offset_sender, offset_receiver) = tokio::sync::oneshot::channel::<usize>();
-        let _ = self.request_sender.send(AllocationRequest {
-            size,
-            align,
-            free_at,
-            offset_sender,
-        });
-        let allocation = offset_receiver.await.expect(
-            "all callers of alloc_blocking are dropped before the timeline ring is dropped.",
-        );
-        allocation // TODO: Does this allocation have a reasonable lifetime?
-    }
-}
-
-pub struct StagingRing {
-    timeline_ring: AsyncTimelineRingRequestHandle,
-    backing_memory: DedicatedMapping<[u8]>,
-    max_allocation: usize,
-}
-
-pub struct Allocation<'a> {
-    // TODO: Consider encapsulating these fields
-    pub bytes: &'a mut [u8],
-    pub offset: u64,
-}
-
-impl StagingRing {
-    fn new(
-        gfx: &Base,
-        timeline_ring: &AsyncTimelineRing,
-        timeline_ring_request_handle: AsyncTimelineRingRequestHandle,
-    ) -> Self {
-        StagingRing {
-            timeline_ring: timeline_ring_request_handle,
-            backing_memory: unsafe {
-                DedicatedMapping::zeroed_array(
-                    &gfx.device,
-                    &gfx.memory_properties,
-                    vk::BufferUsageFlags::TRANSFER_SRC,
-                    timeline_ring.size,
-                )
-            },
-            max_allocation: timeline_ring.max_allocation.min(isize::MAX as usize),
-        }
-    }
-
-    /// Safety: The Allocation must be dropped before the staging ring is able to reuse the space taken up by the
-    /// allocation. In practice, this means dropping it before calling the `lahar::parallel_queue::Work::end` function.
-    pub async unsafe fn alloc_async(
-        &self,
-        size: usize,
-        align: usize,
-        free_at: u64,
-    ) -> Allocation<'_> {
-        assert!(size <= self.max_allocation);
-        let offset = self.timeline_ring.alloc(size, align, free_at).await;
-        unsafe {
-            Allocation {
-                bytes: std::slice::from_raw_parts_mut(
-                    (self.backing_memory.as_ptr() as *const u8).add(offset) as *mut u8,
-                    size,
-                ),
-                offset: offset.try_into().unwrap(),
-            }
-        }
-    }
-
-    pub fn buffer(&self) -> vk::Buffer {
-        self.backing_memory.buffer()
-    }
-
-    /// Safety: gfx needs to be the same as the Base passed to `new`
-    pub unsafe fn destroy(mut self, gfx: &Base) {
-        unsafe { self.backing_memory.destroy(&gfx.device) };
-    }
-}
+use crate::{Config, graphics::Base, growable_ring::GrowableRing};
 
 pub struct ParallelQueueWaiter {
     semaphore: vk::Semaphore,
@@ -259,9 +88,7 @@ impl AssetLoader {
         let mut queue =
             unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
-        let (mut timeline_ring, timeline_ring_request_handle, timeline_ring_tick_handle) =
-            AsyncTimelineRing::new(32 * 1024 * 1024);
-        let staging = StagingRing::new(&gfx, &timeline_ring, timeline_ring_request_handle);
+        let mut staging = GrowableRing::new(&gfx, 32 * 1024 * 1024);
         let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
 
         let join_handle = {
@@ -311,16 +138,6 @@ impl AssetLoader {
                                 .unwrap();
                         }
 
-                        thread::Builder::new()
-                            .name("timeline_ring_driver".to_owned())
-                            .spawn_scoped(s, move || {
-                                let runtime = tokio::runtime::LocalRuntime::new().unwrap();
-                                runtime.block_on(async {
-                                    timeline_ring.drive().await;
-                                })
-                            })
-                            .unwrap();
-
                         // Driver thread
                         loop {
                             // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
@@ -342,17 +159,16 @@ impl AssetLoader {
                                 )
                             };
                             parallel_queue_waiter.progress_changed.notify_waiters();
-                            let _ = timeline_ring_tick_handle.tick_sender.send(semaphore_value);
+                            unsafe { staging.tick(&gfx.device, semaphore_value) };
                         }
                         tracing::trace!("Cancellation received. Should shut down AssetLoader");
                         loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
-                        drop(timeline_ring_tick_handle);
                     });
                     tracing::trace!("All threads shut down");
                     unsafe { queue.drain(&gfx.device) };
                     unsafe { queue.destroy(&gfx.device) };
                     unsafe { queue_unpark_semaphore.destroy(&gfx.device) };
-                    unsafe { staging.destroy(&gfx) };
+                    unsafe { staging.destroy(&gfx.device) };
                 })
                 .unwrap()
         };
