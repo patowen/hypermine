@@ -23,7 +23,7 @@ pub struct PngArray {
 
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
-        println!("Started loading png array");
+        tracing::trace!("Started loading png array");
         // TODO: Consider bundling all components in the context into a struct
         let cfg: &Config = context.get().unwrap();
         let handle: &parallel_queue::Handle = context.get().unwrap();
@@ -180,11 +180,11 @@ impl PngArray {
                     .subresource_range(range)],
             );
             work.end();
-            println!("Awaiting parallel queue");
+            tracing::trace!("Awaiting parallel queue");
             parallel_queue_waiter
                 .wait_for_semaphore(&gfx.device, work_time)
                 .await;
-            println!("Finished awaiting parallel queue");
+            tracing::trace!("Finished awaiting parallel queue");
 
             trace!(
                 width = width,
@@ -192,7 +192,7 @@ impl PngArray {
                 path = %full_path.anonymize().display(),
                 "loaded array"
             );
-            println!("Asset almost loaded");
+            tracing::trace!("Asset almost loaded");
             Ok(image)
         }
     }

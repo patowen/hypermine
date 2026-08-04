@@ -61,7 +61,7 @@ impl AsyncTimelineRing {
 
     async fn drive(&mut self) {
         loop {
-            println!("ParallelQueue loop iteration start");
+            tracing::trace!("ParallelQueue loop iteration start");
             tokio::select! {
                 biased;
                 tick = self.tick_receiver.recv() => {
@@ -77,7 +77,7 @@ impl AsyncTimelineRing {
                 else => { break; }
             }
         }
-        println!("ParallelQueue loop end");
+        tracing::trace!("ParallelQueue loop end");
     }
 
     fn apply_tick(&mut self, time: u64) {
@@ -248,7 +248,7 @@ impl HelperSemaphore {
 pub struct AssetLoader {
     gfx: Arc<Base>,
     join_handle: Option<JoinHandle<()>>,
-    cancellation_send: mpsc::Sender<()>,
+    cancellation_send: mpsc::Sender<()>, // TODO: Use CancellationToken
     queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
 }
@@ -293,7 +293,7 @@ impl AssetLoader {
                                     // TODO: This is the wrong pattern for spawning async tasks because concurrency is lost.
                                     runtime.block_on(async {
                                         while let Some(task) = loader.next_task().await {
-                                            println!("Found task");
+                                            tracing::trace!("Found task");
                                             let context = Context::from_slice(&[
                                                 gfx,
                                                 config, // TODO: I don't want `Config` in the context long-term
@@ -302,9 +302,9 @@ impl AssetLoader {
                                                 parallel_queue_waiter,
                                             ]);
                                             task.run(&context).await;
-                                            println!("Asset loaded {}", i);
+                                            tracing::trace!("Asset loaded {}", i);
                                         }
-                                        println!("Ending task executor {}", i);
+                                        tracing::trace!("Ending task executor {}", i);
                                         unsafe { handle.destroy(&gfx.device) };
                                     });
                                 })
@@ -344,11 +344,11 @@ impl AssetLoader {
                             parallel_queue_waiter.progress_changed.notify_waiters();
                             let _ = timeline_ring_tick_handle.tick_sender.send(semaphore_value);
                         }
-                        println!("Cancellation received. Should shut down AssetLoader");
+                        tracing::trace!("Cancellation received. Should shut down AssetLoader");
                         loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
                         drop(timeline_ring_tick_handle);
                     });
-                    println!("All threads shut down");
+                    tracing::trace!("All threads shut down");
                     unsafe { queue.drain(&gfx.device) };
                     unsafe { queue.destroy(&gfx.device) };
                     unsafe { queue_unpark_semaphore.destroy(&gfx.device) };
