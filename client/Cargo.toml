@@ -13,7 +13,7 @@ common = { path = "../common" }
 server = { path = "../server" }
 tracing = "0.1.10"
 ash = { version = "0.38.0", default-features = false, features = ["loaded", "debug", "std"] }
-lahar = { git = "https://github.com/Ralith/lahar", rev = "be310125eeb190a169768d2881a939764e6a7dce" }
+lahar = { git = "https://github.com/Ralith/lahar", rev = "9d2cbda09456232275aeb1b1c7d6ac295d16bf4e" }
 yakui = "0.3.0"
 yakui-vulkan = "0.3.0"
 winit = "0.30.4"

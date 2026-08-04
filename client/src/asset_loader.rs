@@ -4,7 +4,7 @@ use std::{
 };
 
 use ash::vk;
-use lahar::{DedicatedMapping, ParallelQueue, TimelineRing, parallel_queue::Handle};
+use lahar::{DedicatedMapping, ParallelQueue, TimelineRing};
 use skid_steer::Context;
 
 use crate::{Config, graphics::Base};
@@ -290,17 +290,17 @@ impl AssetLoader {
                                 .name(format!("task_executor_{}", i).to_owned())
                                 .spawn_scoped(s, move || {
                                     let runtime = tokio::runtime::LocalRuntime::new().unwrap();
+                                    // TODO: This is the wrong pattern for spawning async tasks because concurrency is lost.
                                     runtime.block_on(async {
                                         while let Some(task) = loader.next_task().await {
                                             println!("Found task");
-                                            let mut context = Context::new();
-                                            context.insert::<Base>(gfx);
-                                            context.insert::<Config>(&config); // TODO: I don't want `Config` in the context long-term
-                                            context.insert::<Handle>(&handle);
-                                            context.insert::<StagingRing>(staging);
-                                            context.insert::<ParallelQueueWaiter>(
+                                            let context = Context::from_slice(&[
+                                                gfx,
+                                                config, // TODO: I don't want `Config` in the context long-term
+                                                &handle,
+                                                staging,
                                                 parallel_queue_waiter,
-                                            );
+                                            ]);
                                             task.run(&context).await;
                                             println!("Asset loaded {}", i);
                                         }

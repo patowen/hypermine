@@ -24,6 +24,7 @@ pub struct PngArray {
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         println!("Started loading png array");
+        // TODO: Consider bundling all components in the context into a struct
         let cfg: &Config = context.get().unwrap();
         let handle: &parallel_queue::Handle = context.get().unwrap();
         let gfx: &Base = context.get().unwrap();
@@ -39,6 +40,7 @@ impl PngArray {
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("reading {}", full_path.anonymize().display()))?;
         if paths.is_empty() {
+            // TODO: This check is redundant
             bail!("{} is empty", full_path.anonymize().display());
         }
         if paths.len() < self.size {
@@ -197,7 +199,7 @@ impl PngArray {
 }
 
 impl skid_steer::Source for PngArray {
-    type Output = DedicatedImage; // TODO: We may want a dedicated struct here.
+    type Output = DedicatedImage;
 
     async fn load(self, context: &skid_steer::Context<'_>) -> Option<DedicatedImage> {
         self.load_inner(context)
