@@ -221,10 +221,6 @@ fn run_task_executor(
     parallel_queue_waiter: ParallelQueueWaiter,
     loader: skid_steer::Loader,
 ) {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
     let asset_load_context = Rc::new(AssetLoadContext {
         gfx,
         config,
@@ -232,31 +228,33 @@ fn run_task_executor(
         parallel_queue_waiter,
         staging,
     });
-    tokio::task::LocalSet::new().block_on(&runtime, async {
-        while let Some(task) = loader.next_task().await {
-            tracing::trace!(
-                "Found task on {}",
-                thread::current().name().unwrap_or("<unnamed>")
-            );
-            let asset_load_context = Rc::clone(&asset_load_context);
-            tokio::task::spawn_local(async move {
-                let mut context = Context::new();
-                context.insert::<AssetLoadContext>(&asset_load_context);
-                task.run(&context).await;
+    tokio::runtime::LocalRuntime::new()
+        .unwrap()
+        .block_on(async {
+            while let Some(task) = loader.next_task().await {
                 tracing::trace!(
-                    "Task complete on {}",
+                    "Found task on {}",
                     thread::current().name().unwrap_or("<unnamed>")
                 );
-            });
-        }
-        tracing::trace!(
-            "Ending task executor {}",
-            thread::current().name().unwrap_or("<unnamed>")
-        );
-    });
+                let asset_load_context = Rc::clone(&asset_load_context);
+                tokio::task::spawn_local(async move {
+                    let mut context = Context::new();
+                    context.insert::<AssetLoadContext>(&asset_load_context);
+                    task.run(&context).await;
+                    tracing::trace!(
+                        "Task complete on {}",
+                        thread::current().name().unwrap_or("<unnamed>")
+                    );
+                });
+            }
+            tracing::trace!(
+                "Ending task executor {}",
+                thread::current().name().unwrap_or("<unnamed>")
+            );
+        });
     let mut asset_load_context = Rc::try_unwrap(asset_load_context)
         .map_err(|_| ())
-        .expect("runtime using this context should be closed");
+        .expect("runtime using this context should already be dropped");
     unsafe {
         asset_load_context
             .parallel_queue_handle

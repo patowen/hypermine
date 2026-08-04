@@ -20,6 +20,7 @@ pub struct PngArray {
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         tracing::trace!("Started loading png array");
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         let ctx: &AssetLoadContext = context.get().unwrap();
         let full_path = ctx
             .find_asset(&self.path)
