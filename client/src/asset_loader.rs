@@ -8,12 +8,17 @@ use ash::vk;
 use lahar::{ParallelQueue, parallel_queue};
 use skid_steer::Context;
 
-use crate::{Config, graphics::Base, growable_ring::GrowableRing};
+use crate::{
+    Config,
+    graphics::Base,
+    growable_ring::{self, GrowableRing},
+};
 
+#[derive(Clone)]
 pub struct ParallelQueueWaiter {
     semaphore: vk::Semaphore,
     queue_unpark_semaphore: HelperSemaphore,
-    progress_changed: tokio::sync::Notify,
+    progress_changed: Arc<tokio::sync::Notify>,
 }
 
 impl ParallelQueueWaiter {
@@ -75,6 +80,48 @@ impl HelperSemaphore {
     }
 }
 
+pub struct AssetLoadContext {
+    gfx: Arc<Base>,
+    parallel_queue_handle: parallel_queue::Handle,
+    parallel_queue_waiter: ParallelQueueWaiter,
+    staging: Arc<GrowableRing>,
+}
+
+impl AssetLoadContext {
+    pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
+        unsafe { self.parallel_queue_handle.begin(&self.gfx.device) }
+    }
+
+    pub fn alloc<T>(
+        &self,
+        count: usize,
+        align: usize,
+        free_at: u64,
+    ) -> growable_ring::Allocation<T> {
+        self.staging.alloc(&self.gfx, count, align, free_at)
+    }
+
+    pub fn device(&self) -> &ash::Device {
+        self.gfx.device.as_ref()
+    }
+
+    pub fn memory_properties(&self) -> &vk::PhysicalDeviceMemoryProperties {
+        &self.gfx.memory_properties
+    }
+
+    pub fn queue_family(&self) -> u32 {
+        self.gfx.queue_family
+    }
+
+    /// Submits the given work immediately and returns a future you can await to ensure the work completes
+    pub fn complete_work(&self, work: parallel_queue::Work<'_>) -> impl Future {
+        let finish_time = work.time().get();
+        work.end();
+        self.parallel_queue_waiter
+            .wait_for_semaphore(&self.gfx.device, finish_time)
+    }
+}
+
 pub struct AssetLoader {
     gfx: Arc<Base>,
     cancellation_send: std::sync::mpsc::Sender<()>, // TODO: Use CancellationToken
@@ -93,11 +140,11 @@ impl AssetLoader {
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
         let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
 
-        let parallel_queue_waiter = Arc::new(ParallelQueueWaiter {
+        let parallel_queue_waiter = ParallelQueueWaiter {
             semaphore: queue.semaphore(),
             queue_unpark_semaphore,
-            progress_changed: tokio::sync::Notify::new(),
-        });
+            progress_changed: Arc::new(tokio::sync::Notify::new()),
+        };
 
         // TODO: Use dynamic number of threads
         let mut task_executor_threads = vec![];
@@ -106,20 +153,13 @@ impl AssetLoader {
             let config = Arc::clone(&config);
             let handle = unsafe { queue.handle(&gfx.device) };
             let staging = Arc::clone(&staging);
-            let parallel_queue_waiter = Arc::clone(&parallel_queue_waiter);
+            let parallel_queue_waiter = parallel_queue_waiter.clone();
             let loader = loader.clone();
 
             let thread = thread::Builder::new()
                 .name(format!("task_executor_{}", i).to_owned())
                 .spawn(move || {
-                    run_task_executor(
-                        gfx,
-                        config,
-                        handle,
-                        staging,
-                        parallel_queue_waiter,
-                        loader.clone(),
-                    );
+                    run_task_executor(gfx, config, handle, staging, parallel_queue_waiter, loader);
                 })
                 .unwrap();
             task_executor_threads.push(thread);
@@ -168,29 +208,28 @@ fn run_task_executor(
     config: Arc<Config>,
     handle: parallel_queue::Handle,
     staging: Arc<GrowableRing>,
-    parallel_queue_waiter: Arc<ParallelQueueWaiter>,
+    parallel_queue_waiter: ParallelQueueWaiter,
     loader: skid_steer::Loader,
 ) {
     let runtime = tokio::runtime::LocalRuntime::new().unwrap();
-    let handle = Rc::new(handle);
+    let asset_load_context = Rc::new(AssetLoadContext {
+        gfx,
+        parallel_queue_handle: handle,
+        parallel_queue_waiter,
+        staging,
+    });
     runtime.block_on(async {
         while let Some(task) = loader.next_task().await {
             tracing::trace!(
                 "Found task on {}",
                 thread::current().name().unwrap_or("<unnamed>")
             );
-            let gfx = Arc::clone(&gfx);
             let config = Arc::clone(&config);
-            let handle = Rc::clone(&handle);
-            let staging = Arc::clone(&staging);
-            let parallel_queue_waiter = Arc::clone(&parallel_queue_waiter);
+            let asset_load_context = Rc::clone(&asset_load_context);
             tokio::task::spawn_local(async move {
                 let context = Context::from_slice(&[
-                    gfx.as_ref(),
+                    asset_load_context.as_ref(),
                     config.as_ref(), // TODO: I don't want `Config` in the context long-term
-                    handle.as_ref(),
-                    staging.as_ref(),
-                    parallel_queue_waiter.as_ref(),
                 ]);
                 task.run(&context).await;
                 tracing::trace!(
@@ -204,11 +243,13 @@ fn run_task_executor(
             thread::current().name().unwrap_or("<unnamed>")
         );
     });
+    let mut asset_load_context = Rc::try_unwrap(asset_load_context)
+        .map_err(|_| ())
+        .expect("runtime using this context is closed");
     unsafe {
-        Rc::try_unwrap(handle)
-            .map_err(|_| ())
-            .unwrap()
-            .destroy(&gfx.device)
+        asset_load_context
+            .parallel_queue_handle
+            .destroy(&asset_load_context.gfx.device)
     };
 }
 

@@ -7,15 +7,10 @@ use std::{
 use anyhow::{Context, anyhow, bail};
 use ash::vk;
 use common::Anonymize;
-use lahar::{DedicatedImage, parallel_queue};
+use lahar::DedicatedImage;
 use tracing::trace;
 
-use crate::{
-    Config,
-    asset_loader::ParallelQueueWaiter,
-    graphics::Base,
-    growable_ring::{Allocation, GrowableRing},
-};
+use crate::{Config, asset_loader::AssetLoadContext, growable_ring::Allocation};
 
 pub struct PngArray {
     pub path: PathBuf,
@@ -27,10 +22,7 @@ impl PngArray {
         tracing::trace!("Started loading png array");
         // TODO: Consider bundling all components in the context into a struct
         let cfg: &Config = context.get().unwrap();
-        let handle: &parallel_queue::Handle = context.get().unwrap();
-        let gfx: &Base = context.get().unwrap();
-        let staging_buffer: &GrowableRing = context.get().unwrap();
-        let parallel_queue_waiter: &ParallelQueueWaiter = context.get().unwrap();
+        let ctx: &AssetLoadContext = context.get().unwrap();
         let full_path = cfg
             .find_asset(&self.path)
             .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))
@@ -55,7 +47,7 @@ impl PngArray {
         paths.sort();
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
-        let work = unsafe { handle.begin(&gfx.device) }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
+        let work = unsafe { ctx.begin_work() }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
         let work_time = work.time().get();
         let mut mem: Option<Allocation<u8>> = None;
         for (i, path) in paths.iter().enumerate() {
@@ -79,8 +71,7 @@ impl PngArray {
                 }
             } else {
                 dims = Some((info.width, info.height));
-                mem = Some(staging_buffer.alloc(
-                    gfx,
+                mem = Some(ctx.alloc(
                     info.width as usize * info.height as usize * 4 * self.size,
                     1, /* TODO: Is an alignment of 1 safe? */
                     work_time,
@@ -101,8 +92,8 @@ impl PngArray {
         let mem2 = mem.unwrap();
         unsafe {
             let image = DedicatedImage::new(
-                &gfx.device,
-                &gfx.memory_properties,
+                ctx.device(),
+                ctx.memory_properties(),
                 &vk::ImageCreateInfo::default()
                     .image_type(vk::ImageType::TYPE_2D)
                     .format(vk::Format::R8G8B8A8_SRGB)
@@ -128,7 +119,7 @@ impl PngArray {
             let buffer_offset = mem2.offset;
             let dst = image.handle;
 
-            gfx.device.cmd_pipeline_barrier(
+            ctx.device().cmd_pipeline_barrier(
                 work.cmd(),
                 vk::PipelineStageFlags::TOP_OF_PIPE,
                 vk::PipelineStageFlags::TRANSFER,
@@ -144,7 +135,7 @@ impl PngArray {
                     .image(dst)
                     .subresource_range(range)],
             );
-            gfx.device.cmd_copy_buffer_to_image(
+            ctx.device().cmd_copy_buffer_to_image(
                 work.cmd(),
                 src,
                 dst,
@@ -165,7 +156,7 @@ impl PngArray {
                     ..Default::default()
                 }],
             );
-            gfx.device.cmd_pipeline_barrier(
+            ctx.device().cmd_pipeline_barrier(
                 work.cmd(),
                 vk::PipelineStageFlags::TRANSFER,
                 vk::PipelineStageFlags::FRAGMENT_SHADER,
@@ -175,18 +166,15 @@ impl PngArray {
                 &[vk::ImageMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                    .src_queue_family_index(gfx.queue_family)
-                    .dst_queue_family_index(gfx.queue_family)
+                    .src_queue_family_index(ctx.queue_family())
+                    .dst_queue_family_index(ctx.queue_family())
                     .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                     .image(dst)
                     .subresource_range(range)],
             );
-            work.end();
             tracing::trace!("Awaiting parallel queue");
-            parallel_queue_waiter
-                .wait_for_semaphore(&gfx.device, work_time)
-                .await;
+            ctx.complete_work(work).await;
             tracing::trace!("Finished awaiting parallel queue");
 
             trace!(
@@ -195,7 +183,7 @@ impl PngArray {
                 path = %full_path.anonymize().display(),
                 "loaded array"
             );
-            tracing::trace!("Asset almost loaded");
+            tracing::trace!("png_array loaded");
             Ok(image)
         }
     }
@@ -212,7 +200,7 @@ impl skid_steer::Source for PngArray {
     }
 
     fn free(mut output: Self::Output, context: &skid_steer::Context) {
-        let gfx: &Base = context.get().unwrap();
-        unsafe { output.destroy(&gfx.device) }; // TODO: Also destroy on cancellation
+        let ctx: &AssetLoadContext = context.get().unwrap();
+        unsafe { output.destroy(ctx.device()) }; // TODO: Also destroy on cancellation
     }
 }
