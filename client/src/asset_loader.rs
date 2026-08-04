@@ -94,6 +94,9 @@ pub struct AssetLoadContext {
 // one would need the context for. This helps add some level of separation between how global
 // data is organized and what asset loading code sees
 impl AssetLoadContext {
+    /// # Safety
+    /// - [`Work::cmd`] must not be used outside the lifetime of the returned [`Work`]
+    /// - Any Vulkan resources this work uses must not be destroyed before the [`Work`] is dropped
     pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
         unsafe { self.parallel_queue_handle.begin(&self.gfx.device) }
     }
@@ -102,9 +105,10 @@ impl AssetLoadContext {
         &self,
         count: usize,
         align: usize,
-        free_at: u64,
+        free_at_completion: &parallel_queue::Work<'_>,
     ) -> growable_ring::Allocation<T> {
-        self.staging.alloc(&self.gfx, count, align, free_at)
+        self.staging
+            .alloc(&self.gfx, count, align, free_at_completion.time().get())
     }
 
     pub fn device(&self) -> &ash::Device {

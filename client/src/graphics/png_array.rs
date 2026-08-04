@@ -17,10 +17,22 @@ pub struct PngArray {
     pub size: usize,
 }
 
+struct DroppableDedicatedImage<'a> {
+    image: Option<DedicatedImage>,
+    device: &'a ash::Device,
+}
+
+impl Drop for DroppableDedicatedImage<'_> {
+    fn drop(&mut self) {
+        if let Some(mut image) = self.image {
+            unsafe { image.destroy(self.device) };
+        }
+    }
+}
+
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         tracing::trace!("Started loading png array");
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         let ctx: &AssetLoadContext = context.get().unwrap();
         let full_path = ctx
             .find_asset(&self.path)
@@ -46,8 +58,11 @@ impl PngArray {
         paths.sort();
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
+        let mut dedicated_image: DroppableDedicatedImage = DroppableDedicatedImage {
+            image: None,
+            device: ctx.device(),
+        };
         let work = unsafe { ctx.begin_work() }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
-        let work_time = work.time().get();
         let mut mem: Option<Allocation<u8>> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
@@ -73,7 +88,7 @@ impl PngArray {
                 mem = Some(ctx.alloc(
                     info.width as usize * info.height as usize * 4 * self.size,
                     1, /* TODO: Is an alignment of 1 safe? */
-                    work_time,
+                    &work,
                 ));
             }
             let mem2 = mem.as_mut().unwrap();
@@ -90,7 +105,7 @@ impl PngArray {
         let (width, height) = dims.unwrap();
         let mem2 = mem.unwrap();
         unsafe {
-            let image = DedicatedImage::new(
+            let image = dedicated_image.image.insert(DedicatedImage::new(
                 ctx.device(),
                 ctx.memory_properties(),
                 &vk::ImageCreateInfo::default()
@@ -105,7 +120,7 @@ impl PngArray {
                     .array_layers(self.size as u32)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
-            );
+            ));
 
             let range = vk::ImageSubresourceRange {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -183,7 +198,7 @@ impl PngArray {
                 "loaded array"
             );
             tracing::trace!("png_array loaded");
-            Ok(image)
+            Ok(dedicated_image.image.take().unwrap())
         }
     }
 }
@@ -200,6 +215,6 @@ impl skid_steer::Source for PngArray {
 
     fn free(mut output: Self::Output, context: &skid_steer::Context) {
         let ctx: &AssetLoadContext = context.get().unwrap();
-        unsafe { output.destroy(ctx.device()) }; // TODO: Also destroy on cancellation
+        unsafe { output.destroy(ctx.device()) };
     }
 }
