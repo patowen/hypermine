@@ -1,4 +1,5 @@
 use std::{
+    rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
 };
@@ -112,11 +113,11 @@ impl AssetLoader {
                 .name(format!("task_executor_{}", i).to_owned())
                 .spawn(move || {
                     run_task_executor(
-                        &gfx,
-                        &config,
+                        gfx,
+                        config,
                         handle,
-                        &staging,
-                        &parallel_queue_waiter,
+                        staging,
+                        parallel_queue_waiter,
                         loader.clone(),
                     );
                 })
@@ -163,37 +164,52 @@ impl AssetLoader {
 }
 
 fn run_task_executor(
-    gfx: &Base,
-    config: &Config,
-    mut handle: parallel_queue::Handle,
-    staging: &GrowableRing,
-    parallel_queue_waiter: &ParallelQueueWaiter,
+    gfx: Arc<Base>,
+    config: Arc<Config>,
+    handle: parallel_queue::Handle,
+    staging: Arc<GrowableRing>,
+    parallel_queue_waiter: Arc<ParallelQueueWaiter>,
     loader: skid_steer::Loader,
 ) {
     let runtime = tokio::runtime::LocalRuntime::new().unwrap();
-    // TODO: This is the wrong pattern for spawning async tasks because concurrency is lost.
+    let handle = Rc::new(handle);
     runtime.block_on(async {
         while let Some(task) = loader.next_task().await {
-            tracing::trace!("Found task");
-            let context = Context::from_slice(&[
-                gfx,
-                config, // TODO: I don't want `Config` in the context long-term
-                &handle,
-                staging,
-                parallel_queue_waiter,
-            ]);
-            task.run(&context).await;
             tracing::trace!(
-                "Asset loaded {}",
+                "Found task on {}",
                 thread::current().name().unwrap_or("<unnamed>")
             );
+            let gfx = Arc::clone(&gfx);
+            let config = Arc::clone(&config);
+            let handle = Rc::clone(&handle);
+            let staging = Arc::clone(&staging);
+            let parallel_queue_waiter = Arc::clone(&parallel_queue_waiter);
+            tokio::task::spawn_local(async move {
+                let context = Context::from_slice(&[
+                    gfx.as_ref(),
+                    config.as_ref(), // TODO: I don't want `Config` in the context long-term
+                    handle.as_ref(),
+                    staging.as_ref(),
+                    parallel_queue_waiter.as_ref(),
+                ]);
+                task.run(&context).await;
+                tracing::trace!(
+                    "Task complete on {}",
+                    thread::current().name().unwrap_or("<unnamed>")
+                );
+            });
         }
         tracing::trace!(
             "Ending task executor {}",
             thread::current().name().unwrap_or("<unnamed>")
         );
     });
-    unsafe { handle.destroy(&gfx.device) };
+    unsafe {
+        Rc::try_unwrap(handle)
+            .map_err(|_| ())
+            .unwrap()
+            .destroy(&gfx.device)
+    };
 }
 
 fn run_parallel_queue_driver(
