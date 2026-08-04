@@ -221,7 +221,10 @@ fn run_task_executor(
     parallel_queue_waiter: ParallelQueueWaiter,
     loader: skid_steer::Loader,
 ) {
-    let runtime = tokio::runtime::LocalRuntime::new().unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let asset_load_context = Rc::new(AssetLoadContext {
         gfx,
         config,
@@ -229,7 +232,7 @@ fn run_task_executor(
         parallel_queue_waiter,
         staging,
     });
-    runtime.block_on(async {
+    tokio::task::LocalSet::new().block_on(&runtime, async {
         while let Some(task) = loader.next_task().await {
             tracing::trace!(
                 "Found task on {}",
@@ -253,7 +256,7 @@ fn run_task_executor(
     });
     let mut asset_load_context = Rc::try_unwrap(asset_load_context)
         .map_err(|_| ())
-        .expect("runtime using this context is closed");
+        .expect("runtime using this context should be closed");
     unsafe {
         asset_load_context
             .parallel_queue_handle
@@ -305,7 +308,7 @@ impl Drop for AssetLoader {
             .join()
             .unwrap();
         tracing::trace!("Shutting down down AssetLoader");
-        self.loader.close(); // TODO: Think about how to actually close the loader, such as cancelling in-progress tasks.
+        self.loader.close();
         for task_executor_thread in self.task_executor_threads.drain(..) {
             task_executor_thread.join().unwrap();
         }
@@ -315,7 +318,7 @@ impl Drop for AssetLoader {
         unsafe {
             Arc::try_unwrap(self.staging.take().unwrap())
                 .map_err(|_| ())
-                .expect("All threads using staging are now joined")
+                .expect("All threads using staging should now be joined")
                 .destroy(&self.gfx.device)
         };
     }
