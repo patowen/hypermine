@@ -10,7 +10,7 @@ use common::Anonymize;
 use lahar::DedicatedImage;
 use tracing::trace;
 
-use crate::{Config, asset_loader::AssetLoadContext, growable_ring::Allocation};
+use crate::{asset_loader::AssetLoadContext, growable_ring::Allocation};
 
 pub struct PngArray {
     pub path: PathBuf,
@@ -20,10 +20,8 @@ pub struct PngArray {
 impl PngArray {
     async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
         tracing::trace!("Started loading png array");
-        // TODO: Consider bundling all components in the context into a struct
-        let cfg: &Config = context.get().unwrap();
         let ctx: &AssetLoadContext = context.get().unwrap();
-        let full_path = cfg
+        let full_path = ctx
             .find_asset(&self.path)
             .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))
             .inspect_err(|e| tracing::error!("{}", e))?;

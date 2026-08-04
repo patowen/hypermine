@@ -1,4 +1,5 @@
 use std::{
+    path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
@@ -80,13 +81,18 @@ impl HelperSemaphore {
     }
 }
 
+/// Contains all the dependencies necessary to load assets.
 pub struct AssetLoadContext {
     gfx: Arc<Base>,
+    config: Arc<Config>,
     parallel_queue_handle: parallel_queue::Handle,
     parallel_queue_waiter: ParallelQueueWaiter,
     staging: Arc<GrowableRing>,
 }
 
+// Rather than exposing its fields, we expose helper functions for the kinds of tasks
+// one would need the context for. This helps add some level of separation between how global
+// data is organized and what asset loading code sees
 impl AssetLoadContext {
     pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
         unsafe { self.parallel_queue_handle.begin(&self.gfx.device) }
@@ -119,6 +125,10 @@ impl AssetLoadContext {
         work.end();
         self.parallel_queue_waiter
             .wait_for_semaphore(&self.gfx.device, finish_time)
+    }
+
+    pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
+        self.config.find_asset(path)
     }
 }
 
@@ -214,6 +224,7 @@ fn run_task_executor(
     let runtime = tokio::runtime::LocalRuntime::new().unwrap();
     let asset_load_context = Rc::new(AssetLoadContext {
         gfx,
+        config,
         parallel_queue_handle: handle,
         parallel_queue_waiter,
         staging,
@@ -224,13 +235,10 @@ fn run_task_executor(
                 "Found task on {}",
                 thread::current().name().unwrap_or("<unnamed>")
             );
-            let config = Arc::clone(&config);
             let asset_load_context = Rc::clone(&asset_load_context);
             tokio::task::spawn_local(async move {
-                let context = Context::from_slice(&[
-                    asset_load_context.as_ref(),
-                    config.as_ref(), // TODO: I don't want `Config` in the context long-term
-                ]);
+                let mut context = Context::new();
+                context.insert::<AssetLoadContext>(&asset_load_context);
                 task.run(&context).await;
                 tracing::trace!(
                     "Task complete on {}",
