@@ -143,7 +143,7 @@ pub struct AssetLoader {
     loader: skid_steer::Loader,
     task_executor_threads: Vec<JoinHandle<()>>,
     parallel_queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
-    staging: Option<Arc<GrowableRing>>,
+    staging: Arc<GrowableRing>,
 }
 
 impl AssetLoader {
@@ -205,7 +205,7 @@ impl AssetLoader {
             loader,
             task_executor_threads,
             parallel_queue_driver_thread,
-            staging: Some(staging),
+            staging,
         }
     }
 
@@ -225,7 +225,7 @@ fn run_task_executor(
     parallel_queue_waiter: ParallelQueueWaiter,
     loader: skid_steer::Loader,
 ) {
-    let asset_load_context = Rc::new(AssetLoadContext {
+    let mut asset_load_context = Rc::new(AssetLoadContext {
         gfx,
         config,
         parallel_queue_handle: handle,
@@ -256,8 +256,7 @@ fn run_task_executor(
                 thread::current().name().unwrap_or("<unnamed>")
             );
         });
-    let mut asset_load_context = Rc::try_unwrap(asset_load_context)
-        .map_err(|_| ())
+    let asset_load_context = Rc::get_mut(&mut asset_load_context)
         .expect("runtime using this context should already be dropped");
     unsafe {
         asset_load_context
@@ -318,8 +317,7 @@ impl Drop for AssetLoader {
         unsafe { queue.destroy(&self.gfx.device) };
         unsafe { self.queue_unpark_semaphore.destroy(&self.gfx.device) };
         unsafe {
-            Arc::try_unwrap(self.staging.take().unwrap())
-                .map_err(|_| ())
+            Arc::get_mut(&mut self.staging)
                 .expect("All threads using staging should now be joined")
                 .destroy(&self.gfx.device)
         };
