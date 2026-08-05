@@ -15,6 +15,7 @@ pub struct Config {
     pub data_dirs: Vec<PathBuf>,
     pub save: PathBuf,
     pub chunk_load_parallelism: u32,
+    pub asset_load_parallelism: u32,
     pub server: Option<SocketAddr>,
     pub local_simulation: SimConfig,
 }
@@ -30,6 +31,7 @@ impl Config {
             save,
             local_simulation,
             chunk_load_parallelism,
+            asset_load_parallelism,
             server,
         } = match fs::read(&path) {
             Ok(data) => {
@@ -83,6 +85,10 @@ impl Config {
             data_dirs,
             save: save.unwrap_or("default.save".into()),
             chunk_load_parallelism: chunk_load_parallelism.unwrap_or(256),
+            asset_load_parallelism: asset_load_parallelism.unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map_or(1, |threads| threads.get().min(16) as u32)
+            }),
             server,
             local_simulation: SimConfig::from_raw(&local_simulation),
         }
@@ -106,6 +112,7 @@ impl Config {
             data_dirs: vec![],
             save: "save_file_only_to_be_used_for_unit_test.save".into(),
             chunk_load_parallelism: 4,
+            asset_load_parallelism: 4,
             server: None,
             local_simulation: SimConfig::from_raw(&SimConfigRaw::default()),
         }
@@ -120,6 +127,7 @@ struct RawConfig {
     data_dir: Option<PathBuf>,
     save: Option<PathBuf>,
     chunk_load_parallelism: Option<u32>,
+    asset_load_parallelism: Option<u32>,
     server: Option<SocketAddr>,
     #[serde(default)]
     local_simulation: SimConfigRaw,

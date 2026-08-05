@@ -162,7 +162,11 @@ impl AssetLoader {
 
         // TODO: Use dynamic number of threads
         let mut task_executor_threads = vec![];
-        for i in 0..2 {
+        tracing::debug!(
+            "Using asset load parallelism {}",
+            config.asset_load_parallelism
+        );
+        for i in 0..(config.asset_load_parallelism) {
             let gfx = Arc::clone(&gfx);
             let config = Arc::clone(&config);
             let handle = unsafe { queue.handle(&gfx.device) };
@@ -473,7 +477,7 @@ mod tests {
         let gfx = Arc::new(Base::headless());
         let config = Arc::new({
             let mut config = Config::create_for_test();
-            config.chunk_load_parallelism = 1;
+            config.asset_load_parallelism = asset_load_parallelism;
             config
         });
         AssetLoader::new(Arc::clone(&gfx), Arc::clone(&config))
