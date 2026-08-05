@@ -336,19 +336,33 @@ mod tests {
 
     /// Record-keeping for what has happened so far with the asset loader, useful for assertions
     #[derive(Debug, Clone)]
-    struct EventList(Arc<Mutex<Vec<Event>>>);
+    struct EventList {
+        events: Arc<Mutex<Vec<Event>>>,
+        num_checked_events: usize,
+    }
 
     impl EventList {
         fn new() -> Self {
-            EventList(Arc::new(Mutex::new(vec![])))
+            EventList {
+                events: Arc::new(Mutex::new(vec![])),
+                num_checked_events: 0,
+            }
         }
 
         fn push_event(&self, event: Event) {
-            self.0.lock().unwrap().push(event);
+            self.events.lock().unwrap().push(event);
         }
 
-        fn drain(&self) -> Vec<Event> {
-            self.0.lock().unwrap().drain(..).collect()
+        fn get_all_events(&mut self) -> Vec<Event> {
+            let events = self.events.lock().unwrap().clone();
+            self.num_checked_events = events.len();
+            events
+        }
+
+        /// Drains all events that were returned by the most recent call to get_all_events
+        fn drain_queried_events(&mut self) {
+            self.events.lock().unwrap().drain(self.num_checked_events..);
+            self.num_checked_events = 0;
         }
     }
 
@@ -499,9 +513,33 @@ mod tests {
         }
     }
 
+    fn test_eventual_success(mut f: impl FnMut() -> Result<(), anyhow::Error>) {
+        let timeout = Duration::from_secs(3);
+        if f().is_ok() {
+            return;
+        }
+        let start_time = std::time::Instant::now();
+        let mut next_poll = Duration::from_millis(16);
+        while next_poll < timeout {
+            if let Some(sleep_time) = next_poll.checked_sub(start_time.elapsed()) {
+                thread::sleep(sleep_time);
+            }
+            if f().is_ok() {
+                return;
+            }
+            next_poll *= 2;
+        }
+        if let Some(sleep_time) = timeout.checked_sub(start_time.elapsed()) {
+            thread::sleep(sleep_time);
+        }
+        if let Err(e) = f() {
+            panic!("{}", e);
+        }
+    }
+
     #[test]
     fn sample_test() {
-        let events = EventList::new();
+        let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
         let dummy_asset = load_dummy_asset(&asset_loader, &events, "asset");
         dummy_asset.add_percent_progress(50);
@@ -509,21 +547,22 @@ mod tests {
         dummy_asset.wait_for_completion();
         assert!(dummy_asset.asset.try_get().is_some());
         assert_eq!(
-            events.drain(),
+            events.get_all_events(),
             &[
                 Event::progress("asset", 50),
                 Event::progress("asset", 100),
                 Event::loaded("asset")
             ]
         );
+        events.drain_queried_events();
         drop(dummy_asset);
         drop(asset_loader);
-        assert_eq!(events.drain(), &[Event::freed("asset")]);
+        assert_eq!(events.get_all_events(), &[Event::freed("asset")]);
     }
 
     #[test]
     fn test_concurrency() {
-        let events = EventList::new();
+        let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
         let assets: Vec<_> = (0..4)
             .map(|i| load_dummy_asset(&asset_loader, &events, &format!("asset{i}")))
@@ -531,17 +570,21 @@ mod tests {
         for asset in &assets {
             asset.add_percent_progress(50);
         }
-        std::thread::sleep(Duration::from_secs(1)); // TODO: Use a helper function for the 1-second timeout
-        assert_eq!(
-            events.drain().into_iter().collect::<HashSet<_>>(),
-            [
+        test_eventual_success(|| {
+            let actual_events = events.get_all_events().into_iter().collect::<HashSet<_>>();
+            let expected_events = [
                 Event::progress("asset0", 50),
                 Event::progress("asset1", 50),
                 Event::progress("asset2", 50),
-                Event::progress("asset3", 50)
+                Event::progress("asset3", 50),
             ]
             .into_iter()
-            .collect::<HashSet<_>>()
-        );
+            .collect::<HashSet<_>>();
+            anyhow::ensure!(
+                actual_events == expected_events,
+                "Expected: {expected_events:?}\nActual: {actual_events:?}"
+            );
+            Ok(())
+        });
     }
 }
