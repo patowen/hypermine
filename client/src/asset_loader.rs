@@ -330,19 +330,46 @@ mod tests {
 
     use super::*;
 
+    /// Record-keeping for what has happened so far with the asset loader, useful for assertions
+    #[derive(Debug, Clone)]
+    struct EventList(Arc<Mutex<Vec<Event>>>);
+
+    impl EventList {
+        fn new() -> Self {
+            EventList(Arc::new(Mutex::new(vec![])))
+        }
+
+        fn push_event(&self, event: Event) {
+            self.0.lock().unwrap().push(event);
+        }
+
+        fn get_all_events(&self) -> Vec<Event> {
+            self.0.lock().unwrap().clone()
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    enum Event {
+        Loaded {
+            asset: String,
+        },
+        Freed {
+            asset: String,
+        },
+        LoadCanceled {
+            asset: String,
+            percent_progress: u32,
+        },
+    }
+
     struct TestAsset<T: Send + 'static> {
         asset: skid_steer::Asset<T>,
         progress_sender: tokio::sync::mpsc::UnboundedSender<u32>,
-        progress_when_cancelled_receiver: Arc<std::sync::OnceLock<u32>>,
     }
 
     impl<T: Send + 'static> TestAsset<T> {
         fn add_percent_progress(&self, percent_progress: u32) {
             self.progress_sender.send(percent_progress).unwrap();
-        }
-
-        fn get_progress_when_cancelled(&self) -> Option<u32> {
-            self.progress_when_cancelled_receiver.get().copied()
         }
 
         fn wait_for_completion(&self) {
@@ -358,11 +385,15 @@ mod tests {
         }
     }
 
-    struct DummyAsset;
+    struct DummyAsset {
+        name: String,
+        events: EventList,
+    }
 
     struct DummyAssetSource {
+        name: String,
+        events: EventList,
         progress_receiver: tokio::sync::mpsc::UnboundedReceiver<u32>,
-        progress_when_cancelled_sender: Arc<std::sync::OnceLock<u32>>,
     }
 
     impl skid_steer::Source for DummyAssetSource {
@@ -370,56 +401,85 @@ mod tests {
 
         async fn load(mut self, _context: &Context<'_>) -> Option<Self::Output> {
             let mut status = DummyAssetStatus {
+                name: self.name.clone(),
                 progress: 0,
                 can_cancel: true,
-                progress_when_cancelled_sender: self.progress_when_cancelled_sender,
+                events: self.events.clone(),
             };
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;
             }
             status.can_cancel = false; // Done loading
-            Some(DummyAsset)
+            self.events.push_event(Event::Loaded {
+                asset: self.name.clone(),
+            });
+            Some(DummyAsset {
+                name: self.name,
+                events: self.events,
+            })
+        }
+
+        fn free(output: Self::Output, _context: &Context) {
+            output
+                .events
+                .push_event(Event::Freed { asset: output.name });
         }
     }
 
     struct DummyAssetStatus {
+        name: String,
         progress: u32,
         can_cancel: bool,
-        progress_when_cancelled_sender: Arc<std::sync::OnceLock<u32>>,
+        events: EventList,
     }
 
     impl Drop for DummyAssetStatus {
         fn drop(&mut self) {
             if self.can_cancel {
-                self.progress_when_cancelled_sender
-                    .set(self.progress)
-                    .unwrap();
+                self.events.push_event(Event::LoadCanceled {
+                    asset: self.name.clone(),
+                    percent_progress: self.progress,
+                });
             }
         }
     }
 
-    fn load_dummy_asset(asset_loader: &AssetLoader) -> TestAsset<DummyAsset> {
+    fn load_dummy_asset(
+        asset_loader: &AssetLoader,
+        events: &EventList,
+        name: &str,
+    ) -> TestAsset<DummyAsset> {
         let (progress_sender, progress_receiver) = tokio::sync::mpsc::unbounded_channel();
-        let progress_when_cancelled = Arc::new(std::sync::OnceLock::new());
         TestAsset {
             asset: asset_loader.load(DummyAssetSource {
+                name: name.to_owned(),
+                events: events.clone(),
                 progress_receiver,
-                progress_when_cancelled_sender: Arc::clone(&progress_when_cancelled),
             }),
             progress_sender,
-            progress_when_cancelled_receiver: progress_when_cancelled,
         }
     }
 
     #[test]
     fn sample_test() {
+        let events = EventList::new();
         let gfx = Arc::new(Base::headless());
         let config = Arc::new(Config::create_for_test());
         let asset_loader = AssetLoader::new(Arc::clone(&gfx), Arc::clone(&config));
-        let dummy_asset = load_dummy_asset(&asset_loader);
+        let dummy_asset = load_dummy_asset(&asset_loader, &events, "asset");
         dummy_asset.add_percent_progress(50);
         dummy_asset.add_percent_progress(50);
         dummy_asset.wait_for_completion();
         assert!(dummy_asset.asset.try_get().is_some());
+        drop(dummy_asset);
+        let expected_events = Vec::from([
+            Event::Loaded {
+                asset: "asset".to_owned(),
+            },
+            Event::Freed {
+                asset: "asset".to_owned(),
+            },
+        ]);
+        assert_eq!(events.get_all_events(), expected_events)
     }
 }
