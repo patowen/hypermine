@@ -343,8 +343,8 @@ mod tests {
             self.0.lock().unwrap().push(event);
         }
 
-        fn get_all_events(&self) -> Vec<Event> {
-            self.0.lock().unwrap().clone()
+        fn drain(&self) -> Vec<Event> {
+            self.0.lock().unwrap().drain(..).collect()
         }
     }
 
@@ -360,6 +360,27 @@ mod tests {
             asset: String,
             percent_progress: u32,
         },
+    }
+
+    impl Event {
+        fn loaded(name: &str) -> Self {
+            Event::Loaded {
+                asset: name.to_owned(),
+            }
+        }
+
+        fn freed(name: &str) -> Self {
+            Event::Freed {
+                asset: name.to_owned(),
+            }
+        }
+
+        fn load_cancelled(name: &str, percent_progress: u32) -> Self {
+            Event::LoadCanceled {
+                asset: name.to_owned(),
+                percent_progress,
+            }
+        }
     }
 
     struct TestAsset<T: Send + 'static> {
@@ -410,9 +431,7 @@ mod tests {
                 status.progress += self.progress_receiver.recv().await?;
             }
             status.can_cancel = false; // Done loading
-            self.events.push_event(Event::Loaded {
-                asset: self.name.clone(),
-            });
+            self.events.push_event(Event::loaded(&self.name));
             Some(DummyAsset {
                 name: self.name,
                 events: self.events,
@@ -420,9 +439,7 @@ mod tests {
         }
 
         fn free(output: Self::Output, _context: &Context) {
-            output
-                .events
-                .push_event(Event::Freed { asset: output.name });
+            output.events.push_event(Event::freed(&output.name));
         }
     }
 
@@ -436,12 +453,20 @@ mod tests {
     impl Drop for DummyAssetStatus {
         fn drop(&mut self) {
             if self.can_cancel {
-                self.events.push_event(Event::LoadCanceled {
-                    asset: self.name.clone(),
-                    percent_progress: self.progress,
-                });
+                self.events
+                    .push_event(Event::load_cancelled(&self.name, self.progress));
             }
         }
+    }
+
+    fn init_asset_loader(asset_load_parallelism: u32) -> AssetLoader {
+        let gfx = Arc::new(Base::headless());
+        let config = Arc::new({
+            let mut config = Config::create_for_test();
+            config.chunk_load_parallelism = 1;
+            config
+        });
+        AssetLoader::new(Arc::clone(&gfx), Arc::clone(&config))
     }
 
     fn load_dummy_asset(
@@ -463,23 +488,15 @@ mod tests {
     #[test]
     fn sample_test() {
         let events = EventList::new();
-        let gfx = Arc::new(Base::headless());
-        let config = Arc::new(Config::create_for_test());
-        let asset_loader = AssetLoader::new(Arc::clone(&gfx), Arc::clone(&config));
+        let asset_loader = init_asset_loader(2);
         let dummy_asset = load_dummy_asset(&asset_loader, &events, "asset");
         dummy_asset.add_percent_progress(50);
         dummy_asset.add_percent_progress(50);
         dummy_asset.wait_for_completion();
         assert!(dummy_asset.asset.try_get().is_some());
+        assert_eq!(events.drain(), &[Event::loaded("asset")]);
         drop(dummy_asset);
-        let expected_events = Vec::from([
-            Event::Loaded {
-                asset: "asset".to_owned(),
-            },
-            Event::Freed {
-                asset: "asset".to_owned(),
-            },
-        ]);
-        assert_eq!(events.get_all_events(), expected_events)
+        drop(asset_loader);
+        assert_eq!(events.drain(), &[Event::freed("asset")]);
     }
 }
