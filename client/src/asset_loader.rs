@@ -323,3 +323,103 @@ impl Drop for AssetLoader {
         };
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::Mutex, time::Duration};
+
+    use super::*;
+
+    struct TestAsset<T: Send + 'static> {
+        asset: skid_steer::Asset<T>,
+        progress_sender: tokio::sync::mpsc::UnboundedSender<u32>,
+        progress_when_cancelled_receiver: Arc<std::sync::OnceLock<u32>>,
+    }
+
+    impl<T: Send + 'static> TestAsset<T> {
+        fn add_percent_progress(&self, percent_progress: u32) {
+            self.progress_sender.send(percent_progress).unwrap();
+        }
+
+        fn get_progress_when_cancelled(&self) -> Option<u32> {
+            self.progress_when_cancelled_receiver.get().copied()
+        }
+
+        fn wait_for_completion(&self) {
+            tokio::runtime::LocalRuntime::new()
+                .unwrap()
+                .block_on(async {
+                    tokio::select! {
+                        biased;
+                        _ = self.asset.get() => (),
+                        _ = tokio::time::sleep(Duration::from_secs(5)) => { panic!("Timed out waiting for asset to load") },
+                    };
+                });
+        }
+    }
+
+    struct DummyAsset;
+
+    struct DummyAssetSource {
+        progress_receiver: tokio::sync::mpsc::UnboundedReceiver<u32>,
+        progress_when_cancelled_sender: Arc<std::sync::OnceLock<u32>>,
+    }
+
+    impl skid_steer::Source for DummyAssetSource {
+        type Output = DummyAsset;
+
+        async fn load(mut self, _context: &Context<'_>) -> Option<Self::Output> {
+            let mut status = DummyAssetStatus {
+                progress: 0,
+                can_cancel: true,
+                progress_when_cancelled_sender: self.progress_when_cancelled_sender,
+            };
+            while status.progress < 100 {
+                status.progress += self.progress_receiver.recv().await?;
+            }
+            status.can_cancel = false; // Done loading
+            Some(DummyAsset)
+        }
+    }
+
+    struct DummyAssetStatus {
+        progress: u32,
+        can_cancel: bool,
+        progress_when_cancelled_sender: Arc<std::sync::OnceLock<u32>>,
+    }
+
+    impl Drop for DummyAssetStatus {
+        fn drop(&mut self) {
+            if self.can_cancel {
+                self.progress_when_cancelled_sender
+                    .set(self.progress)
+                    .unwrap();
+            }
+        }
+    }
+
+    fn load_dummy_asset(asset_loader: &AssetLoader) -> TestAsset<DummyAsset> {
+        let (progress_sender, progress_receiver) = tokio::sync::mpsc::unbounded_channel();
+        let progress_when_cancelled = Arc::new(std::sync::OnceLock::new());
+        TestAsset {
+            asset: asset_loader.load(DummyAssetSource {
+                progress_receiver,
+                progress_when_cancelled_sender: Arc::clone(&progress_when_cancelled),
+            }),
+            progress_sender,
+            progress_when_cancelled_receiver: progress_when_cancelled,
+        }
+    }
+
+    #[test]
+    fn sample_test() {
+        let gfx = Arc::new(Base::headless());
+        let config = Arc::new(Config::create_for_test());
+        let asset_loader = AssetLoader::new(Arc::clone(&gfx), Arc::clone(&config));
+        let dummy_asset = load_dummy_asset(&asset_loader);
+        dummy_asset.add_percent_progress(50);
+        dummy_asset.add_percent_progress(50);
+        dummy_asset.wait_for_completion();
+        assert!(dummy_asset.asset.try_get().is_some());
+    }
+}

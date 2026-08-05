@@ -98,6 +98,18 @@ impl Config {
         }
         None
     }
+
+    #[cfg(test)]
+    pub fn create_for_test() -> Config {
+        Config {
+            name: "test_player".into(),
+            data_dirs: vec![],
+            save: "save_file_only_to_be_used_for_unit_test.save".into(),
+            chunk_load_parallelism: 4,
+            server: None,
+            local_simulation: SimConfig::from_raw(&SimConfigRaw::default()),
+        }
+    }
 }
 
 /// Data as parsed directly out of the config file
