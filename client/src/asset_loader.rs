@@ -326,7 +326,7 @@ impl Drop for AssetLoader {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::Mutex, time::Duration};
+    use std::{collections::HashSet, sync::Mutex, time::Duration};
 
     use super::*;
 
@@ -350,6 +350,10 @@ mod tests {
 
     #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
     enum Event {
+        Progress {
+            asset: String,
+            percent_progress: u32,
+        },
         Loaded {
             asset: String,
         },
@@ -358,27 +362,32 @@ mod tests {
         },
         LoadCanceled {
             asset: String,
-            percent_progress: u32,
         },
     }
 
     impl Event {
-        fn loaded(name: &str) -> Self {
-            Event::Loaded {
-                asset: name.to_owned(),
-            }
-        }
-
-        fn freed(name: &str) -> Self {
-            Event::Freed {
-                asset: name.to_owned(),
-            }
-        }
-
-        fn load_cancelled(name: &str, percent_progress: u32) -> Self {
-            Event::LoadCanceled {
-                asset: name.to_owned(),
+        fn progress(asset: &str, percent_progress: u32) -> Self {
+            Event::Progress {
+                asset: asset.to_owned(),
                 percent_progress,
+            }
+        }
+
+        fn loaded(asset: &str) -> Self {
+            Event::Loaded {
+                asset: asset.to_owned(),
+            }
+        }
+
+        fn freed(asset: &str) -> Self {
+            Event::Freed {
+                asset: asset.to_owned(),
+            }
+        }
+
+        fn load_cancelled(asset: &str) -> Self {
+            Event::LoadCanceled {
+                asset: asset.to_owned(),
             }
         }
     }
@@ -429,6 +438,8 @@ mod tests {
             };
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;
+                self.events
+                    .push_event(Event::progress(&self.name, status.progress));
             }
             status.can_cancel = false; // Done loading
             self.events.push_event(Event::loaded(&self.name));
@@ -453,8 +464,7 @@ mod tests {
     impl Drop for DummyAssetStatus {
         fn drop(&mut self) {
             if self.can_cancel {
-                self.events
-                    .push_event(Event::load_cancelled(&self.name, self.progress));
+                self.events.push_event(Event::load_cancelled(&self.name));
             }
         }
     }
@@ -494,9 +504,40 @@ mod tests {
         dummy_asset.add_percent_progress(50);
         dummy_asset.wait_for_completion();
         assert!(dummy_asset.asset.try_get().is_some());
-        assert_eq!(events.drain(), &[Event::loaded("asset")]);
+        assert_eq!(
+            events.drain(),
+            &[
+                Event::progress("asset", 50),
+                Event::progress("asset", 100),
+                Event::loaded("asset")
+            ]
+        );
         drop(dummy_asset);
         drop(asset_loader);
         assert_eq!(events.drain(), &[Event::freed("asset")]);
+    }
+
+    #[test]
+    fn test_concurrency() {
+        let events = EventList::new();
+        let asset_loader = init_asset_loader(2);
+        let assets: Vec<_> = (0..4)
+            .map(|i| load_dummy_asset(&asset_loader, &events, &format!("asset{i}")))
+            .collect();
+        for asset in &assets {
+            asset.add_percent_progress(50);
+        }
+        std::thread::sleep(Duration::from_secs(1)); // TODO: Use a helper function for the 1-second timeout
+        assert_eq!(
+            events.drain().into_iter().collect::<HashSet<_>>(),
+            [
+                Event::progress("asset0", 50),
+                Event::progress("asset1", 50),
+                Event::progress("asset2", 50),
+                Event::progress("asset3", 50)
+            ]
+            .into_iter()
+            .collect::<HashSet<_>>()
+        );
     }
 }
