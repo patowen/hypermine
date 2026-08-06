@@ -15,31 +15,6 @@ use crate::{
     growable_ring::{self, GrowableRing},
 };
 
-#[derive(Clone)]
-pub struct ParallelQueueWaiter {
-    semaphore: vk::Semaphore,
-    queue_unpark_semaphore: HelperSemaphore,
-    progress_changed: Arc<tokio::sync::Notify>,
-}
-
-impl ParallelQueueWaiter {
-    pub async fn wait_for_semaphore(&self, device: &ash::Device, value: u64) {
-        // Since wait_for_semaphore is called after we submitted something to the queue,
-        // we want the `drive` function of `ParallelQueue` to see the new data, so we should
-        // unpark it.
-        unsafe { self.queue_unpark_semaphore.signal(device) };
-        loop {
-            let notified = self.progress_changed.notified();
-            let current_progress =
-                unsafe { device.get_semaphore_counter_value(self.semaphore).unwrap() };
-            if current_progress >= value {
-                return;
-            }
-            notified.await;
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 struct HelperSemaphore(vk::Semaphore);
 
@@ -86,7 +61,8 @@ pub struct AssetLoadContext {
     gfx: Arc<Base>,
     config: Arc<Config>,
     parallel_queue_handle: parallel_queue::Handle,
-    parallel_queue_waiter: ParallelQueueWaiter,
+    parallel_queue_semaphore_watcher: tokio::sync::watch::Receiver<u64>,
+    queue_unpark_semaphore: HelperSemaphore,
     staging: Arc<GrowableRing>,
 }
 
@@ -127,8 +103,15 @@ impl AssetLoadContext {
     pub fn complete_work(&self, work: parallel_queue::Work<'_>) -> impl Future {
         let finish_time = work.time().get();
         work.end();
-        self.parallel_queue_waiter
-            .wait_for_semaphore(&self.gfx.device, finish_time)
+        // To actually get the work to start, we need to unpark the queue
+        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) }; // (TODO: Uncomment after dealing with unsound Handle destruction)
+        async move {
+            let _ = self
+                .parallel_queue_semaphore_watcher
+                .clone()
+                .wait_for(|&value| value >= finish_time)
+                .await;
+        }
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
@@ -153,12 +136,8 @@ impl AssetLoader {
         let loader = skid_steer::Loader::new();
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
         let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
-
-        let parallel_queue_waiter = ParallelQueueWaiter {
-            semaphore: queue.semaphore(),
-            queue_unpark_semaphore,
-            progress_changed: Arc::new(tokio::sync::Notify::new()),
-        };
+        let (parallel_queue_semaphore_notifier, parallel_queue_semaphore_watcher) =
+            tokio::sync::watch::channel(0);
 
         // TODO: Use dynamic number of threads
         let mut task_executor_threads = vec![];
@@ -171,13 +150,21 @@ impl AssetLoader {
             let config = Arc::clone(&config);
             let handle = unsafe { queue.handle(&gfx.device) };
             let staging = Arc::clone(&staging);
-            let parallel_queue_waiter = parallel_queue_waiter.clone();
+            let parallel_queue_semaphore_watcher = parallel_queue_semaphore_watcher.clone();
             let loader = loader.clone();
 
             let thread = thread::Builder::new()
                 .name(format!("task_executor_{}", i).to_owned())
                 .spawn(move || {
-                    run_task_executor(gfx, config, handle, staging, parallel_queue_waiter, loader);
+                    run_task_executor(
+                        gfx,
+                        config,
+                        handle,
+                        staging,
+                        parallel_queue_semaphore_watcher,
+                        queue_unpark_semaphore,
+                        loader,
+                    );
                 })
                 .unwrap();
             task_executor_threads.push(thread);
@@ -195,7 +182,7 @@ impl AssetLoader {
                         queue,
                         queue_unpark_semaphore,
                         cancellation_receive,
-                        &parallel_queue_waiter,
+                        &parallel_queue_semaphore_notifier,
                         &staging,
                     )
                 })
@@ -226,14 +213,16 @@ fn run_task_executor(
     config: Arc<Config>,
     handle: parallel_queue::Handle,
     staging: Arc<GrowableRing>,
-    parallel_queue_waiter: ParallelQueueWaiter,
+    parallel_queue_semaphore_watcher: tokio::sync::watch::Receiver<u64>,
+    queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
 ) {
     let mut asset_load_context = Rc::new(AssetLoadContext {
         gfx,
         config,
         parallel_queue_handle: handle,
-        parallel_queue_waiter,
+        parallel_queue_semaphore_watcher,
+        queue_unpark_semaphore,
         staging,
     });
     tokio::runtime::LocalRuntime::new()
@@ -263,6 +252,7 @@ fn run_task_executor(
     let asset_load_context = Rc::get_mut(&mut asset_load_context)
         .expect("runtime using this context should already be dropped");
     unsafe {
+        // TODO: Destroying the handle is not allowed until we know no work is in-flight
         asset_load_context
             .parallel_queue_handle
             .destroy(&asset_load_context.gfx.device)
@@ -274,7 +264,7 @@ fn run_parallel_queue_driver(
     mut queue: ParallelQueue,
     queue_unpark_semaphore: HelperSemaphore,
     cancellation_receive: std::sync::mpsc::Receiver<()>,
-    parallel_queue_waiter: &ParallelQueueWaiter,
+    parallel_queue_semaphore_notifier: &tokio::sync::watch::Sender<u64>,
     staging: &GrowableRing,
 ) -> ParallelQueue {
     loop {
@@ -296,7 +286,7 @@ fn run_parallel_queue_driver(
                 queue_unpark_semaphore_next_value,
             )
         };
-        parallel_queue_waiter.progress_changed.notify_waiters();
+        let _ = parallel_queue_semaphore_notifier.send(semaphore_value);
         unsafe { staging.tick(&gfx.device, semaphore_value) };
     }
     queue
@@ -361,7 +351,10 @@ mod tests {
 
         /// Drains all events that were returned by the most recent call to get_all_events
         fn drain_queried_events(&mut self) {
-            self.events.lock().unwrap().drain(0..self.num_checked_events);
+            self.events
+                .lock()
+                .unwrap()
+                .drain(0..self.num_checked_events);
             self.num_checked_events = 0;
         }
     }
@@ -547,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn sample_test() {
+    fn test_load_and_free() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
         let dummy_asset = load_dummy_asset(&asset_loader, &events, "asset");
@@ -570,7 +563,7 @@ mod tests {
     }
 
     #[test]
-    fn test_concurrency() {
+    fn test_concurrency_and_cancellation() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
         let assets: Vec<_> = (0..4)
