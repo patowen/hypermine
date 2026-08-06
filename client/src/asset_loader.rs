@@ -361,7 +361,7 @@ mod tests {
 
         /// Drains all events that were returned by the most recent call to get_all_events
         fn drain_queried_events(&mut self) {
-            self.events.lock().unwrap().drain(self.num_checked_events..);
+            self.events.lock().unwrap().drain(0..self.num_checked_events);
             self.num_checked_events = 0;
         }
     }
@@ -447,18 +447,27 @@ mod tests {
     impl skid_steer::Source for DummyAssetSource {
         type Output = DummyAsset;
 
-        async fn load(mut self, _context: &Context<'_>) -> Option<Self::Output> {
+        async fn load(mut self, context: &Context<'_>) -> Option<Self::Output> {
             let mut status = DummyAssetStatus {
                 name: self.name.clone(),
                 progress: 0,
                 can_cancel: true,
                 events: self.events.clone(),
             };
+
+            // Use the parallel queue and set up an allocation to exercise this functionality
+            let ctx: &AssetLoadContext = context.get().unwrap();
+            let work = unsafe { ctx.begin_work() };
+            let _alloc = ctx.alloc::<u8>(8, 1, &work);
+
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;
                 self.events
                     .push_event(Event::progress(&self.name, status.progress));
             }
+
+            ctx.complete_work(work).await;
+
             status.can_cancel = false; // Done loading
             self.events.push_event(Event::loaded(&self.name));
             Some(DummyAsset {
