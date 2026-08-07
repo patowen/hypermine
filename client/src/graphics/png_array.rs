@@ -25,6 +25,11 @@ struct DroppableDedicatedImage<'a> {
 impl Drop for DroppableDedicatedImage<'_> {
     fn drop(&mut self) {
         if let Some(mut image) = self.image {
+            /*
+                TODO: If there's a command in flight, we can't destroy the image until the command has finished.
+                TODO: How do we clean up resources if `load_inner` has completed, but skid_steer hasn't established it well enough to call `free`?
+                    I think this is impossible, fortunately, as no `await` boundaries are crossed between finishing the `load` call and fully initializing the asset
+            */
             unsafe { image.destroy(self.device) };
         }
     }

@@ -107,11 +107,16 @@ impl AssetLoadContext {
         // To actually get the work to start, we need to unpark the queue
         //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) }; // (TODO: Uncomment after dealing with unsound Handle destruction)
         async move {
-            let _ = self
+            if self
                 .parallel_queue_semaphore_watcher
                 .clone()
                 .wait_for(|&value| value >= finish_time)
-                .await;
+                .await
+                .is_err()
+            {
+                // Don't assume things have finished loading just because `parallel_queue_semaphore_notifier` was dropped.
+                std::future::pending::<()>().await;
+            }
         }
     }
 
