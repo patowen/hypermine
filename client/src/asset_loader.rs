@@ -139,32 +139,26 @@ impl AssetLoader {
         let (parallel_queue_semaphore_notifier, parallel_queue_semaphore_watcher) =
             tokio::sync::watch::channel(0);
 
-        // TODO: Use dynamic number of threads
         let mut task_executor_threads = vec![];
         tracing::debug!(
             "Using asset load parallelism {}",
             config.asset_load_parallelism
         );
         for i in 0..(config.asset_load_parallelism) {
-            let gfx = Arc::clone(&gfx);
-            let config = Arc::clone(&config);
-            let handle = unsafe { queue.handle(&gfx.device) };
-            let staging = Arc::clone(&staging);
-            let parallel_queue_semaphore_watcher = parallel_queue_semaphore_watcher.clone();
+            let asset_load_context = AssetLoadContext {
+                gfx: Arc::clone(&gfx),
+                config: Arc::clone(&config),
+                parallel_queue_handle: unsafe { queue.handle(&gfx.device) },
+                parallel_queue_semaphore_watcher: parallel_queue_semaphore_watcher.clone(),
+                queue_unpark_semaphore,
+                staging: Arc::clone(&staging),
+            };
             let loader = loader.clone();
 
             let thread = thread::Builder::new()
                 .name(format!("task_executor_{}", i).to_owned())
                 .spawn(move || {
-                    run_task_executor(
-                        gfx,
-                        config,
-                        handle,
-                        staging,
-                        parallel_queue_semaphore_watcher,
-                        queue_unpark_semaphore,
-                        loader,
-                    );
+                    run_task_executor(asset_load_context, loader);
                 })
                 .unwrap();
             task_executor_threads.push(thread);
@@ -208,23 +202,9 @@ impl AssetLoader {
     }
 }
 
-fn run_task_executor(
-    gfx: Arc<Base>,
-    config: Arc<Config>,
-    handle: parallel_queue::Handle,
-    staging: Arc<GrowableRing>,
-    parallel_queue_semaphore_watcher: tokio::sync::watch::Receiver<u64>,
-    queue_unpark_semaphore: HelperSemaphore,
-    loader: skid_steer::Loader,
-) {
-    let mut asset_load_context = Rc::new(AssetLoadContext {
-        gfx,
-        config,
-        parallel_queue_handle: handle,
-        parallel_queue_semaphore_watcher,
-        queue_unpark_semaphore,
-        staging,
-    });
+fn run_task_executor(asset_load_context: AssetLoadContext, loader: skid_steer::Loader) {
+    let mut asset_load_context = Rc::new(asset_load_context);
+
     tokio::runtime::LocalRuntime::new()
         .unwrap()
         .block_on(async {
