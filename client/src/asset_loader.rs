@@ -115,6 +115,8 @@ impl AssetLoadContext {
                 .is_err()
             {
                 // Don't assume things have finished loading just because `parallel_queue_semaphore_notifier` was dropped.
+                // Instead, print an error and wait forever, since the work will never complete.
+                tracing::error!("Work was submitted to the parallel queue but never completed. This should never happen.");
                 std::future::pending::<()>().await;
             }
         }
@@ -132,6 +134,7 @@ pub struct AssetLoader {
     loader: skid_steer::Loader,
     task_executor_threads: Vec<JoinHandle<parallel_queue::Handle>>,
     parallel_queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
+    parallel_queue_semaphore_notifier: tokio::sync::watch::Sender<u64>,
     staging: Arc<GrowableRing>,
 }
 
@@ -172,6 +175,7 @@ impl AssetLoader {
             let gfx = Arc::clone(&gfx);
             let staging = Arc::clone(&staging);
             let shutdown_token = shutdown_token.clone();
+            let parallel_queue_semaphore_notifier = parallel_queue_semaphore_notifier.clone();
 
             thread::Builder::new()
                 .name("parallel_queue_driver".to_owned())
@@ -195,6 +199,7 @@ impl AssetLoader {
             loader,
             task_executor_threads,
             parallel_queue_driver_thread,
+            parallel_queue_semaphore_notifier,
             staging,
         }
     }
@@ -295,6 +300,13 @@ impl Drop for AssetLoader {
             .map(|thread| thread.join().unwrap())
             .collect();
         unsafe { queue.drain(&self.gfx.device) };
+        // We need to notify for the final value the parallel queue semaphore reaches.
+        let _ = self.parallel_queue_semaphore_notifier.send(unsafe {
+            self.gfx
+                .device
+                .get_semaphore_counter_value(queue.semaphore())
+                .unwrap()
+        });
         for mut handle in parallel_queue_handles {
             // Safety: The queue has been drained, and no handles are left behind, so no work should be able to be in flight.
             unsafe { handle.destroy(&self.gfx.device) };
