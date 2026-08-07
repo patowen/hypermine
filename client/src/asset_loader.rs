@@ -8,6 +8,7 @@ use std::{
 use ash::vk;
 use lahar::{ParallelQueue, parallel_queue};
 use skid_steer::Context;
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
@@ -121,7 +122,7 @@ impl AssetLoadContext {
 
 pub struct AssetLoader {
     gfx: Arc<Base>,
-    cancellation_send: std::sync::mpsc::Sender<()>, // TODO: Use CancellationToken
+    shutdown_token: CancellationToken,
     queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
     task_executor_threads: Vec<JoinHandle<()>>,
@@ -131,7 +132,7 @@ pub struct AssetLoader {
 
 impl AssetLoader {
     pub fn new(gfx: Arc<Base>, config: Arc<Config>) -> Self {
-        let (cancellation_send, cancellation_receive) = std::sync::mpsc::channel::<()>();
+        let shutdown_token = CancellationToken::new();
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
@@ -167,6 +168,7 @@ impl AssetLoader {
         let parallel_queue_driver_thread = Some({
             let gfx = Arc::clone(&gfx);
             let staging = Arc::clone(&staging);
+            let shutdown_token = shutdown_token.clone();
 
             thread::Builder::new()
                 .name("parallel_queue_driver".to_owned())
@@ -175,7 +177,7 @@ impl AssetLoader {
                         &gfx,
                         queue,
                         queue_unpark_semaphore,
-                        cancellation_receive,
+                        shutdown_token,
                         &parallel_queue_semaphore_notifier,
                         &staging,
                     )
@@ -185,7 +187,7 @@ impl AssetLoader {
 
         AssetLoader {
             gfx,
-            cancellation_send,
+            shutdown_token,
             queue_unpark_semaphore,
             loader,
             task_executor_threads,
@@ -243,7 +245,7 @@ fn run_parallel_queue_driver(
     gfx: &Base,
     mut queue: ParallelQueue,
     queue_unpark_semaphore: HelperSemaphore,
-    cancellation_receive: std::sync::mpsc::Receiver<()>,
+    shutdown_token: CancellationToken,
     parallel_queue_semaphore_notifier: &tokio::sync::watch::Sender<u64>,
     staging: &GrowableRing,
 ) -> ParallelQueue {
@@ -256,7 +258,7 @@ fn run_parallel_queue_driver(
         let queue_unpark_semaphore_next_value =
             unsafe { queue_unpark_semaphore.get_next_value(&gfx.device) };
         unsafe { queue.drive(&gfx.device) };
-        if cancellation_receive.try_recv() != Err(std::sync::mpsc::TryRecvError::Empty) {
+        if shutdown_token.is_cancelled() {
             break;
         }
         let semaphore_value = unsafe {
@@ -274,7 +276,7 @@ fn run_parallel_queue_driver(
 
 impl Drop for AssetLoader {
     fn drop(&mut self) {
-        let _ = self.cancellation_send.send(());
+        self.shutdown_token.cancel();
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
         let mut queue = self
             .parallel_queue_driver_thread
