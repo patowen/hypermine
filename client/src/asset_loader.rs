@@ -125,7 +125,7 @@ pub struct AssetLoader {
     shutdown_token: CancellationToken,
     queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
-    task_executor_threads: Vec<JoinHandle<()>>,
+    task_executor_threads: Vec<JoinHandle<parallel_queue::Handle>>,
     parallel_queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
     staging: Arc<GrowableRing>,
 }
@@ -158,9 +158,7 @@ impl AssetLoader {
 
             let thread = thread::Builder::new()
                 .name(format!("task_executor_{}", i).to_owned())
-                .spawn(move || {
-                    run_task_executor(asset_load_context, loader);
-                })
+                .spawn(move || run_task_executor(asset_load_context, loader))
                 .unwrap();
             task_executor_threads.push(thread);
         }
@@ -204,8 +202,12 @@ impl AssetLoader {
     }
 }
 
-fn run_task_executor(asset_load_context: AssetLoadContext, loader: skid_steer::Loader) {
-    let mut asset_load_context = Rc::new(asset_load_context);
+#[must_use]
+fn run_task_executor(
+    asset_load_context: AssetLoadContext,
+    loader: skid_steer::Loader,
+) -> parallel_queue::Handle {
+    let asset_load_context = Rc::new(asset_load_context);
 
     tokio::runtime::LocalRuntime::new()
         .unwrap()
@@ -231,14 +233,10 @@ fn run_task_executor(asset_load_context: AssetLoadContext, loader: skid_steer::L
                 thread::current().name().unwrap_or("<unnamed>")
             );
         });
-    let asset_load_context = Rc::get_mut(&mut asset_load_context)
+    let asset_load_context = Rc::try_unwrap(asset_load_context)
+        .map_err(|_| ())
         .expect("runtime using this context should already be dropped");
-    unsafe {
-        // TODO: Destroying the handle is not allowed until we know no work is in-flight
-        asset_load_context
-            .parallel_queue_handle
-            .destroy(&asset_load_context.gfx.device)
-    };
+    asset_load_context.parallel_queue_handle
 }
 
 fn run_parallel_queue_driver(
@@ -286,10 +284,16 @@ impl Drop for AssetLoader {
             .unwrap();
         tracing::trace!("Shutting down down AssetLoader");
         self.loader.close();
-        for task_executor_thread in self.task_executor_threads.drain(..) {
-            task_executor_thread.join().unwrap();
-        }
+        let parallel_queue_handles: Vec<_> = self
+            .task_executor_threads
+            .drain(..)
+            .map(|thread| thread.join().unwrap())
+            .collect();
         unsafe { queue.drain(&self.gfx.device) };
+        for mut handle in parallel_queue_handles {
+            // Safety: The queue has been drained, and no handles are left behind, so no work should be able to be in flight.
+            unsafe { handle.destroy(&self.gfx.device) };
+        }
         unsafe { queue.destroy(&self.gfx.device) };
         unsafe { self.queue_unpark_semaphore.destroy(&self.gfx.device) };
         unsafe {
