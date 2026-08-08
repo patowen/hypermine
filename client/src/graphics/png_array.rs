@@ -95,19 +95,19 @@ impl PngArray {
                     finish_time,
                 ));
             }
-            let mem2 = mem.as_mut().unwrap();
+            let mem = mem.as_mut().unwrap();
             let step_size = info.width as usize * info.height as usize * 4;
             reader
                 .next_frame(unsafe {
                     std::slice::from_raw_parts_mut(
-                        mem2.pointer.offset((i * step_size) as isize).as_ptr(),
+                        mem.pointer.offset((i * step_size) as isize).as_ptr(),
                         step_size,
                     )
                 })
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
         }
         let (width, height) = dims.unwrap();
-        let mem2 = mem.unwrap();
+        let mem = mem.unwrap();
         unsafe {
             let image = dedicated_image.image.insert(DedicatedImage::new(
                 ctx.device(),
@@ -133,8 +133,8 @@ impl PngArray {
                 base_array_layer: 0,
                 layer_count: self.size as u32,
             };
-            let src = mem2.buffer;
-            let buffer_offset = mem2.offset;
+            let src = mem.buffer;
+            let buffer_offset = mem.offset;
             let dst = image.handle;
 
             ctx.device().cmd_pipeline_barrier(

@@ -61,8 +61,8 @@ impl HelperSemaphore {
 pub struct AssetLoadContext {
     gfx: Arc<Base>,
     config: Arc<Config>,
-    parallel_queue_handle: parallel_queue::Handle,
-    parallel_queue_semaphore_watcher: tokio::sync::watch::Receiver<u64>,
+    queue_handle: parallel_queue::Handle,
+    queue_watch_receiver: tokio::sync::watch::Receiver<u64>,
     queue_unpark_semaphore: HelperSemaphore,
     staging: Arc<GrowableRing>,
 }
@@ -75,7 +75,7 @@ impl AssetLoadContext {
     /// - [`Work::cmd`] must not be used outside the lifetime of the returned [`Work`]
     /// - Any Vulkan resources this work uses must not be destroyed before the [`Work`] is dropped
     pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
-        unsafe { self.parallel_queue_handle.begin(&self.gfx.device) }
+        unsafe { self.queue_handle.begin(&self.gfx.device) }
     }
 
     pub fn alloc<T>(
@@ -103,13 +103,13 @@ impl AssetLoadContext {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
         if self
-            .parallel_queue_semaphore_watcher
+            .queue_watch_receiver
             .clone()
             .wait_for(|&value| value >= semaphore_value)
             .await
             .is_err()
         {
-            // Don't assume things have finished loading just because `parallel_queue_semaphore_notifier` was dropped.
+            // Don't assume things have finished loading just because `queue_watch_sender` was dropped.
             // Instead, print an error and wait forever, since the work will never complete.
             tracing::error!(
                 "Work was submitted to the parallel queue but never completed. This should never happen."
@@ -123,14 +123,14 @@ impl AssetLoadContext {
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
 
         // Blocking on an async function is tricky, as doing it naively can cause Tokio to panic if we run into a situation where
-        // a runtime is used within another runtime. Because of that, rather than using `parallel_queue_semaphore_watcher`,
+        // a runtime is used within another runtime. Because of that, rather than using `queue_watch_receiver`,
         // we just use the timeline semaphore directly.
         unsafe {
             self.gfx
                 .device
                 .wait_semaphores(
                     &vk::SemaphoreWaitInfo::default()
-                        .semaphores(&[self.parallel_queue_handle.semaphore()])
+                        .semaphores(&[self.queue_handle.semaphore()])
                         .values(&[semaphore_value]),
                     !0,
                 )
@@ -149,8 +149,8 @@ pub struct AssetLoader {
     queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
     task_executor_threads: Vec<JoinHandle<parallel_queue::Handle>>,
-    parallel_queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
-    parallel_queue_semaphore_notifier: tokio::sync::watch::Sender<u64>,
+    queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
+    queue_watch_sender: tokio::sync::watch::Sender<u64>,
     staging: Arc<GrowableRing>,
 }
 
@@ -161,8 +161,7 @@ impl AssetLoader {
         let loader = skid_steer::Loader::new();
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
         let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
-        let (parallel_queue_semaphore_notifier, parallel_queue_semaphore_watcher) =
-            tokio::sync::watch::channel(0);
+        let (queue_watch_sender, queue_watch_receiver) = tokio::sync::watch::channel(0);
 
         let mut task_executor_threads = vec![];
         tracing::debug!(
@@ -173,8 +172,8 @@ impl AssetLoader {
             let asset_load_context = AssetLoadContext {
                 gfx: Arc::clone(&gfx),
                 config: Arc::clone(&config),
-                parallel_queue_handle: unsafe { queue.handle(&gfx.device) },
-                parallel_queue_semaphore_watcher: parallel_queue_semaphore_watcher.clone(),
+                queue_handle: unsafe { queue.handle(&gfx.device) },
+                queue_watch_receiver: queue_watch_receiver.clone(),
                 queue_unpark_semaphore,
                 staging: Arc::clone(&staging),
             };
@@ -187,21 +186,21 @@ impl AssetLoader {
             task_executor_threads.push(thread);
         }
 
-        let parallel_queue_driver_thread = Some({
+        let queue_driver_thread = Some({
             let gfx = Arc::clone(&gfx);
             let staging = Arc::clone(&staging);
             let shutdown_token = shutdown_token.clone();
-            let parallel_queue_semaphore_notifier = parallel_queue_semaphore_notifier.clone();
+            let queue_watch_sender = queue_watch_sender.clone();
 
             thread::Builder::new()
-                .name("parallel_queue_driver".to_owned())
+                .name("queue_driver".to_owned())
                 .spawn(move || {
-                    run_parallel_queue_driver(
+                    run_queue_driver(
                         &gfx,
                         queue,
                         queue_unpark_semaphore,
                         shutdown_token,
-                        &parallel_queue_semaphore_notifier,
+                        &queue_watch_sender,
                         &staging,
                     )
                 })
@@ -214,8 +213,8 @@ impl AssetLoader {
             queue_unpark_semaphore,
             loader,
             task_executor_threads,
-            parallel_queue_driver_thread,
-            parallel_queue_semaphore_notifier,
+            queue_driver_thread,
+            queue_watch_sender,
             staging,
         }
     }
@@ -262,23 +261,23 @@ fn run_task_executor(
     let asset_load_context = Rc::try_unwrap(asset_load_context)
         .map_err(|_| ())
         .expect("runtime using this context should already be dropped");
-    asset_load_context.parallel_queue_handle
+    asset_load_context.queue_handle
 }
 
-fn run_parallel_queue_driver(
+fn run_queue_driver(
     gfx: &Base,
     mut queue: ParallelQueue,
     queue_unpark_semaphore: HelperSemaphore,
     shutdown_token: CancellationToken,
-    parallel_queue_semaphore_notifier: &tokio::sync::watch::Sender<u64>,
+    queue_watch_sender: &tokio::sync::watch::Sender<u64>,
     staging: &GrowableRing,
 ) -> ParallelQueue {
     loop {
         // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
         // that we don't park unless certain things are done. `ParallelQueueWaiter`
         // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
-        // wants to ensure `cancellation_recieve` is checked. Therefore, we put these two
-        // operations between reading and waiting on  `queue_unpark_semaphore`
+        // wants to ensure `shutdown_token` is checked. Therefore, we put these two
+        // operations between reading and waiting on `queue_unpark_semaphore`
         let queue_unpark_semaphore_next_value =
             unsafe { queue_unpark_semaphore.get_next_value(&gfx.device) };
         unsafe { queue.drive(&gfx.device) };
@@ -292,7 +291,7 @@ fn run_parallel_queue_driver(
                 queue_unpark_semaphore_next_value,
             )
         };
-        let _ = parallel_queue_semaphore_notifier.send(semaphore_value);
+        let _ = queue_watch_sender.send(semaphore_value);
         unsafe { staging.tick(&gfx.device, semaphore_value) };
     }
     queue
@@ -302,28 +301,23 @@ impl Drop for AssetLoader {
     fn drop(&mut self) {
         self.shutdown_token.cancel();
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
-        let mut queue = self
-            .parallel_queue_driver_thread
-            .take()
-            .unwrap()
-            .join()
-            .unwrap();
+        let mut queue = self.queue_driver_thread.take().unwrap().join().unwrap();
         tracing::trace!("Shutting down down AssetLoader");
         self.loader.close();
-        let parallel_queue_handles: Vec<_> = self
+        let queue_handles: Vec<_> = self
             .task_executor_threads
             .drain(..)
             .map(|thread| thread.join().unwrap())
             .collect();
         unsafe { queue.drain(&self.gfx.device) };
         // We need to notify for the final value the parallel queue semaphore reaches.
-        let _ = self.parallel_queue_semaphore_notifier.send(unsafe {
+        let _ = self.queue_watch_sender.send(unsafe {
             self.gfx
                 .device
                 .get_semaphore_counter_value(queue.semaphore())
                 .unwrap()
         });
-        for mut handle in parallel_queue_handles {
+        for mut handle in queue_handles {
             // Safety: The queue has been drained, and no handles are left behind, so no work should be able to be in flight.
             unsafe { handle.destroy(&self.gfx.device) };
         }
