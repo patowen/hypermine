@@ -13,7 +13,7 @@ pub struct GrowableRing {
 pub struct Allocation<T> {
     pub buffer: vk::Buffer,
     pub offset: u64,
-    pub pointer: NonNull<T>
+    pub pointer: NonNull<T>,
 }
 
 impl GrowableRing {
@@ -34,13 +34,7 @@ impl GrowableRing {
     }
 
     /// The returned pointer must not be dereffed after `tick` is called with `free_at`
-    pub fn alloc<T>(
-        &self,
-        gfx: &Base,
-        count: usize,
-        align: usize,
-        free_at: u64,
-    ) -> Allocation<T> {
+    pub fn alloc<T>(&self, gfx: &Base, count: usize, align: usize, free_at: u64) -> Allocation<T> {
         let size = count * mem::size_of::<T>();
         let (buffer, offset, mapping) = {
             let mut state = self.state.lock().unwrap();
@@ -70,7 +64,7 @@ impl GrowableRing {
         Allocation {
             buffer,
             offset: offset as u64,
-            pointer: mapping
+            pointer: mapping,
         }
     }
 

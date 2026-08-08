@@ -12,7 +12,9 @@ use metrics::histogram;
 use tracing::warn;
 
 use crate::{
-    Config, Sim, asset_loader::AssetLoader, graphics::{Base, Frustum},
+    Config, Sim,
+    asset_loader::AssetLoader,
+    graphics::{Base, Frustum},
 };
 use common::{
     dodeca::{self, Vertex},

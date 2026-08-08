@@ -477,12 +477,7 @@ impl Draw {
 
             // Record the actual rendering commands
             if let Some(ref mut voxels) = self.voxels {
-                voxels.draw(
-                    device,
-                    state.common_ds,
-                    state.voxels.as_ref().unwrap(),
-                    cmd,
-                );
+                voxels.draw(device, state.common_ds, state.voxels.as_ref().unwrap(), cmd);
             }
 
             if let Some(sim) = sim.as_deref() {

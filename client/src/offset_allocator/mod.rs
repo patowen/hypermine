@@ -172,7 +172,7 @@ impl<NI: NodeIndex> Allocator<NI> {
 
     /// Creates a new allocator, managing a contiguous block of memory of `size`
     /// units, with the given number of maximum nodes.
-    /// 
+    ///
     /// Note that even if no memory is freed, the maximum number of allocations
     /// allowed is 1 less than the maximum number of nodes, since a node is needed
     /// to keep track of the remaining free space. If memory is freed, due to fragmentation,
