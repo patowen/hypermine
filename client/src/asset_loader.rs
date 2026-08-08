@@ -181,7 +181,7 @@ impl AssetLoader {
 
             let thread = thread::Builder::new()
                 .name(format!("task_executor_{}", i).to_owned())
-                .spawn(move || run_task_executor(asset_load_context, loader))
+                .spawn(move || run_task_executor_thread(asset_load_context, loader))
                 .unwrap();
             task_executor_threads.push(thread);
         }
@@ -195,7 +195,7 @@ impl AssetLoader {
             thread::Builder::new()
                 .name("queue_driver".to_owned())
                 .spawn(move || {
-                    run_queue_driver(
+                    run_queue_driver_thread(
                         &gfx,
                         queue,
                         queue_unpark_semaphore,
@@ -227,8 +227,10 @@ impl AssetLoader {
     }
 }
 
-#[must_use]
-fn run_task_executor(
+/// Runs one thread of the task executor logic. This executor owns an [`AssetLoadContext`] and
+/// concurrently runs tasks from the [`skid_steer::Loader`]. Returns the [`parallel_queue::Handle`]
+/// from the [`AssetLoadContext`] for later cleanup.
+fn run_task_executor_thread(
     asset_load_context: AssetLoadContext,
     loader: skid_steer::Loader,
 ) -> parallel_queue::Handle {
@@ -261,10 +263,17 @@ fn run_task_executor(
     let asset_load_context = Rc::try_unwrap(asset_load_context)
         .map_err(|_| ())
         .expect("runtime using this context should already be dropped");
+
+    // Important note: We cannot clean up the queue_handle now, as we *must* wait until all commands
+    // started by this handle are no longer pending. However, there is not a good way of knowing what
+    // value the queue's semaphore must reach for that constraint to hold, as `parallel_queue::Handle`
+    // lacks this information. Instead, we should only destroy this handle after the queue
+    // has been fully drained, which can only happen after this thread has been joined. Because of that,
+    // we return the handle for the joining thread to clean up.
     asset_load_context.queue_handle
 }
 
-fn run_queue_driver(
+fn run_queue_driver_thread(
     gfx: &Base,
     mut queue: ParallelQueue,
     queue_unpark_semaphore: HelperSemaphore,
@@ -299,10 +308,10 @@ fn run_queue_driver(
 
 impl Drop for AssetLoader {
     fn drop(&mut self) {
+        tracing::trace!("Shutting down AssetLoader");
         self.shutdown_token.cancel();
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
         let mut queue = self.queue_driver_thread.take().unwrap().join().unwrap();
-        tracing::trace!("Shutting down down AssetLoader");
         self.loader.close();
         let queue_handles: Vec<_> = self
             .task_executor_threads
