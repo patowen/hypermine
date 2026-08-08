@@ -101,7 +101,7 @@ impl AssetLoadContext {
 
     pub async fn wait_for_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
-        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
         if self
             .queue_watch_receiver
             .clone()
@@ -120,7 +120,7 @@ impl AssetLoadContext {
 
     pub fn block_on_work_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
-        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
 
         // Blocking on an async function is tricky, as doing it naively can cause Tokio to panic if we run into a situation where
         // a runtime is used within another runtime. Because of that, rather than using `queue_watch_receiver`,
@@ -148,9 +148,8 @@ pub struct AssetLoader {
     shutdown_token: CancellationToken,
     queue_unpark_semaphore: HelperSemaphore,
     loader: skid_steer::Loader,
-    task_executor_threads: Vec<JoinHandle<parallel_queue::Handle>>,
-    queue_driver_thread: Option<JoinHandle<ParallelQueue>>,
-    queue_watch_sender: tokio::sync::watch::Sender<u64>,
+    task_executor_threads: Vec<JoinHandle<()>>,
+    queue_driver_thread: Option<JoinHandle<()>>,
     staging: Arc<GrowableRing>,
 }
 
@@ -214,7 +213,6 @@ impl AssetLoader {
             loader,
             task_executor_threads,
             queue_driver_thread,
-            queue_watch_sender,
             staging,
         }
     }
@@ -230,11 +228,8 @@ impl AssetLoader {
 /// Runs one thread of the task executor logic. This executor owns an [`AssetLoadContext`] and
 /// concurrently runs tasks from the [`skid_steer::Loader`]. Returns the [`parallel_queue::Handle`]
 /// from the [`AssetLoadContext`] for later cleanup.
-fn run_task_executor_thread(
-    asset_load_context: AssetLoadContext,
-    loader: skid_steer::Loader,
-) -> parallel_queue::Handle {
-    let asset_load_context = Rc::new(asset_load_context);
+fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_steer::Loader) {
+    let mut asset_load_context = Rc::new(asset_load_context);
 
     tokio::runtime::LocalRuntime::new()
         .unwrap()
@@ -260,17 +255,26 @@ fn run_task_executor_thread(
                 thread::current().name().unwrap_or("<unnamed>")
             );
         });
-    let asset_load_context = Rc::try_unwrap(asset_load_context)
-        .map_err(|_| ())
+    let asset_load_context = Rc::get_mut(&mut asset_load_context)
         .expect("runtime using this context should already be dropped");
 
-    // Important note: We cannot clean up the queue_handle now, as we *must* wait until all commands
-    // started by this handle are no longer pending. However, there is not a good way of knowing what
-    // value the queue's semaphore must reach for that constraint to hold, as `parallel_queue::Handle`
-    // lacks this information. Instead, we should only destroy this handle after the queue
-    // has been fully drained, which can only happen after this thread has been joined. Because of that,
-    // we return the handle for the joining thread to clean up.
-    asset_load_context.queue_handle
+    // Safety: We make sure not to destroy the handle until we drain it. Since there are no other references to the handle,
+    // no work will be in flight when the handle is destroyed.
+    // no work can be in flight.
+    unsafe {
+        // Fail-safe to ensure that the parallel queue is driven at least once after all work has been submitted before
+        // we drain the handle
+        asset_load_context
+            .queue_unpark_semaphore
+            .signal(&asset_load_context.gfx.device);
+
+        asset_load_context
+            .queue_handle
+            .drain(&asset_load_context.gfx.device);
+        asset_load_context
+            .queue_handle
+            .destroy(&asset_load_context.gfx.device);
+    };
 }
 
 fn run_queue_driver_thread(
@@ -280,7 +284,7 @@ fn run_queue_driver_thread(
     shutdown_token: CancellationToken,
     queue_watch_sender: &tokio::sync::watch::Sender<u64>,
     staging: &GrowableRing,
-) -> ParallelQueue {
+) {
     loop {
         // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
         // that we don't park unless certain things are done. `ParallelQueueWaiter`
@@ -303,34 +307,20 @@ fn run_queue_driver_thread(
         let _ = queue_watch_sender.send(semaphore_value);
         unsafe { staging.tick(&gfx.device, semaphore_value) };
     }
-    queue
+    unsafe { queue.drain(&gfx.device) };
+    unsafe { queue.destroy(&gfx.device) };
 }
 
 impl Drop for AssetLoader {
     fn drop(&mut self) {
         tracing::trace!("Shutting down AssetLoader");
+        self.loader.close();
+        for thread in self.task_executor_threads.drain(..) {
+            thread.join().unwrap();
+        }
         self.shutdown_token.cancel();
         unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
-        let mut queue = self.queue_driver_thread.take().unwrap().join().unwrap();
-        self.loader.close();
-        let queue_handles: Vec<_> = self
-            .task_executor_threads
-            .drain(..)
-            .map(|thread| thread.join().unwrap())
-            .collect();
-        unsafe { queue.drain(&self.gfx.device) };
-        // We need to notify for the final value the parallel queue semaphore reaches.
-        let _ = self.queue_watch_sender.send(unsafe {
-            self.gfx
-                .device
-                .get_semaphore_counter_value(queue.semaphore())
-                .unwrap()
-        });
-        for mut handle in queue_handles {
-            // Safety: The queue has been drained, and no handles are left behind, so no work should be able to be in flight.
-            unsafe { handle.destroy(&self.gfx.device) };
-        }
-        unsafe { queue.destroy(&self.gfx.device) };
+        self.queue_driver_thread.take().unwrap().join().unwrap();
         unsafe { self.queue_unpark_semaphore.destroy(&self.gfx.device) };
         unsafe {
             Arc::get_mut(&mut self.staging)
@@ -340,6 +330,7 @@ impl Drop for AssetLoader {
     }
 }
 
+// TODO: Rename shutdown_token to queue_shutdown_token
 #[cfg(test)]
 mod tests {
     use std::{collections::HashSet, sync::Mutex, time::Duration};
