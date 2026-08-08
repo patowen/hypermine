@@ -16,54 +16,13 @@ use crate::{
     growable_ring::{self, GrowableRing},
 };
 
-#[derive(Clone, Copy)]
-struct HelperSemaphore(vk::Semaphore);
-
-impl HelperSemaphore {
-    unsafe fn new(device: &ash::Device) -> Self {
-        HelperSemaphore(unsafe {
-            device
-                .create_semaphore(
-                    &vk::SemaphoreCreateInfo::default().push_next(
-                        &mut vk::SemaphoreTypeCreateInfo::default()
-                            .semaphore_type(vk::SemaphoreType::TIMELINE)
-                            .initial_value(0),
-                    ),
-                    None,
-                )
-                .unwrap()
-        })
-    }
-
-    unsafe fn get_next_value(&self, device: &ash::Device) -> u64 {
-        unsafe { device.get_semaphore_counter_value(self.0).unwrap() + 1 }
-    }
-
-    unsafe fn signal(&self, device: &ash::Device) {
-        let next_value = unsafe { self.get_next_value(device) };
-        unsafe {
-            device
-                .signal_semaphore(
-                    &vk::SemaphoreSignalInfo::default()
-                        .semaphore(self.0)
-                        .value(next_value),
-                )
-                .unwrap()
-        }
-    }
-
-    unsafe fn destroy(self, device: &ash::Device) {
-        unsafe { device.destroy_semaphore(self.0, None) };
-    }
-}
-
 /// Contains all the dependencies necessary to load assets.
 pub struct AssetLoadContext {
     gfx: Arc<Base>,
     config: Arc<Config>,
     queue_handle: parallel_queue::Handle,
     queue_watch_receiver: tokio::sync::watch::Receiver<u64>,
-    queue_unpark_semaphore: HelperSemaphore,
+    queue_unpark_request_sender: std::sync::mpsc::Sender<()>,
     staging: Arc<GrowableRing>,
 }
 
@@ -101,7 +60,8 @@ impl AssetLoadContext {
 
     pub async fn wait_for_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
-        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+        self.queue_unpark_request_sender.send(()).unwrap();
+
         if self
             .queue_watch_receiver
             .clone()
@@ -120,7 +80,7 @@ impl AssetLoadContext {
 
     pub fn block_on_work_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
-        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+        self.queue_unpark_request_sender.send(()).unwrap();
 
         // Blocking on an async function is tricky, as doing it naively can cause Tokio to panic if we run into a situation where
         // a runtime is used within another runtime. Because of that, rather than using `queue_watch_receiver`,
@@ -146,11 +106,12 @@ impl AssetLoadContext {
 pub struct AssetLoader {
     gfx: Arc<Base>,
     shutdown_token: CancellationToken,
-    queue_unpark_semaphore: HelperSemaphore,
+    queue_unpark_request_sender: Option<std::sync::mpsc::Sender<()>>,
     loader: skid_steer::Loader,
+    staging: Arc<GrowableRing>,
     task_executor_threads: Vec<JoinHandle<()>>,
     queue_driver_thread: Option<JoinHandle<()>>,
-    staging: Arc<GrowableRing>,
+    queue_unparker_thread: Option<JoinHandle<()>>,
 }
 
 impl AssetLoader {
@@ -159,7 +120,20 @@ impl AssetLoader {
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let loader = skid_steer::Loader::new();
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
-        let queue_unpark_semaphore = unsafe { HelperSemaphore::new(&gfx.device) };
+        let queue_unpark_semaphore = unsafe {
+            gfx.device
+                .create_semaphore(
+                    &vk::SemaphoreCreateInfo::default().push_next(
+                        &mut vk::SemaphoreTypeCreateInfo::default()
+                            .semaphore_type(vk::SemaphoreType::TIMELINE)
+                            .initial_value(0),
+                    ),
+                    None,
+                )
+                .unwrap()
+        };
+        let (queue_unpark_request_sender, queue_unpark_request_receiver) =
+            std::sync::mpsc::channel();
         let (queue_watch_sender, queue_watch_receiver) = tokio::sync::watch::channel(0);
 
         let mut task_executor_threads = vec![];
@@ -173,7 +147,7 @@ impl AssetLoader {
                 config: Arc::clone(&config),
                 queue_handle: unsafe { queue.handle(&gfx.device) },
                 queue_watch_receiver: queue_watch_receiver.clone(),
-                queue_unpark_semaphore,
+                queue_unpark_request_sender: queue_unpark_request_sender.clone(),
                 staging: Arc::clone(&staging),
             };
             let loader = loader.clone();
@@ -206,14 +180,29 @@ impl AssetLoader {
                 .unwrap()
         });
 
+        let queue_unparker_thread = Some({
+            let gfx = Arc::clone(&gfx);
+            thread::Builder::new()
+                .name("queue_unparker_thread".to_owned())
+                .spawn(move || {
+                    run_queue_unparker_thread(
+                        &gfx.device,
+                        queue_unpark_semaphore,
+                        queue_unpark_request_receiver,
+                    );
+                })
+                .unwrap()
+        });
+
         AssetLoader {
             gfx,
             shutdown_token,
-            queue_unpark_semaphore,
+            queue_unpark_request_sender: Some(queue_unpark_request_sender),
             loader,
+            staging,
             task_executor_threads,
             queue_driver_thread,
-            staging,
+            queue_unparker_thread,
         }
     }
 
@@ -258,16 +247,17 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
     let asset_load_context = Rc::get_mut(&mut asset_load_context)
         .expect("runtime using this context should already be dropped");
 
+    // Fail-safe to ensure that the parallel queue is driven at least once after all work has been submitted before
+    // we drain the handle
+    asset_load_context
+        .queue_unpark_request_sender
+        .send(())
+        .unwrap();
+
     // Safety: We make sure not to destroy the handle until we drain it. Since there are no other references to the handle,
     // no work will be in flight when the handle is destroyed.
     // no work can be in flight.
     unsafe {
-        // Fail-safe to ensure that the parallel queue is driven at least once after all work has been submitted before
-        // we drain the handle
-        asset_load_context
-            .queue_unpark_semaphore
-            .signal(&asset_load_context.gfx.device);
-
         asset_load_context
             .queue_handle
             .drain(&asset_load_context.gfx.device);
@@ -280,7 +270,7 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
 fn run_queue_driver_thread(
     gfx: &Base,
     mut queue: ParallelQueue,
-    queue_unpark_semaphore: HelperSemaphore,
+    queue_unpark_semaphore: vk::Semaphore,
     shutdown_token: CancellationToken,
     queue_watch_sender: &tokio::sync::watch::Sender<u64>,
     staging: &GrowableRing,
@@ -291,8 +281,11 @@ fn run_queue_driver_thread(
         // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
         // wants to ensure `shutdown_token` is checked. Therefore, we put these two
         // operations between reading and waiting on `queue_unpark_semaphore`
-        let queue_unpark_semaphore_next_value =
-            unsafe { queue_unpark_semaphore.get_next_value(&gfx.device) };
+        let queue_unpark_semaphore_current_value = unsafe {
+            gfx.device
+                .get_semaphore_counter_value(queue_unpark_semaphore)
+                .unwrap()
+        };
         unsafe { queue.drive(&gfx.device) };
         if shutdown_token.is_cancelled() {
             break;
@@ -300,8 +293,8 @@ fn run_queue_driver_thread(
         let semaphore_value = unsafe {
             queue.park(
                 &gfx.device,
-                queue_unpark_semaphore.0,
-                queue_unpark_semaphore_next_value,
+                queue_unpark_semaphore,
+                queue_unpark_semaphore_current_value + 1,
             )
         };
         let _ = queue_watch_sender.send(semaphore_value);
@@ -309,6 +302,36 @@ fn run_queue_driver_thread(
     }
     unsafe { queue.drain(&gfx.device) };
     unsafe { queue.destroy(&gfx.device) };
+}
+
+/// Timeline sempahores must be signaled in a strictly increasing sequence, so having multiple threads manage
+/// the semaphore that unparks the timeline queue is error-prone. The purpose of this thread is to centralize
+/// management of this semaphore.
+fn run_queue_unparker_thread(
+    device: &ash::Device,
+    queue_unpark_semaphore: vk::Semaphore,
+    queue_unpark_request_receiver: std::sync::mpsc::Receiver<()>,
+) {
+    let mut current_semaphore_value = 0;
+    while queue_unpark_request_receiver.recv().is_ok() {
+        while queue_unpark_request_receiver.try_recv().is_ok() {
+            // Clearing the request queue, since we only need to increment the semaphore once
+        }
+        current_semaphore_value += 1;
+
+        // Safety: This is the only thread that updates the semaphore, so that should ensure that it is always
+        // signaled with a strictly increasing value
+        unsafe {
+            device
+                .signal_semaphore(
+                    &vk::SemaphoreSignalInfo::default()
+                        .semaphore(queue_unpark_semaphore)
+                        .value(current_semaphore_value),
+                )
+                .unwrap()
+        };
+    }
+    unsafe { device.destroy_semaphore(queue_unpark_semaphore, None) };
 }
 
 impl Drop for AssetLoader {
@@ -319,14 +342,19 @@ impl Drop for AssetLoader {
             thread.join().unwrap();
         }
         self.shutdown_token.cancel();
-        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+
+        let queue_unpark_request_sender = self.queue_unpark_request_sender.take().unwrap();
+        queue_unpark_request_sender.send(()).unwrap();
         self.queue_driver_thread.take().unwrap().join().unwrap();
-        unsafe { self.queue_unpark_semaphore.destroy(&self.gfx.device) };
+
+        drop(queue_unpark_request_sender);
+        self.queue_unparker_thread.take().unwrap().join().unwrap();
+
         unsafe {
             Arc::get_mut(&mut self.staging)
                 .expect("All threads using staging should now be joined")
-                .destroy(&self.gfx.device)
-        };
+                .destroy(&self.gfx.device);
+        }
     }
 }
 
