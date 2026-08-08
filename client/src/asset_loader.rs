@@ -82,10 +82,9 @@ impl AssetLoadContext {
         &self,
         count: usize,
         align: usize,
-        free_at_completion: &parallel_queue::Work<'_>,
+        free_at: u64,
     ) -> growable_ring::Allocation<T> {
-        self.staging
-            .alloc(&self.gfx, count, align, free_at_completion.time().get())
+        self.staging.alloc(&self.gfx, count, align, free_at)
     }
 
     pub fn device(&self) -> &ash::Device {
@@ -100,26 +99,43 @@ impl AssetLoadContext {
         self.gfx.queue_family
     }
 
-    /// Submits the given work immediately and returns a future you can await to ensure the work completes
-    pub fn complete_work(&self, work: parallel_queue::Work<'_>) -> impl Future {
-        let finish_time = work.time().get();
-        work.end();
-        // To actually get the work to start, we need to unpark the queue
-        //unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) }; // (TODO: Uncomment after dealing with unsound Handle destruction)
-        async move {
-            if self
-                .parallel_queue_semaphore_watcher
-                .clone()
-                .wait_for(|&value| value >= finish_time)
-                .await
-                .is_err()
-            {
-                // Don't assume things have finished loading just because `parallel_queue_semaphore_notifier` was dropped.
-                // Instead, print an error and wait forever, since the work will never complete.
-                tracing::error!("Work was submitted to the parallel queue but never completed. This should never happen.");
-                std::future::pending::<()>().await;
-            }
+    pub async fn wait_for_completion(&self, semaphore_value: u64) {
+        // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
+        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+        if self
+            .parallel_queue_semaphore_watcher
+            .clone()
+            .wait_for(|&value| value >= semaphore_value)
+            .await
+            .is_err()
+        {
+            // Don't assume things have finished loading just because `parallel_queue_semaphore_notifier` was dropped.
+            // Instead, print an error and wait forever, since the work will never complete.
+            tracing::error!(
+                "Work was submitted to the parallel queue but never completed. This should never happen."
+            );
+            std::future::pending::<()>().await;
         }
+    }
+
+    pub fn block_on_work_completion(&self, semaphore_value: u64) {
+        // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
+        unsafe { self.queue_unpark_semaphore.signal(&self.gfx.device) };
+
+        // Blocking on an async function is tricky, as doing it naively can cause Tokio to panic if we run into a situation where
+        // a runtime is used within another runtime. Because of that, rather than using `parallel_queue_semaphore_watcher`,
+        // we just use the timeline semaphore directly.
+        unsafe {
+            self.gfx
+                .device
+                .wait_semaphores(
+                    &vk::SemaphoreWaitInfo::default()
+                        .semaphores(&[self.parallel_queue_handle.semaphore()])
+                        .values(&[semaphore_value]),
+                    !0,
+                )
+                .unwrap()
+        };
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
@@ -417,6 +433,8 @@ mod tests {
         }
 
         fn wait_for_completion(&self) {
+            // Note: This design pattern is somewhat dangerous because it can panic if called from within another runtime.
+            // Since this is only used in unit tests, this should be an acceptable level of risk.
             tokio::runtime::LocalRuntime::new()
                 .unwrap()
                 .block_on(async {
@@ -454,7 +472,8 @@ mod tests {
             // Use the parallel queue and set up an allocation to exercise this functionality
             let ctx: &AssetLoadContext = context.get().unwrap();
             let work = unsafe { ctx.begin_work() };
-            let _alloc = ctx.alloc::<u8>(8, 1, &work);
+            let finish_time = work.time().get();
+            let _alloc = ctx.alloc::<u8>(8, 1, finish_time);
 
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;
@@ -462,7 +481,8 @@ mod tests {
                     .push_event(Event::progress(&self.name, status.progress));
             }
 
-            ctx.complete_work(work).await;
+            work.end();
+            ctx.wait_for_completion(finish_time).await;
 
             status.can_cancel = false; // Done loading
             self.events.push_event(Event::loaded(&self.name));

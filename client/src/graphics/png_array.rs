@@ -19,18 +19,15 @@ pub struct PngArray {
 
 struct DroppableDedicatedImage<'a> {
     image: Option<DedicatedImage>,
-    device: &'a ash::Device,
+    finish_time: u64,
+    ctx: &'a AssetLoadContext,
 }
 
 impl Drop for DroppableDedicatedImage<'_> {
     fn drop(&mut self) {
         if let Some(mut image) = self.image {
-            /*
-                TODO: If there's a command in flight, we can't destroy the image until the command has finished.
-                TODO: How do we clean up resources if `load_inner` has completed, but skid_steer hasn't established it well enough to call `free`?
-                    I think this is impossible, fortunately, as no `await` boundaries are crossed between finishing the `load` call and fully initializing the asset
-            */
-            unsafe { image.destroy(self.device) };
+            self.ctx.block_on_work_completion(self.finish_time);
+            unsafe { image.destroy(self.ctx.device()) };
         }
     }
 }
@@ -63,11 +60,13 @@ impl PngArray {
         paths.sort();
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
-        let mut dedicated_image: DroppableDedicatedImage = DroppableDedicatedImage {
-            image: None,
-            device: ctx.device(),
-        };
         let work = unsafe { ctx.begin_work() }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
+        let finish_time = work.time().get();
+        let mut dedicated_image = DroppableDedicatedImage {
+            image: None,
+            finish_time,
+            ctx,
+        };
         let mut mem: Option<Allocation<u8>> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
@@ -93,7 +92,7 @@ impl PngArray {
                 mem = Some(ctx.alloc(
                     info.width as usize * info.height as usize * 4 * self.size,
                     1, /* TODO: Is an alignment of 1 safe? */
-                    &work,
+                    finish_time,
                 ));
             }
             let mem2 = mem.as_mut().unwrap();
@@ -193,7 +192,8 @@ impl PngArray {
                     .subresource_range(range)],
             );
             tracing::trace!("Awaiting parallel queue");
-            ctx.complete_work(work).await;
+            work.end();
+            ctx.wait_for_completion(finish_time).await;
             tracing::trace!("Finished awaiting parallel queue");
 
             trace!(
