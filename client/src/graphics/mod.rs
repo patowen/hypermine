@@ -1,5 +1,6 @@
 #![allow(clippy::missing_safety_doc)] // Vulkan wrangling is categorically unsafe
 
+pub mod asset_loader; // TODO: `pub` is here to suppress usage warnings. Remove in a later commit.
 mod base;
 mod core;
 mod draw;
