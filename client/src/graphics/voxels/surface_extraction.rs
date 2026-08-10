@@ -311,6 +311,8 @@ impl ScratchBuffer {
         unsafe { &mut self.voxels_staging.as_mut()[start..start + length] }
     }
 
+    /// # Safety
+    /// The mutable reference returned by `storage` must not be in use while the surface is being extracted.
     pub unsafe fn extract(
         &mut self,
         device: &Device,
