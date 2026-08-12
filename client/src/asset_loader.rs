@@ -107,7 +107,7 @@ pub struct AssetLoader {
     gfx: Arc<Base>,
     shutdown_token: CancellationToken,
     queue_unpark_request_sender: Option<std::sync::mpsc::Sender<()>>,
-    loader: skid_steer::Loader,
+    root_loader_handle: Option<skid_steer::LoaderHandle>,
     staging: Arc<GrowableRing>,
     task_executor_threads: Vec<JoinHandle<()>>,
     queue_driver_thread: Option<JoinHandle<()>>,
@@ -116,9 +116,9 @@ pub struct AssetLoader {
 
 impl AssetLoader {
     pub fn new(gfx: Arc<Base>, config: Arc<Config>) -> Self {
+        let (loader, loader_handle) = skid_steer::loader();
         let shutdown_token = CancellationToken::new();
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
-        let loader = skid_steer::Loader::new();
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
         let queue_unpark_semaphore = unsafe {
             gfx.device
@@ -198,7 +198,7 @@ impl AssetLoader {
             gfx,
             shutdown_token,
             queue_unpark_request_sender: Some(queue_unpark_request_sender),
-            loader,
+            root_loader_handle: Some(loader_handle),
             staging,
             task_executor_threads,
             queue_driver_thread,
@@ -210,7 +210,10 @@ impl AssetLoader {
         &self,
         source: S,
     ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
-        self.loader.load(source)
+        self.root_loader_handle
+            .as_ref()
+            .expect("handle shouldn't be None because AssetLoader hasn't been dropped yet")
+            .load(source)
     }
 }
 
@@ -223,13 +226,14 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
     tokio::runtime::LocalRuntime::new()
         .unwrap()
         .block_on(async {
+            let mut join_set = tokio::task::JoinSet::new();
             while let Some(task) = loader.next_task().await {
                 tracing::trace!(
                     "Found task on {}",
                     thread::current().name().unwrap_or("<unnamed>")
                 );
                 let asset_load_context = Rc::clone(&asset_load_context);
-                tokio::task::spawn_local(async move {
+                join_set.spawn_local(async move {
                     let mut context = Context::new();
                     context.insert::<AssetLoadContext>(&asset_load_context);
                     task.run(&context).await;
@@ -238,9 +242,15 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
                         thread::current().name().unwrap_or("<unnamed>")
                     );
                 });
+                while join_set.try_join_next().is_some() {} // Drain the join set to avoid memory leaks
             }
             tracing::trace!(
                 "Ending task executor {}",
+                thread::current().name().unwrap_or("<unnamed>")
+            );
+            join_set.join_all().await; // Since a bug can result in a deadlock here, we log before and after this call.
+            tracing::trace!(
+                "Task executor ended successfully {}",
                 thread::current().name().unwrap_or("<unnamed>")
             );
         });
@@ -337,7 +347,7 @@ fn run_queue_unparker_thread(
 impl Drop for AssetLoader {
     fn drop(&mut self) {
         tracing::trace!("Shutting down AssetLoader");
-        self.loader.close();
+        self.root_loader_handle = None;
         for thread in self.task_executor_threads.drain(..) {
             thread.join().unwrap();
         }
