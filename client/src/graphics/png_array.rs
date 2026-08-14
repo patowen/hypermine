@@ -8,28 +8,12 @@ use anyhow::{Context, anyhow, bail};
 use ash::vk;
 use common::Anonymize;
 use lahar::DedicatedImage;
-use tracing::trace;
 
 use crate::{asset_loader::AssetLoadContext, growable_ring::Allocation};
 
 pub struct PngArray {
     pub path: PathBuf,
     pub size: usize,
-}
-
-struct DroppableDedicatedImage<'a> {
-    image: Option<DedicatedImage>,
-    finish_time: u64,
-    ctx: &'a AssetLoadContext,
-}
-
-impl Drop for DroppableDedicatedImage<'_> {
-    fn drop(&mut self) {
-        if let Some(mut image) = self.image {
-            self.ctx.block_on_work_completion(self.finish_time);
-            unsafe { image.destroy(self.ctx.device()) };
-        }
-    }
 }
 
 impl PngArray {
@@ -62,11 +46,6 @@ impl PngArray {
         let mut dims: Option<(u32, u32)> = None;
         let work = unsafe { ctx.begin_work() }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
         let finish_time = work.time().get();
-        let mut dedicated_image = DroppableDedicatedImage {
-            image: None,
-            finish_time,
-            ctx,
-        };
         let mut mem: Option<Allocation<u8>> = None;
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
@@ -109,7 +88,7 @@ impl PngArray {
         let (width, height) = dims.unwrap();
         let mem = mem.unwrap();
         unsafe {
-            let image = dedicated_image.image.insert(DedicatedImage::new(
+            let image = DedicatedImage::new(
                 ctx.device(),
                 ctx.memory_properties(),
                 &vk::ImageCreateInfo::default()
@@ -124,7 +103,7 @@ impl PngArray {
                     .array_layers(self.size as u32)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
-            ));
+            );
 
             let range = vk::ImageSubresourceRange {
                 aspect_mask: vk::ImageAspectFlags::COLOR,
@@ -196,14 +175,14 @@ impl PngArray {
             ctx.wait_for_completion(finish_time).await;
             tracing::trace!("Finished awaiting parallel queue");
 
-            trace!(
+            tracing::trace!(
                 width = width,
                 height = height,
                 path = %full_path.anonymize().display(),
                 "loaded array"
             );
             tracing::trace!("png_array loaded");
-            Ok(dedicated_image.image.take().unwrap())
+            Ok(image)
         }
     }
 }
