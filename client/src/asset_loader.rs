@@ -78,6 +78,7 @@ impl AssetLoadContext {
         }
     }
 
+    #[expect(unused)]
     pub fn block_on_work_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
         self.queue_unpark_request_sender.send(()).unwrap();

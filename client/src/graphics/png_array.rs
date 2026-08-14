@@ -4,12 +4,12 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, anyhow, bail, ensure};
 use ash::vk;
 use common::Anonymize;
 use lahar::DedicatedImage;
 
-use crate::{asset_loader::AssetLoadContext, growable_ring::Allocation};
+use crate::asset_loader::AssetLoadContext;
 
 pub struct PngArray {
     pub path: PathBuf,
@@ -40,9 +40,7 @@ impl PngArray {
         paths.sort();
         paths.truncate(self.size);
         let mut dims: Option<(u32, u32)> = None;
-        let work = unsafe { ctx.begin_work() }; // TODO: This `work` is created too early. We'll need to add one extra copy of image data so that the buffer can be created later.
-        let finish_time = work.time().get();
-        let mut mem: Option<Allocation<u8>> = None;
+        let mut image_data: Vec<u8> = Vec::new();
         for (i, path) in paths.iter().enumerate() {
             tracing::trace!(layer=i, path=%path.anonymize().display(), "loading");
             let file = File::open(path)
@@ -52,6 +50,10 @@ impl PngArray {
                 .read_info()
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
             let info = reader.info();
+            let step_size = info.width as usize * info.height as usize * 4;
+            ensure!(info.color_type == png::ColorType::Rgba);
+            ensure!(info.bit_depth == png::BitDepth::Eight);
+            ensure!(reader.output_buffer_size() == Some(step_size));
             if let Some(dims) = dims {
                 if dims != (info.width, info.height) {
                     bail!(
@@ -64,25 +66,13 @@ impl PngArray {
                 }
             } else {
                 dims = Some((info.width, info.height));
-                mem = Some(ctx.alloc(
-                    info.width as usize * info.height as usize * 4 * self.size,
-                    4,
-                    finish_time,
-                ));
+                image_data.resize(step_size * self.size, 0);
             }
-            let mem = mem.as_mut().unwrap();
-            let step_size = info.width as usize * info.height as usize * 4;
             reader
-                .next_frame(unsafe {
-                    std::slice::from_raw_parts_mut(
-                        mem.pointer.offset((i * step_size) as isize).as_ptr(),
-                        step_size,
-                    )
-                })
+                .next_frame(&mut image_data[(i * step_size)..((i + 1) * step_size)])
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
         }
         let (width, height) = dims.unwrap();
-        let mem = mem.unwrap();
         unsafe {
             let image = DedicatedImage::new(
                 ctx.device(),
@@ -108,10 +98,14 @@ impl PngArray {
                 base_array_layer: 0,
                 layer_count: self.size as u32,
             };
-            let src = mem.buffer;
-            let buffer_offset = mem.offset;
-            let dst = image.handle;
-
+            let work = ctx.begin_work();
+            let finish_time = work.time().get();
+            let mem = ctx.alloc(image_data.len(), 4, finish_time);
+            std::ptr::copy_nonoverlapping(
+                image_data.as_ptr(),
+                mem.pointer.as_ptr(),
+                image_data.len(),
+            );
             ctx.device().cmd_pipeline_barrier(
                 work.cmd(),
                 vk::PipelineStageFlags::TOP_OF_PIPE,
@@ -125,16 +119,16 @@ impl PngArray {
                     .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                     .old_layout(vk::ImageLayout::UNDEFINED)
                     .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .image(dst)
+                    .image(image.handle)
                     .subresource_range(range)],
             );
             ctx.device().cmd_copy_buffer_to_image(
                 work.cmd(),
-                src,
-                dst,
+                mem.buffer,
+                image.handle,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 &[vk::BufferImageCopy {
-                    buffer_offset,
+                    buffer_offset: mem.offset,
                     image_subresource: vk::ImageSubresourceLayers {
                         aspect_mask: vk::ImageAspectFlags::COLOR,
                         mip_level: 0,
@@ -163,7 +157,7 @@ impl PngArray {
                     .dst_queue_family_index(ctx.queue_family())
                     .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                    .image(dst)
+                    .image(image.handle)
                     .subresource_range(range)],
             );
             tracing::trace!("Awaiting parallel queue");
