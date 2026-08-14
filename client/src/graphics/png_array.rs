@@ -29,10 +29,6 @@ impl PngArray {
             .map(|x| x.map(|x| x.path()))
             .collect::<Result<Vec<_>, _>>()
             .with_context(|| format!("reading {}", full_path.anonymize().display()))?;
-        if paths.is_empty() {
-            // TODO: This check is redundant
-            bail!("{} is empty", full_path.anonymize().display());
-        }
         if paths.len() < self.size {
             bail!(
                 "{}: expected {} textures, found {}",
@@ -70,7 +66,7 @@ impl PngArray {
                 dims = Some((info.width, info.height));
                 mem = Some(ctx.alloc(
                     info.width as usize * info.height as usize * 4 * self.size,
-                    1, /* TODO: Is an alignment of 1 safe? */
+                    4,
                     finish_time,
                 ));
             }

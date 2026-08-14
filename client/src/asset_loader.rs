@@ -105,7 +105,7 @@ impl AssetLoadContext {
 
 pub struct AssetLoader {
     gfx: Arc<Base>,
-    shutdown_token: CancellationToken,
+    queue_shutdown_token: CancellationToken,
     queue_unpark_request_sender: Option<std::sync::mpsc::Sender<()>>,
     root_loader_handle: Option<skid_steer::LoaderHandle>,
     staging: Arc<GrowableRing>,
@@ -117,7 +117,7 @@ pub struct AssetLoader {
 impl AssetLoader {
     pub fn new(gfx: Arc<Base>, config: Arc<Config>) -> Self {
         let (loader, loader_handle) = skid_steer::loader();
-        let shutdown_token = CancellationToken::new();
+        let queue_shutdown_token = CancellationToken::new();
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
         let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
         let queue_unpark_semaphore = unsafe {
@@ -162,7 +162,7 @@ impl AssetLoader {
         let queue_driver_thread = Some({
             let gfx = Arc::clone(&gfx);
             let staging = Arc::clone(&staging);
-            let shutdown_token = shutdown_token.clone();
+            let shutdown_token = queue_shutdown_token.clone();
             let queue_watch_sender = queue_watch_sender.clone();
 
             thread::Builder::new()
@@ -196,7 +196,7 @@ impl AssetLoader {
 
         AssetLoader {
             gfx,
-            shutdown_token,
+            queue_shutdown_token,
             queue_unpark_request_sender: Some(queue_unpark_request_sender),
             root_loader_handle: Some(loader_handle),
             staging,
@@ -266,7 +266,6 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
 
     // Safety: We make sure not to destroy the handle until we drain it. Since there are no other references to the handle,
     // no work will be in flight when the handle is destroyed.
-    // no work can be in flight.
     unsafe {
         asset_load_context
             .queue_handle
@@ -351,7 +350,7 @@ impl Drop for AssetLoader {
         for thread in self.task_executor_threads.drain(..) {
             thread.join().unwrap();
         }
-        self.shutdown_token.cancel();
+        self.queue_shutdown_token.cancel();
 
         let queue_unpark_request_sender = self.queue_unpark_request_sender.take().unwrap();
         queue_unpark_request_sender.send(()).unwrap();
@@ -368,7 +367,6 @@ impl Drop for AssetLoader {
     }
 }
 
-// TODO: Rename shutdown_token to queue_shutdown_token
 #[cfg(test)]
 mod tests {
     use std::{collections::HashSet, sync::Mutex, time::Duration};
