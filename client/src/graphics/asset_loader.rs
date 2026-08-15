@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 use ash::vk;
@@ -368,9 +369,15 @@ impl Drop for AssetLoader {
     fn drop(&mut self) {
         tracing::trace!("Shutting down AssetLoader");
         self.root_loader_handle = None;
+        let deadlock_watcher = DeadlockWatcher::start_timer(Duration::from_secs(10), || {
+            tracing::warn!(
+                "Deadlock suspected while dropping AssetLoader. Did you make sure to drop all the assets first?"
+            );
+        });
         for thread in self.task_executor_threads.drain(..) {
             thread.join().unwrap();
         }
+        deadlock_watcher.cancel();
         self.queue_shutdown_token.cancel();
 
         let queue_unpark_request_sender = self.queue_unpark_request_sender.take().unwrap();
@@ -385,6 +392,56 @@ impl Drop for AssetLoader {
                 .expect("All threads using staging should now be joined")
                 .destroy(&self.gfx.device);
         }
+    }
+}
+
+struct DeadlockWatcher {
+    cancellation_send: std::sync::mpsc::Sender<()>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl DeadlockWatcher {
+    /// Call this before the operation that might deadlock runs.
+    fn start_timer(
+        duration: Duration,
+        on_suspected_deadlock: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        let (cancellation_send, cancellation_receive) = std::sync::mpsc::channel();
+        let end_time = std::time::Instant::now() + duration;
+        let thread = thread::spawn(move || {
+            loop {
+                if cancellation_receive.try_recv().is_ok() {
+                    break;
+                }
+                match end_time.checked_duration_since(std::time::Instant::now()) {
+                    Some(remaining) => {
+                        thread::park_timeout(remaining);
+                    }
+                    None => {
+                        on_suspected_deadlock();
+                        break;
+                    }
+                }
+            }
+        });
+        DeadlockWatcher {
+            cancellation_send,
+            thread: Some(thread),
+        }
+    }
+
+    /// Call this if the deadlock didn't happen.
+    fn cancel(self) {
+        // Relying on drop implementation
+    }
+}
+
+impl Drop for DeadlockWatcher {
+    fn drop(&mut self) {
+        let _ = self.cancellation_send.send(()); // No need to cancel if thread is already complete
+        let thread = self.thread.take().unwrap();
+        thread.thread().unpark();
+        thread.join().unwrap();
     }
 }
 
