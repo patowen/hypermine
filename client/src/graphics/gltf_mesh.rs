@@ -10,13 +10,10 @@ use common::Anonymize;
 use futures_util::future::{FutureExt, LocalBoxFuture, try_join_all};
 use tracing::{error, trace};
 
-use super::{Base, Mesh, meshes::Vertex};
-use crate::{
-    graphics::{
-        asset_loader::AssetLoadContext,
-        meshes::{MeshGeometryDefinition, MeshMaterialDefinition},
-    },
-    loader::Cleanup,
+use super::{Mesh, meshes::Vertex};
+use crate::graphics::{
+    asset_loader::AssetLoadContext,
+    meshes::{MeshGeometryDefinition, MeshMaterialDefinition},
 };
 
 pub struct GlbFile {
@@ -34,12 +31,10 @@ impl skid_steer::Source for GlbFile {
             .ok()
     }
 
-    fn free(output: Self::Output, context: &skid_steer::Context) {
+    fn free(mut output: Self::Output, context: &skid_steer::Context) {
         let ctx: &AssetLoadContext = context.get().unwrap();
         unsafe {
-            for mut mesh in output.0 {
-                mesh.destroy(ctx.device());
-            }
+            output.destroy(ctx.device());
         }
     }
 }
@@ -82,11 +77,11 @@ impl GlbFile {
 
 pub struct GltfScene(pub Vec<Mesh>);
 
-impl Cleanup for GltfScene {
-    unsafe fn cleanup(self, gfx: &Base) {
+impl GltfScene {
+    unsafe fn destroy(&mut self, device: &ash::Device) {
         unsafe {
-            for mesh in self.0 {
-                mesh.cleanup(gfx);
+            for mesh in &mut self.0 {
+                mesh.destroy(device);
             }
         }
     }
@@ -149,7 +144,7 @@ async fn load_primitive(
     // Concurrent upload
     // TODO: Don't leak resources on error
     let (geom, color) = tokio::join!(
-        load_geom(ctx, buffer, &prim, transform, texcoord_index),
+        load_geom(buffer, &prim, transform, texcoord_index),
         load_material(ctx, buffer, &prim)
     );
     let geom = geom?;
@@ -158,7 +153,6 @@ async fn load_primitive(
 }
 
 async fn load_geom(
-    ctx: &AssetLoadContext,
     buffer: &[u8],
     prim: &gltf::Primitive<'_>,
     transform: &na::Matrix4<f32>,
@@ -182,7 +176,7 @@ async fn load_geom(
     let positions = prim
         .read_positions()
         .ok_or_else(|| anyhow!("vertex positions missing"))?;
-    let mut texcoords = texcoord_index
+    let texcoords = texcoord_index
         .map(|i| -> Result<_> {
             Ok(prim
                 .read_tex_coords(i)

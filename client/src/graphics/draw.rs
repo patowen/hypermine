@@ -8,7 +8,7 @@ use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
 use crate::graphics::asset_loader::AssetLoader;
-use crate::{Config, Loader, Sim};
+use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
 
@@ -32,9 +32,6 @@ pub struct Draw {
     common_pipeline_layout: vk::PipelineLayout,
     /// Descriptor pool from which descriptor sets shared between many pipelines are allocated
     common_descriptor_pool: vk::DescriptorPool,
-
-    /// Drives async asset loading
-    loader: Loader,
 
     //
     // Rendering pipelines
@@ -135,7 +132,6 @@ impl Draw {
                 )
                 .unwrap();
 
-            let mut loader = Loader::new(cfg.clone(), gfx.clone());
             let asset_loader = AssetLoader::new(gfx.clone(), cfg.clone());
 
             // Construct the per-frame states
@@ -187,7 +183,7 @@ impl Draw {
                 })
                 .collect();
 
-            let meshes = Meshes::new(&gfx, loader.ctx().mesh_ds_layout);
+            let meshes = Meshes::new(&gfx);
 
             let fog = Fog::new(&gfx);
 
@@ -219,9 +215,6 @@ impl Draw {
                 common_pipeline_layout,
                 common_descriptor_pool,
 
-                loader,
-                asset_loader,
-
                 voxels: None,
                 meshes,
                 fog,
@@ -232,6 +225,8 @@ impl Draw {
                 yakui_vulkan,
 
                 character_model,
+
+                asset_loader,
             }
         }
     }
@@ -300,7 +295,6 @@ impl Draw {
             let view = sim.as_ref().map_or_else(Position::origin, |sim| sim.view());
             let projection = frustum.projection(1.0e-4);
             let view_projection = projection.matrix() * na::Matrix4::from(view.local.inverse());
-            self.loader.drive();
 
             let device = &*self.gfx.device;
             let state_index = self.next_state;

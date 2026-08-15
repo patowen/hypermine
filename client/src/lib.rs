@@ -15,7 +15,6 @@ mod config;
 pub mod graphics;
 mod growable_ring;
 mod lahar_deprecated;
-mod loader;
 mod local_character_controller;
 pub mod metrics;
 pub mod net;
@@ -26,5 +25,3 @@ mod worldgen_driver;
 
 pub use config::Config;
 pub use sim::Sim;
-
-use loader::{Asset, Loader};
