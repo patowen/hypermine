@@ -7,7 +7,7 @@ use lahar::Staged;
 use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
-use crate::asset_loader::AssetLoader;
+use crate::graphics::asset_loader::AssetLoader;
 use crate::{Asset, Config, Loader, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};

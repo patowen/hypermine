@@ -11,7 +11,6 @@ macro_rules! cstr {
 }
 
 extern crate nalgebra as na;
-mod asset_loader;
 mod config;
 pub mod graphics;
 mod growable_ring;

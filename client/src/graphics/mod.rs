@@ -1,5 +1,6 @@
 #![allow(clippy::missing_safety_doc)] // Vulkan wrangling is categorically unsafe
 
+mod asset_loader;
 mod base;
 mod core;
 mod draw;

@@ -13,8 +13,7 @@ use tracing::warn;
 
 use crate::{
     Config, Sim,
-    asset_loader::AssetLoader,
-    graphics::{Base, Frustum},
+    graphics::{Base, Frustum, asset_loader::AssetLoader},
 };
 use common::{
     dodeca::{self, Vertex},

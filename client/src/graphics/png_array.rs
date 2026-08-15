@@ -9,7 +9,7 @@ use ash::vk;
 use common::Anonymize;
 use lahar::DedicatedImage;
 
-use crate::asset_loader::AssetLoadContext;
+use crate::graphics::asset_loader::AssetLoadContext;
 
 pub struct PngArray {
     pub path: PathBuf,

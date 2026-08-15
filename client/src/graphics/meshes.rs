@@ -5,7 +5,7 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
 
-use crate::asset_loader::AssetLoadContext;
+use crate::graphics::asset_loader::AssetLoadContext;
 
 use super::Base;
 use common::defer;
