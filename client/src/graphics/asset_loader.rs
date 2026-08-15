@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::{Base, meshes},
+    graphics::{Base, meshes, shader_data::ShaderData},
     growable_ring::{self, GrowableRing},
 };
 
@@ -60,6 +60,10 @@ impl AssetLoadContext {
             (size_of::<u32>() * num_indices) as vk::DeviceSize,
             4,
         )
+    }
+
+    pub fn shader_data(&self) -> &ShaderData {
+        &self.gfx.shader_data
     }
 
     pub fn device(&self) -> &ash::Device {

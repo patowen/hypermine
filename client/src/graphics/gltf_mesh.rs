@@ -15,7 +15,10 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use tracing::{error, trace};
 
 use super::{Base, Mesh, meshes::Vertex};
-use crate::loader::{Cleanup, LoadCtx, LoadFuture, Loadable};
+use crate::{
+    graphics::meshes::{MeshGeometry, MeshMaterial},
+    loader::{Cleanup, LoadCtx, LoadFuture, Loadable},
+};
 
 pub struct GlbFile {
     pub path: PathBuf,
@@ -191,13 +194,14 @@ async fn load_primitive(
         );
 
         Ok(Mesh {
-            vertices: geom.vertices,
-            indices: geom.indices,
-            index_count: geom.index_count,
+            geometry: MeshGeometry {
+                vertices: geom.vertices,
+                indices: geom.indices,
+                index_count: geom.index_count,
+            },
             pool,
             ds,
-            color,
-            color_view,
+            material: MeshMaterial { color, color_view },
         })
     }
 }

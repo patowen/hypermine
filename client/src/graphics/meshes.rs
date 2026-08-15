@@ -192,16 +192,16 @@ impl Meshes {
             device.cmd_bind_vertex_buffers(
                 cmd,
                 0,
-                &[mesh.vertices.buffer],
-                &[mesh.vertices.offset],
+                &[mesh.geometry.vertices.buffer],
+                &[mesh.geometry.vertices.offset],
             );
             device.cmd_bind_index_buffer(
                 cmd,
-                mesh.indices.buffer,
-                mesh.indices.offset,
+                mesh.geometry.indices.buffer,
+                mesh.geometry.indices.offset,
                 vk::IndexType::UINT32,
             );
-            device.cmd_draw_indexed(cmd, mesh.index_count, 1, 0, 0, 0);
+            device.cmd_draw_indexed(cmd, mesh.geometry.index_count, 1, 0, 0, 0);
         }
     }
 
@@ -233,14 +233,11 @@ pub struct MeshMaterialDefinition {
 
 #[derive(Copy, Clone)]
 pub struct Mesh {
-    pub vertices: BufferRegionAlloc,
-    pub indices: BufferRegionAlloc,
-    pub index_count: u32,
+    pub geometry: MeshGeometry,
     pub pool: vk::DescriptorPool,
     pub ds: vk::DescriptorSet,
     // TODO: Make shareable
-    pub color: DedicatedImage,
-    pub color_view: vk::ImageView,
+    pub material: MeshMaterial,
 }
 
 impl Mesh {
@@ -248,14 +245,69 @@ impl Mesh {
         ctx: &AssetLoadContext,
         mesh_geometry: MeshGeometryDefinition,
         mesh_material: MeshMaterialDefinition,
-    ) {
+    ) -> Self {
+        unsafe {
+            let (geometry, material) = tokio::join!(
+                MeshGeometry::from_definition(ctx, mesh_geometry),
+                MeshMaterial::from_definition(ctx, mesh_material)
+            );
+
+            let pool = ctx
+                .device()
+                .create_descriptor_pool(
+                    &vk::DescriptorPoolCreateInfo::default()
+                        .max_sets(1)
+                        .pool_sizes(&[vk::DescriptorPoolSize {
+                            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                            descriptor_count: 1,
+                        }]),
+                    None,
+                )
+                .unwrap();
+            let ds = ctx
+                .device()
+                .allocate_descriptor_sets(
+                    &vk::DescriptorSetAllocateInfo::default()
+                        .descriptor_pool(pool)
+                        .set_layouts(&[ctx.shader_data().mesh_ds_layout]),
+                )
+                .unwrap()[0];
+            ctx.device().update_descriptor_sets(
+                &[vk::WriteDescriptorSet::default()
+                    .dst_set(ds)
+                    .dst_binding(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(&[vk::DescriptorImageInfo {
+                        sampler: vk::Sampler::null(),
+                        image_view: material.color_view,
+                        image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    }])],
+                &[],
+            );
+
+            Mesh {
+                geometry,
+                pool,
+                ds,
+                material,
+            }
+        }
+    }
+
+    pub unsafe fn destroy(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_descriptor_pool(self.pool, None);
+            self.material.destroy(device);
+            self.geometry.destroy(device);
+        }
     }
 }
 
-struct MeshGeometry {
-    vertices: BufferRegionAlloc,
-    indices: BufferRegionAlloc,
-    index_count: u32,
+#[derive(Copy, Clone)]
+pub struct MeshGeometry {
+    pub vertices: BufferRegionAlloc,
+    pub indices: BufferRegionAlloc,
+    pub index_count: u32,
 }
 
 impl MeshGeometry {
@@ -338,17 +390,24 @@ impl MeshGeometry {
             }
         }
     }
+
+    pub unsafe fn destroy(&mut self, _device: &ash::Device) {
+        // Nothing actually needs to be cleaned up here.
+        // This implementation is left in so that we can remember to call it, ensuring
+        // that if this ever changes, we don't forget to clean things up.
+    }
 }
 
-struct MeshMaterial {
-    color: DedicatedImage,
-    color_view: vk::ImageView,
+#[derive(Copy, Clone)]
+pub struct MeshMaterial {
+    pub color: DedicatedImage,
+    pub color_view: vk::ImageView,
 }
 
 impl MeshMaterial {
     pub async fn from_definition(
         ctx: &AssetLoadContext,
-        mesh_material: &MeshMaterialDefinition,
+        mesh_material: MeshMaterialDefinition,
     ) -> Self {
         unsafe {
             let work = ctx.begin_work();
@@ -464,6 +523,13 @@ impl MeshMaterial {
             MeshMaterial { color, color_view }
         }
     }
+
+    pub unsafe fn destroy(&mut self, device: &ash::Device) {
+        unsafe {
+            device.destroy_image_view(self.color_view, None);
+            self.color.destroy(device);
+        }
+    }
 }
 
 impl crate::loader::Cleanup for Mesh {
@@ -471,8 +537,8 @@ impl crate::loader::Cleanup for Mesh {
         unsafe {
             let device = &*gfx.device;
             device.destroy_descriptor_pool(self.pool, None);
-            device.destroy_image_view(self.color_view, None);
-            self.color.destroy(device);
+            device.destroy_image_view(self.material.color_view, None);
+            self.material.color.destroy(device);
         }
     }
 }
