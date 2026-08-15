@@ -14,7 +14,6 @@ extern crate nalgebra as na;
 mod config;
 pub mod graphics;
 mod growable_ring;
-mod lahar_deprecated;
 mod local_character_controller;
 pub mod metrics;
 pub mod net;
