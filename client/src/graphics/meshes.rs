@@ -5,6 +5,8 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
 
+use crate::asset_loader::AssetLoadContext;
+
 use super::Base;
 use common::defer;
 
@@ -17,7 +19,6 @@ pub struct Meshes {
 }
 
 impl Meshes {
-    #[allow(clippy::unneeded_field_pattern)] // Silence offset_of warnings nonsense
     pub fn new(gfx: &Base, ds_layout: vk::DescriptorSetLayout) -> Self {
         let device = &*gfx.device;
         unsafe {
@@ -37,7 +38,7 @@ impl Meshes {
             let pipeline_layout = device
                 .create_pipeline_layout(
                     &vk::PipelineLayoutCreateInfo::default()
-                        .set_layouts(&[gfx.common_layout, ds_layout])
+                        .set_layouts(&[gfx.shader_data.common_layout, ds_layout])
                         .push_constant_ranges(&[vk::PushConstantRange {
                             stage_flags: vk::ShaderStageFlags::VERTEX,
                             offset: 0,
@@ -219,6 +220,17 @@ pub struct Vertex {
     pub normal: na::Unit<na::Vector3<f32>>,
 }
 
+pub struct MeshGeometryDefinition {
+    pub vertices: Vec<Vertex>,
+    pub indices: Vec<u32>,
+}
+
+pub struct MeshTextureDefinition {
+    pub width: u32,
+    pub height: u32,
+    pub srgb_rgba_data: Vec<u8>,
+}
+
 #[derive(Copy, Clone)]
 pub struct Mesh {
     pub vertices: BufferRegionAlloc,
@@ -229,6 +241,48 @@ pub struct Mesh {
     // TODO: Make shareable
     pub color: DedicatedImage,
     pub color_view: vk::ImageView,
+}
+
+impl Mesh {
+    pub async fn from_definition(
+        ctx: &AssetLoadContext,
+        mesh_geometry: MeshGeometryDefinition,
+        mesh_texture: MeshTextureDefinition,
+    ) {
+    }
+}
+
+struct MeshGeometry {
+    vertices: BufferRegionAlloc,
+    indices: BufferRegionAlloc,
+    index_count: u32,
+}
+
+impl MeshGeometry {
+    pub async fn from_definition(ctx: &AssetLoadContext, mesh_geometry: MeshGeometryDefinition) {
+        unsafe {
+            let work = ctx.begin_work();
+            let work_time = work.time().get();
+            let vertex_staging =
+                ctx.alloc_staging::<Vertex>(mesh_geometry.vertices.len(), 1, work_time);
+            let index_staging = ctx.alloc_staging::<u32>(mesh_geometry.indices.len(), 1, work_time);
+            std::ptr::copy_nonoverlapping(
+                mesh_geometry.vertices.as_ptr(),
+                vertex_staging.pointer.as_ptr(),
+                mesh_geometry.vertices.len(),
+            );
+            std::ptr::copy_nonoverlapping(
+                mesh_geometry.indices.as_ptr(),
+                index_staging.pointer.as_ptr(),
+                mesh_geometry.indices.len(),
+            );
+        }
+    }
+}
+
+struct MeshMaterial {
+    color: DedicatedImage,
+    color_view: vk::ImageView,
 }
 
 impl crate::loader::Cleanup for Mesh {

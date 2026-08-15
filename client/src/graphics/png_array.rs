@@ -100,7 +100,7 @@ impl PngArray {
             };
             let work = ctx.begin_work();
             let finish_time = work.time().get();
-            let mem = ctx.alloc(image_data.len(), 4, finish_time);
+            let mem = ctx.alloc_staging(image_data.len(), 4, finish_time);
             std::ptr::copy_nonoverlapping(
                 image_data.as_ptr(),
                 mem.pointer.as_ptr(),
@@ -160,8 +160,8 @@ impl PngArray {
                     .image(image.handle)
                     .subresource_range(range)],
             );
-            tracing::trace!("Awaiting parallel queue");
             work.end();
+            tracing::trace!("Awaiting parallel queue");
             ctx.wait_for_completion(finish_time).await;
             tracing::trace!("Finished awaiting parallel queue");
 

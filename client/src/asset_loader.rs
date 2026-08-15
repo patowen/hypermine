@@ -37,13 +37,16 @@ impl AssetLoadContext {
         unsafe { self.queue_handle.begin(&self.gfx.device) }
     }
 
-    pub fn alloc<T>(
+    pub fn alloc_staging<T>(
         &self,
         count: usize,
         align: usize,
         free_at: u64,
     ) -> growable_ring::Allocation<T> {
         self.staging.alloc(&self.gfx, count, align, free_at)
+    }
+
+    pub fn alloc_vertices(&self) {
     }
 
     pub fn device(&self) -> &ash::Device {
@@ -504,7 +507,7 @@ mod tests {
             let ctx: &AssetLoadContext = context.get().unwrap();
             let work = unsafe { ctx.begin_work() };
             let finish_time = work.time().get();
-            let _alloc = ctx.alloc::<u8>(8, 1, finish_time);
+            let _alloc = ctx.alloc_staging::<u8>(8, 1, finish_time);
 
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;

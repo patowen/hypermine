@@ -273,7 +273,6 @@ async fn load_geom(
             ),
         };
         // write_unaligned accepts misaligned pointers
-        #[allow(clippy::cast_ptr_alignment)]
         unsafe {
             ptr::write_unaligned(storage.as_ptr() as *mut Vertex, v);
         }
