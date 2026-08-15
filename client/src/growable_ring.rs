@@ -13,6 +13,7 @@ pub struct GrowableRing {
 pub struct Allocation<T> {
     pub buffer: vk::Buffer,
     pub offset: u64,
+    pub size: u64,
     pub pointer: NonNull<T>,
 }
 
@@ -64,6 +65,7 @@ impl GrowableRing {
         Allocation {
             buffer,
             offset: offset as u64,
+            size: size as u64,
             pointer: mapping,
         }
     }

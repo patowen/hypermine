@@ -6,13 +6,13 @@ use std::{
 };
 
 use ash::vk;
-use lahar::{ParallelQueue, parallel_queue};
+use lahar::{BufferRegionAlloc, ParallelQueue, parallel_queue};
 use skid_steer::Context;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::Base,
+    graphics::{Base, meshes},
     growable_ring::{self, GrowableRing},
 };
 
@@ -46,7 +46,20 @@ impl AssetLoadContext {
         self.staging.alloc(&self.gfx, count, align, free_at)
     }
 
-    pub fn alloc_vertices(&self) {
+    pub fn alloc_vertices(&self, num_vertices: usize) -> BufferRegionAlloc {
+        self.gfx.shader_data.vertex_alloc.lock().unwrap().alloc(
+            &self.gfx.device,
+            (size_of::<meshes::Vertex>() * num_vertices) as vk::DeviceSize,
+            4,
+        )
+    }
+
+    pub fn alloc_indices(&self, num_indices: usize) -> BufferRegionAlloc {
+        self.gfx.shader_data.index_alloc.lock().unwrap().alloc(
+            &self.gfx.device,
+            (size_of::<u32>() * num_indices) as vk::DeviceSize,
+            4,
+        )
     }
 
     pub fn device(&self) -> &ash::Device {

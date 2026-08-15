@@ -259,13 +259,17 @@ struct MeshGeometry {
 }
 
 impl MeshGeometry {
-    pub async fn from_definition(ctx: &AssetLoadContext, mesh_geometry: MeshGeometryDefinition) {
+    pub async fn from_definition(
+        ctx: &AssetLoadContext,
+        mesh_geometry: MeshGeometryDefinition,
+    ) -> Self {
         unsafe {
             let work = ctx.begin_work();
-            let work_time = work.time().get();
+            let finish_time = work.time().get();
             let vertex_staging =
-                ctx.alloc_staging::<Vertex>(mesh_geometry.vertices.len(), 1, work_time);
-            let index_staging = ctx.alloc_staging::<u32>(mesh_geometry.indices.len(), 1, work_time);
+                ctx.alloc_staging::<Vertex>(mesh_geometry.vertices.len(), 1, finish_time);
+            let index_staging =
+                ctx.alloc_staging::<u32>(mesh_geometry.indices.len(), 1, finish_time);
             std::ptr::copy_nonoverlapping(
                 mesh_geometry.vertices.as_ptr(),
                 vertex_staging.pointer.as_ptr(),
@@ -276,6 +280,62 @@ impl MeshGeometry {
                 index_staging.pointer.as_ptr(),
                 mesh_geometry.indices.len(),
             );
+            let vertex_alloc = ctx.alloc_vertices(mesh_geometry.vertices.len());
+            let index_alloc = ctx.alloc_indices(mesh_geometry.indices.len());
+            ctx.device().cmd_copy_buffer(
+                work.cmd(),
+                vertex_staging.buffer,
+                vertex_alloc.buffer,
+                &[vk::BufferCopy {
+                    src_offset: vertex_staging.offset,
+                    dst_offset: vertex_alloc.offset,
+                    size: vertex_staging.size,
+                }],
+            );
+            ctx.device().cmd_copy_buffer(
+                work.cmd(),
+                index_staging.buffer,
+                index_alloc.buffer,
+                &[vk::BufferCopy {
+                    src_offset: index_staging.offset,
+                    dst_offset: index_alloc.offset,
+                    size: index_staging.size,
+                }],
+            );
+            ctx.device().cmd_pipeline_barrier(
+                work.cmd(),
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::VERTEX_INPUT,
+                vk::DependencyFlags::default(),
+                &[],
+                &[
+                    vk::BufferMemoryBarrier::default()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::VERTEX_ATTRIBUTE_READ)
+                        .src_queue_family_index(ctx.queue_family())
+                        .dst_queue_family_index(ctx.queue_family())
+                        .buffer(vertex_alloc.buffer)
+                        .offset(vertex_alloc.offset)
+                        .size(vertex_staging.size),
+                    vk::BufferMemoryBarrier::default()
+                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                        .dst_access_mask(vk::AccessFlags::INDEX_READ)
+                        .src_queue_family_index(ctx.queue_family())
+                        .dst_queue_family_index(ctx.queue_family())
+                        .buffer(index_alloc.buffer)
+                        .offset(index_alloc.offset)
+                        .size(index_staging.size),
+                ],
+                &[],
+            );
+            work.end();
+            ctx.wait_for_completion(finish_time).await;
+
+            MeshGeometry {
+                vertices: vertex_alloc,
+                indices: index_alloc,
+                index_count: u32::try_from(mesh_geometry.indices.len()).unwrap(),
+            }
         }
     }
 }
