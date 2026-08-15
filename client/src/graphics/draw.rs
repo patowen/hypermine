@@ -35,7 +35,6 @@ pub struct Draw {
 
     /// Drives async asset loading
     loader: Loader,
-    asset_loader: AssetLoader,
 
     //
     // Rendering pipelines
@@ -55,6 +54,9 @@ pub struct Draw {
 
     /// Miscellany
     character_model: skid_steer::Asset<GltfScene>,
+
+    /// Drives async asset loading
+    asset_loader: AssetLoader, // TODO: Make code more robust by not requiring this to be defined last (due to Drop order)
 }
 
 /// Maximum number of simultaneous frames in flight
