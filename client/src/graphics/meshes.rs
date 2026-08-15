@@ -225,10 +225,10 @@ pub struct MeshGeometryDefinition {
     pub indices: Vec<u32>,
 }
 
-pub struct MeshTextureDefinition {
+pub struct MeshMaterialDefinition {
     pub width: u32,
     pub height: u32,
-    pub srgb_rgba_data: Vec<u8>,
+    pub srgb_rgba_color_data: Vec<u8>,
 }
 
 #[derive(Copy, Clone)]
@@ -247,7 +247,7 @@ impl Mesh {
     pub async fn from_definition(
         ctx: &AssetLoadContext,
         mesh_geometry: MeshGeometryDefinition,
-        mesh_texture: MeshTextureDefinition,
+        mesh_material: MeshMaterialDefinition,
     ) {
     }
 }
@@ -343,6 +343,127 @@ impl MeshGeometry {
 struct MeshMaterial {
     color: DedicatedImage,
     color_view: vk::ImageView,
+}
+
+impl MeshMaterial {
+    pub async fn from_definition(
+        ctx: &AssetLoadContext,
+        mesh_material: &MeshMaterialDefinition,
+    ) -> Self {
+        unsafe {
+            let work = ctx.begin_work();
+            let finish_time = work.time().get();
+            let color_staging = ctx.alloc_staging::<u8>(
+                mesh_material.width as usize * mesh_material.height as usize * 4,
+                4,
+                finish_time,
+            );
+            std::ptr::copy_nonoverlapping(
+                mesh_material.srgb_rgba_color_data.as_ptr(),
+                color_staging.pointer.as_ptr(),
+                mesh_material.srgb_rgba_color_data.len(),
+            );
+            let color = DedicatedImage::new(
+                ctx.device(),
+                ctx.memory_properties(),
+                &vk::ImageCreateInfo::default()
+                    .image_type(vk::ImageType::TYPE_2D)
+                    .format(vk::Format::R8G8B8A8_SRGB)
+                    .extent(vk::Extent3D {
+                        width: mesh_material.width,
+                        height: mesh_material.height,
+                        depth: 1,
+                    })
+                    .mip_levels(1)
+                    .array_layers(1)
+                    .samples(vk::SampleCountFlags::TYPE_1)
+                    .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
+            );
+            let range = vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            };
+            ctx.device().cmd_pipeline_barrier(
+                work.cmd(),
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::default(),
+                &[],
+                &[],
+                &[vk::ImageMemoryBarrier::default()
+                    .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .old_layout(vk::ImageLayout::UNDEFINED)
+                    .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .image(color.handle)
+                    .subresource_range(range)],
+            );
+            ctx.device().cmd_copy_buffer_to_image(
+                work.cmd(),
+                color_staging.buffer,
+                color.handle,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &[vk::BufferImageCopy {
+                    buffer_offset: color_staging.offset,
+                    image_subresource: vk::ImageSubresourceLayers {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        mip_level: 0,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    image_extent: vk::Extent3D {
+                        width: mesh_material.width,
+                        height: mesh_material.height,
+                        depth: 1,
+                    },
+                    ..Default::default()
+                }],
+            );
+            ctx.device().cmd_pipeline_barrier(
+                work.cmd(),
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::default(),
+                &[],
+                &[],
+                &[vk::ImageMemoryBarrier::default()
+                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                    .image(color.handle)
+                    .subresource_range(range)],
+            );
+            work.end();
+            ctx.wait_for_completion(finish_time).await;
+
+            let color_view = ctx
+                .device()
+                .create_image_view(
+                    &vk::ImageViewCreateInfo::default()
+                        .image(color.handle)
+                        .view_type(vk::ImageViewType::TYPE_2D)
+                        .format(vk::Format::R8G8B8A8_SRGB)
+                        .subresource_range(vk::ImageSubresourceRange {
+                            aspect_mask: vk::ImageAspectFlags::COLOR,
+                            base_mip_level: 0,
+                            level_count: 1,
+                            base_array_layer: 0,
+                            layer_count: 1,
+                        }),
+                    None,
+                )
+                .unwrap();
+
+            MeshMaterial { color, color_view }
+        }
+    }
 }
 
 impl crate::loader::Cleanup for Mesh {
