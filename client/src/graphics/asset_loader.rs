@@ -364,13 +364,11 @@ fn run_queue_unparker_thread(
 impl Drop for AssetLoader {
     fn drop(&mut self) {
         tracing::trace!("Shutting down AssetLoader");
-        tokio::runtime::LocalRuntime::new()
-            .unwrap()
-            .block_on(async {
-                self.loader.drain().await;
-                self.loader.clear_cache();
-                self.loader.drain().await;
-            });
+        pollster::block_on(async {
+            self.loader.drain().await;
+            self.loader.clear_cache();
+            self.loader.drain().await;
+        });
         assert!(self.loader.all_assets_freed());
         self.loader.close();
         for thread in self.task_executor_threads.drain(..) {

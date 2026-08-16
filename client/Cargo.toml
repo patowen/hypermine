@@ -25,6 +25,7 @@ nalgebra = { workspace = true }
 libm = "0.2.16"
 tokio = { version = "1.52.3", features = ["rt", "rt-multi-thread", "sync", "macros"] }
 tokio-util = "0.7.19"
+pollster = "1.0.1"
 png = "0.18.0"
 anyhow = "1.0.26"
 serde = { version = "1.0.104", features = ["derive", "rc"] }
