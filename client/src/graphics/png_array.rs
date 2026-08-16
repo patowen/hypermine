@@ -22,8 +22,7 @@ impl PngArray {
         let ctx: &AssetLoadContext = context.get().unwrap();
         let full_path = ctx
             .find_asset(&self.path)
-            .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))
-            .inspect_err(|e| tracing::error!("{}", e))?;
+            .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))?;
         let mut paths = fs::read_dir(&full_path)
             .with_context(|| format!("reading {}", full_path.anonymize().display()))?
             .map(|x| x.map(|x| x.path()))
