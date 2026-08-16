@@ -1,5 +1,6 @@
 #![allow(clippy::missing_safety_doc)] // Vulkan wrangling is categorically unsafe
 
+mod asset_loader;
 mod base;
 mod core;
 mod draw;
@@ -9,6 +10,7 @@ mod gltf_mesh;
 mod gui;
 mod meshes;
 mod png_array;
+pub mod shader_data;
 pub mod voxels;
 mod window;
 

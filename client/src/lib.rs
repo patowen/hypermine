@@ -13,16 +13,14 @@ macro_rules! cstr {
 extern crate nalgebra as na;
 mod config;
 pub mod graphics;
-mod lahar_deprecated;
-mod loader;
+mod growable_ring;
 mod local_character_controller;
 pub mod metrics;
 pub mod net;
+pub mod offset_allocator; // TODO: Make private
 mod prediction;
 pub mod sim;
 mod worldgen_driver;
 
 pub use config::Config;
 pub use sim::Sim;
-
-use loader::{Asset, Loader};
