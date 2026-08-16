@@ -2819,6 +2819,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 [[package]]
 name = "skid-steer"
 version = "0.1.0"
+source = "git+https://github.com/Ralith/skid-steer?rev=16feada2408810f78a9f469001ef9277e98d4061#16feada2408810f78a9f469001ef9277e98d4061"
 dependencies = [
  "async-channel",
  "foldhash 0.1.5",

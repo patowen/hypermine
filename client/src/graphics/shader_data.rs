@@ -3,7 +3,6 @@ use std::sync::Mutex;
 use ash::vk;
 use lahar::BufferRegion;
 
-// TODO: Think of a better name. Descriptors?
 pub struct ShaderData {
     pub vertex_alloc: Mutex<BufferRegion>,
     pub index_alloc: Mutex<BufferRegion>,

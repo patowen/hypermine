@@ -68,7 +68,7 @@ impl PngArray {
                 image_data.resize(step_size * self.size, 0);
             }
             reader
-                .next_frame(&mut image_data[(i * step_size)..((i + 1) * step_size)])
+                .next_frame(&mut image_data[i * step_size..(i + 1) * step_size])
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
         }
         let (width, height) = dims.unwrap();
@@ -152,8 +152,8 @@ impl PngArray {
                 &[vk::ImageMemoryBarrier::default()
                     .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                     .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                    .src_queue_family_index(ctx.queue_family())
-                    .dst_queue_family_index(ctx.queue_family())
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                     .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                     .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                     .image(image.handle)

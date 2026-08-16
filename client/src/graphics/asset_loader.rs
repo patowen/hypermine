@@ -74,10 +74,6 @@ impl AssetLoadContext {
         &self.gfx.memory_properties
     }
 
-    pub fn queue_family(&self) -> u32 {
-        self.gfx.queue_family
-    }
-
     pub async fn wait_for_completion(&self, semaphore_value: u64) {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
         self.queue_unpark_request_sender.send(()).unwrap();
@@ -96,27 +92,6 @@ impl AssetLoadContext {
             );
             std::future::pending::<()>().await;
         }
-    }
-
-    #[expect(unused)]
-    pub fn block_on_work_completion(&self, semaphore_value: u64) {
-        // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
-        self.queue_unpark_request_sender.send(()).unwrap();
-
-        // Blocking on an async function is tricky, as doing it naively can cause Tokio to panic if we run into a situation where
-        // a runtime is used within another runtime. Because of that, rather than using `queue_watch_receiver`,
-        // we just use the timeline semaphore directly.
-        unsafe {
-            self.gfx
-                .device
-                .wait_semaphores(
-                    &vk::SemaphoreWaitInfo::default()
-                        .semaphores(&[self.queue_handle.semaphore()])
-                        .values(&[semaphore_value]),
-                    !0,
-                )
-                .unwrap()
-        };
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
