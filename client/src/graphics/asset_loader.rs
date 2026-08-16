@@ -6,20 +6,46 @@ use std::{
 };
 
 use ash::vk;
+use lahar::{ParallelQueue, parallel_queue};
 use skid_steer::Context;
+use tokio_util::sync::CancellationToken;
 
-use crate::{Config, graphics::Base};
+use crate::{
+    Config,
+    graphics::Base,
+    growable_ring::{self, GrowableRing},
+};
 
 /// Contains all the dependencies necessary to load assets.
 pub struct AssetLoadContext {
     gfx: Arc<Base>,
     config: Arc<Config>,
+    queue_handle: parallel_queue::Handle,
+    queue_watch_receiver: tokio::sync::watch::Receiver<u64>,
+    queue_unpark_request_sender: std::sync::mpsc::Sender<()>,
+    staging: Arc<GrowableRing>,
 }
 
 // Rather than exposing its fields, we expose helper functions for the kinds of tasks
 // one would need the context for. This helps add some level of separation between how global
 // data is organized and what asset loading code sees
 impl AssetLoadContext {
+    /// # Safety
+    /// - [`Work::cmd`] must not be used outside the lifetime of the returned [`Work`]
+    /// - Any Vulkan resources this work uses must not be destroyed before the [`Work`] is dropped
+    pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
+        unsafe { self.queue_handle.begin(&self.gfx.device) }
+    }
+
+    pub fn alloc_staging<T>(
+        &self,
+        count: usize,
+        align: usize,
+        free_at: u64,
+    ) -> growable_ring::Allocation<T> {
+        self.staging.alloc(&self.gfx, count, align, free_at)
+    }
+
     pub fn device(&self) -> &ash::Device {
         self.gfx.device.as_ref()
     }
@@ -28,8 +54,24 @@ impl AssetLoadContext {
         &self.gfx.memory_properties
     }
 
-    pub fn queue_family(&self) -> u32 {
-        self.gfx.queue_family
+    pub async fn wait_for_completion(&self, semaphore_value: u64) {
+        // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
+        self.queue_unpark_request_sender.send(()).unwrap();
+
+        if self
+            .queue_watch_receiver
+            .clone()
+            .wait_for(|&value| value >= semaphore_value)
+            .await
+            .is_err()
+        {
+            // Don't assume things have finished loading just because `queue_watch_sender` was dropped.
+            // Instead, print an error and wait forever, since the work will never complete.
+            tracing::error!(
+                "Work was submitted to the parallel queue but never completed. This should never happen."
+            );
+            std::future::pending::<()>().await;
+        }
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
@@ -38,13 +80,37 @@ impl AssetLoadContext {
 }
 
 pub struct AssetLoader {
+    gfx: Arc<Base>,
+    queue_shutdown_token: CancellationToken,
+    queue_unpark_request_sender: Option<std::sync::mpsc::Sender<()>>,
     loader: skid_steer::Loader,
+    staging: Arc<GrowableRing>,
     task_executor_threads: Vec<JoinHandle<()>>,
+    queue_driver_thread: Option<JoinHandle<()>>,
+    queue_unparker_thread: Option<JoinHandle<()>>,
 }
 
 impl AssetLoader {
     pub fn new(gfx: Arc<Base>, config: Arc<Config>) -> Self {
         let loader = skid_steer::Loader::new();
+        let queue_shutdown_token = CancellationToken::new();
+        let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
+        let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
+        let queue_unpark_semaphore = unsafe {
+            gfx.device
+                .create_semaphore(
+                    &vk::SemaphoreCreateInfo::default().push_next(
+                        &mut vk::SemaphoreTypeCreateInfo::default()
+                            .semaphore_type(vk::SemaphoreType::TIMELINE)
+                            .initial_value(0),
+                    ),
+                    None,
+                )
+                .unwrap()
+        };
+        let (queue_unpark_request_sender, queue_unpark_request_receiver) =
+            std::sync::mpsc::channel();
+        let (queue_watch_sender, queue_watch_receiver) = tokio::sync::watch::channel(0);
 
         let mut task_executor_threads = vec![];
         tracing::debug!(
@@ -55,6 +121,10 @@ impl AssetLoader {
             let asset_load_context = AssetLoadContext {
                 gfx: Arc::clone(&gfx),
                 config: Arc::clone(&config),
+                queue_handle: unsafe { queue.handle(&gfx.device) },
+                queue_watch_receiver: queue_watch_receiver.clone(),
+                queue_unpark_request_sender: queue_unpark_request_sender.clone(),
+                staging: Arc::clone(&staging),
             };
             let loader = loader.clone();
 
@@ -65,9 +135,50 @@ impl AssetLoader {
             task_executor_threads.push(thread);
         }
 
+        let queue_driver_thread = Some({
+            let gfx = Arc::clone(&gfx);
+            let staging = Arc::clone(&staging);
+            let shutdown_token = queue_shutdown_token.clone();
+            let queue_watch_sender = queue_watch_sender.clone();
+
+            thread::Builder::new()
+                .name("queue_driver".to_owned())
+                .spawn(move || {
+                    run_queue_driver_thread(
+                        &gfx,
+                        queue,
+                        queue_unpark_semaphore,
+                        shutdown_token,
+                        &queue_watch_sender,
+                        &staging,
+                    )
+                })
+                .unwrap()
+        });
+
+        let queue_unparker_thread = Some({
+            let gfx = Arc::clone(&gfx);
+            thread::Builder::new()
+                .name("queue_unparker_thread".to_owned())
+                .spawn(move || {
+                    run_queue_unparker_thread(
+                        &gfx.device,
+                        queue_unpark_semaphore,
+                        queue_unpark_request_receiver,
+                    );
+                })
+                .unwrap()
+        });
+
         AssetLoader {
+            gfx,
+            queue_shutdown_token,
+            queue_unpark_request_sender: Some(queue_unpark_request_sender),
             loader,
+            staging,
             task_executor_threads,
+            queue_driver_thread,
+            queue_unparker_thread,
         }
     }
 
@@ -83,7 +194,7 @@ impl AssetLoader {
 /// concurrently runs tasks from the [`skid_steer::Loader`]. Returns the [`parallel_queue::Handle`]
 /// from the [`AssetLoadContext`] for later cleanup.
 fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_steer::Loader) {
-    let asset_load_context = Rc::new(asset_load_context);
+    let mut asset_load_context = Rc::new(asset_load_context);
 
     tokio::runtime::LocalRuntime::new()
         .unwrap()
@@ -116,6 +227,93 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
                 thread::current().name().unwrap_or("<unnamed>")
             );
         });
+    let asset_load_context = Rc::get_mut(&mut asset_load_context)
+        .expect("runtime using this context should already be dropped");
+
+    // Fail-safe to ensure that the parallel queue is driven at least once after all work has been submitted before
+    // we drain the handle
+    asset_load_context
+        .queue_unpark_request_sender
+        .send(())
+        .unwrap();
+
+    // Safety: We make sure not to destroy the handle until we drain it. Since there are no other references to the handle,
+    // no work will be in flight when the handle is destroyed.
+    unsafe {
+        asset_load_context
+            .queue_handle
+            .drain(&asset_load_context.gfx.device);
+        asset_load_context
+            .queue_handle
+            .destroy(&asset_load_context.gfx.device);
+    };
+}
+
+fn run_queue_driver_thread(
+    gfx: &Base,
+    mut queue: ParallelQueue,
+    queue_unpark_semaphore: vk::Semaphore,
+    shutdown_token: CancellationToken,
+    queue_watch_sender: &tokio::sync::watch::Sender<u64>,
+    staging: &GrowableRing,
+) {
+    loop {
+        // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
+        // that we don't park unless certain things are done. `ParallelQueueWaiter`
+        // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
+        // wants to ensure `shutdown_token` is checked. Therefore, we put these two
+        // operations between reading and waiting on `queue_unpark_semaphore`
+        let queue_unpark_semaphore_current_value = unsafe {
+            gfx.device
+                .get_semaphore_counter_value(queue_unpark_semaphore)
+                .unwrap()
+        };
+        unsafe { queue.drive(&gfx.device) };
+        if shutdown_token.is_cancelled() {
+            break;
+        }
+        let semaphore_value = unsafe {
+            queue.park(
+                &gfx.device,
+                queue_unpark_semaphore,
+                queue_unpark_semaphore_current_value + 1,
+            )
+        };
+        let _ = queue_watch_sender.send(semaphore_value);
+        unsafe { staging.tick(&gfx.device, semaphore_value) };
+    }
+    unsafe { queue.drain(&gfx.device) };
+    unsafe { queue.destroy(&gfx.device) };
+}
+
+/// Timeline sempahores must be signaled in a strictly increasing sequence, so having multiple threads manage
+/// the semaphore that unparks the timeline queue is error-prone. The purpose of this thread is to centralize
+/// management of this semaphore.
+fn run_queue_unparker_thread(
+    device: &ash::Device,
+    queue_unpark_semaphore: vk::Semaphore,
+    queue_unpark_request_receiver: std::sync::mpsc::Receiver<()>,
+) {
+    let mut current_semaphore_value = 0;
+    while queue_unpark_request_receiver.recv().is_ok() {
+        while queue_unpark_request_receiver.try_recv().is_ok() {
+            // Clearing the request queue, since we only need to increment the semaphore once
+        }
+        current_semaphore_value += 1;
+
+        // Safety: This is the only thread that updates the semaphore, so that should ensure that it is always
+        // signaled with a strictly increasing value
+        unsafe {
+            device
+                .signal_semaphore(
+                    &vk::SemaphoreSignalInfo::default()
+                        .semaphore(queue_unpark_semaphore)
+                        .value(current_semaphore_value),
+                )
+                .unwrap()
+        };
+    }
+    unsafe { device.destroy_semaphore(queue_unpark_semaphore, None) };
 }
 
 impl Drop for AssetLoader {
@@ -130,6 +328,20 @@ impl Drop for AssetLoader {
         self.loader.close();
         for thread in self.task_executor_threads.drain(..) {
             thread.join().unwrap();
+        }
+        self.queue_shutdown_token.cancel();
+
+        let queue_unpark_request_sender = self.queue_unpark_request_sender.take().unwrap();
+        queue_unpark_request_sender.send(()).unwrap();
+        self.queue_driver_thread.take().unwrap().join().unwrap();
+
+        drop(queue_unpark_request_sender);
+        self.queue_unparker_thread.take().unwrap().join().unwrap();
+
+        unsafe {
+            Arc::get_mut(&mut self.staging)
+                .expect("All threads using staging should now be joined")
+                .destroy(&self.gfx.device);
         }
     }
 }
@@ -258,7 +470,7 @@ mod tests {
     impl skid_steer::Source for DummyAssetSource {
         type Output = DummyAsset;
 
-        async fn load(mut self, _context: &Context<'_>) -> Option<Self::Output> {
+        async fn load(mut self, context: &Context<'_>) -> Option<Self::Output> {
             let mut status = DummyAssetStatus {
                 name: self.name.clone(),
                 progress: 0,
@@ -266,11 +478,20 @@ mod tests {
                 events: self.events.clone(),
             };
 
+            // Use the parallel queue and set up an allocation to exercise this functionality
+            let ctx: &AssetLoadContext = context.get().unwrap();
+            let work = unsafe { ctx.begin_work() };
+            let finish_time = work.time().get();
+            let _alloc = ctx.alloc_staging::<u8>(8, 1, finish_time);
+
             while status.progress < 100 {
                 status.progress += self.progress_receiver.recv().await?;
                 self.events
                     .push_event(Event::progress(&self.name, status.progress));
             }
+
+            work.end();
+            ctx.wait_for_completion(finish_time).await;
 
             status.can_cancel = false; // Done loading
             self.events.push_event(Event::loaded(&self.name));
@@ -351,6 +572,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run_vulkan_tests"), ignore)]
     fn test_load_and_free() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
@@ -374,6 +596,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(not(feature = "run_vulkan_tests"), ignore)]
     fn test_concurrency_and_cancellation() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
