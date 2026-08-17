@@ -6,13 +6,13 @@ use std::{
 };
 
 use ash::vk;
-use lahar::{ParallelQueue, parallel_queue};
+use lahar::{BufferRegionAlloc, ParallelQueue, parallel_queue};
 use skid_steer::Context;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::Base,
+    graphics::{Base, meshes, shader_data::ShaderData},
     growable_ring::{self, GrowableRing},
 };
 
@@ -44,6 +44,26 @@ impl AssetLoadContext {
         free_at: u64,
     ) -> growable_ring::Allocation<T> {
         self.staging.alloc(&self.gfx, count, align, free_at)
+    }
+
+    pub fn alloc_vertices(&self, num_vertices: usize) -> BufferRegionAlloc {
+        self.gfx.shader_data.vertex_alloc.lock().unwrap().alloc(
+            &self.gfx.device,
+            (size_of::<meshes::Vertex>() * num_vertices) as vk::DeviceSize,
+            4,
+        )
+    }
+
+    pub fn alloc_indices(&self, num_indices: usize) -> BufferRegionAlloc {
+        self.gfx.shader_data.index_alloc.lock().unwrap().alloc(
+            &self.gfx.device,
+            (size_of::<u32>() * num_indices) as vk::DeviceSize,
+            4,
+        )
+    }
+
+    pub fn shader_data(&self) -> &ShaderData {
+        &self.gfx.shader_data
     }
 
     pub fn device(&self) -> &ash::Device {
@@ -572,7 +592,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "run_vulkan_tests"), ignore)]
     fn test_load_and_free() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
@@ -596,7 +615,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "run_vulkan_tests"), ignore)]
     fn test_concurrency_and_cancellation() {
         let mut events = EventList::new();
         let asset_loader = init_asset_loader(2);
