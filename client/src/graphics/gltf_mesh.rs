@@ -237,7 +237,7 @@ async fn load_material(
                     .material()
                     .pbr_metallic_roughness()
                     .base_color_factor()
-                    .map(|c| 255) // TODO: Will likely want a crate for color conversion
+                    .map(|_c| 255) // TODO: Will likely want a crate for color conversion
                     .to_vec(),
             });
         }
