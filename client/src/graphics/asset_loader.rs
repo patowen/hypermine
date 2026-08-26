@@ -12,8 +12,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::{Base, meshes, shader_data::ShaderData},
-    growable_ring::{self, GrowableRing},
+    graphics::{
+        Base,
+        growable_ring::{self, GrowableRing},
+        meshes,
+        shader_data::ShaderData,
+    },
 };
 
 /// Contains all the dependencies necessary to load assets.

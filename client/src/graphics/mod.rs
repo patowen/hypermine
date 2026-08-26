@@ -7,6 +7,7 @@ mod draw;
 mod fog;
 mod frustum;
 mod gltf_mesh;
+mod growable_ring;
 mod gui;
 mod meshes;
 mod png_array;
