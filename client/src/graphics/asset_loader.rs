@@ -36,7 +36,8 @@ pub struct AssetLoadContext {
 impl AssetLoadContext {
     /// # Safety
     /// - [`Work::cmd`] must not be used outside the lifetime of the returned [`Work`]
-    /// - Any Vulkan resources this work uses must not be destroyed before the [`Work`] is dropped
+    /// - Any Vulkan resources this work uses must not be destroyed before the [`Work`]
+    ///   is fully executed (or dropped without being sent for submission).
     pub unsafe fn begin_work(&self) -> parallel_queue::Work<'_> {
         unsafe { self.queue_handle.begin(&self.gfx.device) }
     }
@@ -254,7 +255,7 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
     let asset_load_context = Rc::get_mut(&mut asset_load_context)
         .expect("runtime using this context should already be dropped");
 
-    // Fail-safe to ensure that the parallel queue is driven at least once after all work has been submitted before
+    // Fail-safe to ensure that the parallel queue is driven at least once after all work has been sent for submission before
     // we drain the handle
     asset_load_context
         .queue_unpark_request_sender
@@ -283,7 +284,7 @@ fn run_queue_driver_thread(
 ) {
     loop {
         // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
-        // that we don't park unless certain things are done. `ParallelQueueWaiter`
+        // that we don't park unless certain things are done. `AssetLoadContext::wait_for_completion`
         // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
         // wants to ensure `shutdown_token` is checked. Therefore, we put these two
         // operations between reading and waiting on `queue_unpark_semaphore`
@@ -310,7 +311,7 @@ fn run_queue_driver_thread(
     unsafe { queue.destroy(&gfx.device) };
 }
 
-/// Timeline sempahores must be signaled in a strictly increasing sequence, so having multiple threads manage
+/// Timeline semaphores must be signaled in a strictly increasing sequence, so having multiple threads manage
 /// the semaphore that unparks the timeline queue is error-prone. The purpose of this thread is to centralize
 /// management of this semaphore.
 fn run_queue_unparker_thread(
