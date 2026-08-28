@@ -146,27 +146,21 @@ impl AssetLoader {
             task_executor_threads.push(thread);
         }
 
-        let queue_driver_thread = Some({
-            let gfx = Arc::clone(&gfx);
-            let staging = Arc::clone(&staging);
-            let shutdown_token = queue_shutdown_token.clone();
-            let queue_watch_sender = queue_watch_sender.clone();
-            let queue_unparker_semaphore = queue_unparker.semaphore();
+        let queue_driver = QueueDriver::new(
+            &gfx,
+            queue,
+            &queue_unparker,
+            &queue_shutdown_token,
+            &queue_watch_sender,
+            &staging,
+        );
 
-            thread::Builder::new()
-                .name("queue_driver".to_owned())
-                .spawn(move || {
-                    run_queue_driver_thread(
-                        &gfx,
-                        queue,
-                        queue_unparker_semaphore,
-                        shutdown_token,
-                        &queue_watch_sender,
-                        &staging,
-                    )
-                })
-                .unwrap()
-        });
+        let queue_driver_thread = thread::Builder::new()
+            .name("queue_driver".to_owned())
+            .spawn(move || {
+                queue_driver.run();
+            })
+            .unwrap();
 
         AssetLoader {
             gfx,
@@ -175,7 +169,7 @@ impl AssetLoader {
             staging,
             queue_unparker,
             task_executor_threads,
-            queue_driver_thread,
+            queue_driver_thread: Some(queue_driver_thread),
         }
     }
 
@@ -298,41 +292,64 @@ fn run_task_executor_thread(asset_load_context: AssetLoadContext, loader: skid_s
     };
 }
 
-fn run_queue_driver_thread(
-    gfx: &Base,
-    mut queue: ParallelQueue,
+struct QueueDriver {
+    gfx: Arc<Base>,
+    queue: ParallelQueue,
     queue_unpark_semaphore: vk::Semaphore,
-    shutdown_token: CancellationToken,
-    queue_watch_sender: &tokio::sync::watch::Sender<u64>,
-    staging: &GrowableRing,
-) {
-    loop {
-        // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
-        // that we don't park unless certain things are done. `AssetLoadContext::wait_for_completion`
-        // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
-        // wants to ensure `shutdown_token` is checked. Therefore, we put these two
-        // operations between reading and waiting on `queue_unpark_semaphore`
-        let queue_unpark_semaphore_current_value = unsafe {
-            gfx.device
-                .get_semaphore_counter_value(queue_unpark_semaphore)
-                .unwrap()
-        };
-        unsafe { queue.drive(&gfx.device) };
-        if shutdown_token.is_cancelled() {
-            break;
+    queue_shutdown_token: CancellationToken,
+    queue_watch_sender: tokio::sync::watch::Sender<u64>,
+    staging: Arc<GrowableRing>,
+}
+
+impl QueueDriver {
+    pub fn new(
+        gfx: &Arc<Base>,
+        queue: ParallelQueue,
+        queue_unparker: &QueueUnparker,
+        queue_shutdown_token: &CancellationToken,
+        queue_watch_sender: &tokio::sync::watch::Sender<u64>,
+        staging: &Arc<GrowableRing>,
+    ) -> Self {
+        QueueDriver {
+            gfx: Arc::clone(gfx),
+            queue,
+            queue_unpark_semaphore: queue_unparker.semaphore(),
+            queue_shutdown_token: queue_shutdown_token.clone(),
+            queue_watch_sender: queue_watch_sender.clone(),
+            staging: Arc::clone(staging),
         }
-        let semaphore_value = unsafe {
-            queue.park(
-                &gfx.device,
-                queue_unpark_semaphore,
-                queue_unpark_semaphore_current_value + 1,
-            )
-        };
-        let _ = queue_watch_sender.send(semaphore_value);
-        unsafe { staging.tick(&gfx.device, semaphore_value) };
     }
-    unsafe { queue.drain(&gfx.device) };
-    unsafe { queue.destroy(&gfx.device) };
+
+    pub fn run(mut self) {
+        loop {
+            // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
+            // that we don't park unless certain things are done. `AssetLoadContext::wait_for_completion`
+            // wants to ensure that `ParallelQueue::drive` is called, while the cleanup code
+            // wants to ensure `queue_shutdown_token` is checked. Therefore, we put these two
+            // operations between reading and waiting on `queue_unpark_semaphore`
+            let queue_unpark_semaphore_current_value = unsafe {
+                self.gfx
+                    .device
+                    .get_semaphore_counter_value(self.queue_unpark_semaphore)
+                    .unwrap()
+            };
+            unsafe { self.queue.drive(&self.gfx.device) };
+            if self.queue_shutdown_token.is_cancelled() {
+                break;
+            }
+            let semaphore_value = unsafe {
+                self.queue.park(
+                    &self.gfx.device,
+                    self.queue_unpark_semaphore,
+                    queue_unpark_semaphore_current_value + 1,
+                )
+            };
+            let _ = self.queue_watch_sender.send(semaphore_value);
+            unsafe { self.staging.tick(&self.gfx.device, semaphore_value) };
+        }
+        unsafe { self.queue.drain(&self.gfx.device) };
+        unsafe { self.queue.destroy(&self.gfx.device) };
+    }
 }
 
 impl Drop for AssetLoader {
