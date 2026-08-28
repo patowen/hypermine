@@ -382,6 +382,7 @@ mod tests {
     struct EventList {
         events: Arc<Mutex<Vec<Event>>>,
         num_checked_events: usize,
+        event_received: Arc<std::sync::Condvar>,
     }
 
     impl EventList {
@@ -389,17 +390,32 @@ mod tests {
             EventList {
                 events: Arc::new(Mutex::new(vec![])),
                 num_checked_events: 0,
+                event_received: Arc::new(std::sync::Condvar::new()),
             }
         }
 
         fn push_event(&self, event: Event) {
             self.events.lock().unwrap().push(event);
+            self.event_received.notify_all();
         }
 
         fn get_all_events(&mut self) -> Vec<Event> {
             let events = self.events.lock().unwrap().clone();
             self.num_checked_events = events.len();
             events
+        }
+
+        /// Wait until an event has been received since the last call to get_all_events
+        fn wait_timeout_while(
+            &self,
+            timeout: std::time::Duration,
+            mut condition: impl FnMut(&[Event]) -> bool,
+        ) -> std::sync::WaitTimeoutResult {
+            let events = self.events.lock().unwrap();
+            self.event_received
+                .wait_timeout_while(events, timeout, |events| condition(events))
+                .unwrap()
+                .1
         }
 
         /// Drains all events that were returned by the most recent call to get_all_events
@@ -572,30 +588,6 @@ mod tests {
         }
     }
 
-    fn test_eventual_success(mut f: impl FnMut() -> Result<(), anyhow::Error>) {
-        let timeout = Duration::from_secs(3);
-        if f().is_ok() {
-            return;
-        }
-        let start_time = std::time::Instant::now();
-        let mut next_poll = Duration::from_millis(16);
-        while next_poll < timeout {
-            if let Some(sleep_time) = next_poll.checked_sub(start_time.elapsed()) {
-                thread::sleep(sleep_time);
-            }
-            if f().is_ok() {
-                return;
-            }
-            next_poll *= 2;
-        }
-        if let Some(sleep_time) = timeout.checked_sub(start_time.elapsed()) {
-            thread::sleep(sleep_time);
-        }
-        if let Err(e) = f() {
-            panic!("{}", e);
-        }
-    }
-
     #[test]
     fn test_load_and_free() {
         let mut events = EventList::new();
@@ -629,21 +621,18 @@ mod tests {
         for asset in &assets {
             asset.add_percent_progress(50);
         }
-        test_eventual_success(|| {
-            let actual_events = events.get_all_events().into_iter().collect::<HashSet<_>>();
-            let expected_events = [
-                Event::progress("asset0", 50),
-                Event::progress("asset1", 50),
-                Event::progress("asset2", 50),
-                Event::progress("asset3", 50),
-            ]
-            .into_iter()
-            .collect::<HashSet<_>>();
-            anyhow::ensure!(
-                actual_events == expected_events,
-                "Expected: {expected_events:?}\nActual: {actual_events:?}"
-            );
-            Ok(())
+        let expected_events = [
+            Event::progress("asset0", 50),
+            Event::progress("asset1", 50),
+            Event::progress("asset2", 50),
+            Event::progress("asset3", 50),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>();
+        events.wait_timeout_while(Duration::from_secs(5), |events| {
+            events.len() < expected_events.len()
         });
+        let actual_events = events.get_all_events().into_iter().collect::<HashSet<_>>();
+        assert_eq!(actual_events, expected_events);
     }
 }
