@@ -1,23 +1,19 @@
 use std::{
     path::{Path, PathBuf},
+    ptr::NonNull,
     rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
 };
 
 use ash::vk;
-use lahar::{BufferRegionAlloc, ParallelQueue, parallel_queue};
+use lahar::{BufferRegionAlloc, GrowableRing, ParallelQueue, parallel_queue};
 use skid_steer::Context;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::{
-        Base,
-        growable_ring::{self, GrowableRing},
-        meshes,
-        shader_data::ShaderData,
-    },
+    graphics::{Base, meshes, shader_data::ShaderData},
 };
 
 /// Contains all the dependencies necessary to load assets.
@@ -47,8 +43,17 @@ impl AssetLoadContext {
         count: usize,
         align: usize,
         free_at: u64,
-    ) -> growable_ring::Allocation<T> {
-        self.staging.alloc(&self.gfx, count, align, free_at)
+    ) -> GrowableRingAllocation<T> {
+        let (buffer, offset, pointer) =
+            self.staging
+                .alloc(&self.gfx.device, None, count, align, free_at);
+        let size = (count * std::mem::size_of::<T>()) as u64;
+        GrowableRingAllocation {
+            buffer,
+            offset,
+            size,
+            pointer,
+        }
     }
 
     pub fn alloc_vertices(&self, num_vertices: usize) -> BufferRegionAlloc {
@@ -96,6 +101,14 @@ impl AssetLoadContext {
     }
 }
 
+/// Convenience wrapper around lahar::GrowableRing's allocation tuple
+pub struct GrowableRingAllocation<T> {
+    pub buffer: vk::Buffer,
+    pub offset: u64,
+    pub size: u64,
+    pub pointer: NonNull<T>,
+}
+
 pub struct AssetLoader {
     gfx: Arc<Base>,
     queue_shutdown_token: CancellationToken,
@@ -111,7 +124,12 @@ impl AssetLoader {
         let loader = skid_steer::Loader::new();
         let queue_shutdown_token = CancellationToken::new();
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
-        let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
+        let staging = Arc::new(GrowableRing::new(
+            &gfx.device,
+            gfx.memory_properties,
+            None,
+            32 * 1024 * 1024,
+        ));
         let queue_unparker = Arc::new(QueueUnparker::new(&gfx.device));
         let (queue_watch_sender, queue_watch_receiver) = tokio::sync::watch::channel(0);
 

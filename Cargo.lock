@@ -1328,7 +1328,7 @@ dependencies = [
 [[package]]
 name = "lahar"
 version = "0.1.0"
-source = "git+https://github.com/Ralith/lahar?rev=cb2ceca83aa3a02f20727772f6dc1bcf39fc2462#cb2ceca83aa3a02f20727772f6dc1bcf39fc2462"
+source = "git+https://github.com/Ralith/lahar?rev=67c190a000472720f7e9dc93899bcaaa72fe1574#67c190a000472720f7e9dc93899bcaaa72fe1574"
 dependencies = [
  "ash",
 ]
