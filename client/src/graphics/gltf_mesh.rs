@@ -234,6 +234,7 @@ async fn load_material(
             return Ok(MeshMaterialDefinition {
                 width: 1,
                 height: 1,
+                array_layers: 1,
                 srgb_rgba_color_data: prim
                     .material()
                     .pbr_metallic_roughness()
@@ -277,6 +278,7 @@ async fn load_material(
     Ok(MeshMaterialDefinition {
         width,
         height,
+        array_layers: 1,
         srgb_rgba_color_data: image_data,
     })
 }

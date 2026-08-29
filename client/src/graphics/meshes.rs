@@ -231,6 +231,7 @@ pub struct MeshGeometryDefinition {
 pub struct MeshMaterialDefinition {
     pub width: u32,
     pub height: u32,
+    pub array_layers: u32,
     pub srgb_rgba_color_data: Vec<u8>,
 }
 
@@ -437,7 +438,7 @@ impl MeshMaterial {
                         depth: 1,
                     })
                     .mip_levels(1)
-                    .array_layers(1)
+                    .array_layers(mesh_material.array_layers)
                     .samples(vk::SampleCountFlags::TYPE_1)
                     .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
             );
@@ -517,7 +518,7 @@ impl MeshMaterial {
                             base_mip_level: 0,
                             level_count: 1,
                             base_array_layer: 0,
-                            layer_count: 1,
+                            layer_count: mesh_material.array_layers,
                         }),
                     None,
                 )
