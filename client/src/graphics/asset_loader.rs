@@ -83,20 +83,12 @@ impl AssetLoadContext {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
         unsafe { self.queue_unparker.unpark_queue(&self.gfx.device) };
 
-        if self
+        self
             .queue_watch_receiver
             .clone()
             .wait_for(|&value| value >= semaphore_value)
             .await
-            .is_err()
-        {
-            // Don't assume things have finished loading just because `queue_watch_sender` was dropped.
-            // Instead, print an error and wait forever, since the work will never complete.
-            tracing::error!(
-                "Work was submitted to the parallel queue but never completed. This should never happen."
-            );
-            std::future::pending::<()>().await;
-        }
+            .expect("queue_watch_sender should not be dropped until there are no more AssetLoadContexts");
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
