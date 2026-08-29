@@ -7,18 +7,17 @@ mod tests;
 use std::{sync::Arc, time::Instant};
 
 use ash::{Device, vk};
+use lru_slab::LruSlab;
 use metrics::histogram;
 use tracing::warn;
 
 use crate::{
-    Config, Loader, Sim,
-    graphics::{Base, Frustum},
+    Config, Sim,
+    graphics::{Base, Frustum, asset_loader::AssetLoader},
 };
 use common::{
-    LruSlab,
     dodeca::{self, Vertex},
     graph::NodeId,
-    lru_slab::SlotId,
     math::{MIsometry, MPoint},
     node::{Chunk, ChunkId, VoxelData},
 };
@@ -40,7 +39,7 @@ impl Voxels {
     pub fn new(
         gfx: &Base,
         config: Arc<Config>,
-        loader: &mut Loader,
+        loader: &AssetLoader,
         dimension: u32,
         frames: u32,
     ) -> Self {
@@ -135,8 +134,10 @@ impl Voxels {
                     self.states.get_mut(slot).refcount += 1;
                     frame.drawn.push(slot);
                     // Transfer transform
-                    frame.surface.transforms_mut()[slot.0 as usize] =
-                        na::Matrix4::from(*node_transform) * vertex.chunk_to_node();
+                    unsafe {
+                        frame.surface.transforms_mut()[slot as usize] =
+                            na::Matrix4::from(*node_transform) * vertex.chunk_to_node();
+                    }
                 }
                 if let (None, &VoxelData::Dense(ref data)) = (&surface, voxels) {
                     // Extract a surface so it can be drawn in future frames
@@ -183,9 +184,9 @@ impl Voxels {
                     let node_is_odd = sim.graph.depth(node) & 1 != 0;
                     extractions.push(ExtractTask {
                         index: scratch_slot,
-                        indirect_offset: self.surfaces.indirect_offset(slot.0),
-                        face_offset: self.surfaces.face_offset(slot.0),
-                        draw_id: slot.0,
+                        indirect_offset: self.surfaces.indirect_offset(slot),
+                        face_offset: self.surfaces.face_offset(slot),
+                        draw_id: slot,
                         reverse_winding: vertex.parity() ^ node_is_odd,
                     });
                 }
@@ -207,7 +208,6 @@ impl Voxels {
     pub unsafe fn draw(
         &mut self,
         device: &Device,
-        loader: &Loader,
         common_ds: vk::DescriptorSet,
         frame: &Frame,
         cmd: vk::CommandBuffer,
@@ -216,7 +216,6 @@ impl Voxels {
             let started = Instant::now();
             if !self.draw.bind(
                 device,
-                loader,
                 self.surfaces.dimension(),
                 common_ds,
                 &frame.surface,
@@ -224,8 +223,8 @@ impl Voxels {
             ) {
                 return;
             }
-            for chunk in &frame.drawn {
-                self.draw.draw(device, cmd, &self.surfaces, chunk.0);
+            for &chunk in &frame.drawn {
+                self.draw.draw(device, cmd, &self.surfaces, chunk);
             }
             histogram!("frame.cpu.voxels.draw").record(started.elapsed());
         }
@@ -245,7 +244,7 @@ pub struct Frame {
     surface: surface::Frame,
     /// Scratch slots completed in this frame
     extracted: Vec<u32>,
-    drawn: Vec<SlotId>,
+    drawn: Vec<u32>,
 }
 
 impl Frame {

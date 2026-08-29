@@ -147,7 +147,6 @@ struct Surface {
 }
 
 #[test]
-#[ignore]
 fn surface_extraction() {
     assert_eq!(mem::size_of::<Surface>(), 8);
 
@@ -161,7 +160,8 @@ fn surface_extraction() {
     test.run();
 
     assert_eq!(
-        test.indirect.vertex_count, 0,
+        unsafe { test.indirect.as_ref() }.vertex_count,
+        0,
         "empty chunks have no surfaces"
     );
 
@@ -172,7 +172,8 @@ fn surface_extraction() {
     test.run();
 
     assert_eq!(
-        test.indirect.vertex_count, 0,
+        unsafe { test.indirect.as_ref() }.vertex_count,
+        0,
         "solid chunks have no surfaces"
     );
 
@@ -191,11 +192,11 @@ fn surface_extraction() {
     test.run();
 
     assert_eq!(
-        test.indirect.vertex_count,
+        unsafe { test.indirect.as_ref() }.vertex_count,
         6 * DIMENSION.pow(2) as u32,
         "half-solid chunks have n^2 surfaces"
     );
-    let surfaces = &test.surfaces[..DIMENSION.pow(2)];
+    let surfaces = &unsafe { test.surfaces.as_ref() }[..DIMENSION.pow(2)];
     for expected in &[
         Surface {
             x: 0,

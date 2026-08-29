@@ -14,8 +14,6 @@ extern crate nalgebra as na;
 mod binary_like_tiling;
 mod config;
 pub mod graphics;
-mod lahar_deprecated;
-mod loader;
 mod local_character_controller;
 pub mod metrics;
 pub mod net;
@@ -25,5 +23,3 @@ mod worldgen_driver;
 
 pub use config::Config;
 pub use sim::Sim;
-
-use loader::{Asset, Loader};

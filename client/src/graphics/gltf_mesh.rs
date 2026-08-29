@@ -6,34 +6,42 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
-use ash::vk;
 use common::{Anonymize, math};
-use futures_util::future::{BoxFuture, FutureExt, try_join_all};
-use lahar::{BufferRegionAlloc, DedicatedImage};
+use futures_util::future::{FutureExt, LocalBoxFuture, try_join_all};
 use tracing::{error, trace};
 
-use super::{Base, Mesh, meshes::Vertex};
-use crate::{
-    graphics::meshes::Geometry,
-    loader::{Cleanup, LoadCtx, LoadFuture, Loadable},
+use super::{Mesh, meshes::Vertex};
+use crate::graphics::{
+    asset_loader::AssetLoadContext,
+    meshes::{MeshGeometryDefinition, MeshMaterialDefinition},
 };
 
 pub struct GlbFile {
     pub path: PathBuf,
 }
 
-impl Loadable for GlbFile {
+impl skid_steer::Source for GlbFile {
     type Output = GltfScene;
 
-    fn load(self, ctx: &LoadCtx) -> LoadFuture<'_, Self::Output> {
-        Box::pin(self.load(ctx))
+    async fn load<'a>(self, context: &'a skid_steer::Context<'a>) -> Option<Self::Output> {
+        let ctx: &AssetLoadContext = context.get().unwrap();
+        self.load_inner(ctx)
+            .await
+            .inspect_err(|e| tracing::error!("{}", e))
+            .ok()
+    }
+
+    fn free(mut output: Self::Output, context: &skid_steer::Context) {
+        let ctx: &AssetLoadContext = context.get().unwrap();
+        unsafe {
+            output.destroy(ctx.device());
+        }
     }
 }
 
 impl GlbFile {
-    async fn load(self, ctx: &LoadCtx) -> Result<GltfScene> {
+    async fn load_inner(self, ctx: &AssetLoadContext) -> Result<GltfScene> {
         let path = ctx
-            .cfg
             .find_asset(&self.path)
             .ok_or_else(|| anyhow!("{} not found", self.path.anonymize().display()))?;
 
@@ -69,22 +77,22 @@ impl GlbFile {
 
 pub struct GltfScene(pub Vec<Mesh>);
 
-impl Cleanup for GltfScene {
-    unsafe fn cleanup(self, gfx: &Base) {
+impl GltfScene {
+    unsafe fn destroy(&mut self, device: &ash::Device) {
         unsafe {
-            for mesh in self.0 {
-                mesh.cleanup(gfx);
+            for mesh in &mut self.0 {
+                mesh.destroy(device);
             }
         }
     }
 }
 
 fn load_node<'a>(
-    ctx: &'a LoadCtx,
+    ctx: &'a AssetLoadContext,
     buffer: &'a [u8],
     transform: &'a na::Matrix4<f32>,
     node: gltf::Node<'a>,
-) -> BoxFuture<'a, Result<Vec<Mesh>>> {
+) -> LocalBoxFuture<'a, Result<Vec<Mesh>>> {
     async move {
         let transform = transform * na::Matrix4::from(node.transform().matrix());
         let (mut local, children) = tokio::try_join!(
@@ -105,11 +113,11 @@ fn load_node<'a>(
 
         Ok(local)
     }
-    .boxed()
+    .boxed_local()
 }
 
 async fn load_mesh(
-    ctx: &LoadCtx,
+    ctx: &AssetLoadContext,
     buffer: &[u8],
     transform: &na::Matrix4<f32>,
     mesh: &gltf::Mesh<'_>,
@@ -122,12 +130,11 @@ async fn load_mesh(
 }
 
 async fn load_primitive(
-    ctx: &LoadCtx,
+    ctx: &AssetLoadContext,
     buffer: &[u8],
     transform: &na::Matrix4<f32>,
     prim: gltf::Primitive<'_>,
 ) -> Result<Mesh> {
-    let device = &*ctx.gfx.device;
     let texcoord_index = prim
         .material()
         .pbr_metallic_roughness()
@@ -137,77 +144,20 @@ async fn load_primitive(
     // Concurrent upload
     // TODO: Don't leak resources on error
     let (geom, color) = tokio::join!(
-        load_geom(ctx, buffer, &prim, transform, texcoord_index),
+        load_geom(buffer, &prim, transform, texcoord_index),
         load_material(ctx, buffer, &prim)
     );
     let geom = geom?;
     let color = color?;
-
-    unsafe {
-        let color_view = device
-            .create_image_view(
-                &vk::ImageViewCreateInfo::default()
-                    .image(color.handle)
-                    .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
-                    .format(vk::Format::R8G8B8A8_SRGB)
-                    .subresource_range(vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        base_mip_level: 0,
-                        level_count: 1,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    }),
-                None,
-            )
-            .unwrap();
-        let pool = device
-            .create_descriptor_pool(
-                &vk::DescriptorPoolCreateInfo::default()
-                    .max_sets(1)
-                    .pool_sizes(&[vk::DescriptorPoolSize {
-                        ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                        descriptor_count: 1,
-                    }]),
-                None,
-            )
-            .unwrap();
-        let ds = device
-            .allocate_descriptor_sets(
-                &vk::DescriptorSetAllocateInfo::default()
-                    .descriptor_pool(pool)
-                    .set_layouts(&[ctx.mesh_ds_layout]),
-            )
-            .unwrap()[0];
-        device.update_descriptor_sets(
-            &[vk::WriteDescriptorSet::default()
-                .dst_set(ds)
-                .dst_binding(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(&[vk::DescriptorImageInfo {
-                    sampler: vk::Sampler::null(),
-                    image_view: color_view,
-                    image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                }])],
-            &[],
-        );
-
-        Ok(Mesh {
-            geom,
-            pool,
-            ds,
-            color,
-            color_view,
-        })
-    }
+    Ok(Mesh::from_definition(ctx, geom, color).await)
 }
 
 async fn load_geom(
-    ctx: &LoadCtx,
     buffer: &[u8],
     prim: &gltf::Primitive<'_>,
     transform: &na::Matrix4<f32>,
     texcoord_index: Option<u32>,
-) -> Result<Geometry> {
+) -> Result<MeshGeometryDefinition> {
     let normal_transform = match transform.try_inverse() {
         None => {
             error!("non-invertible transform");
@@ -226,7 +176,7 @@ async fn load_geom(
     let positions = prim
         .read_positions()
         .ok_or_else(|| anyhow!("vertex positions missing"))?;
-    let mut texcoords = texcoord_index
+    let texcoords = texcoord_index
         .map(|i| -> Result<_> {
             Ok(prim
                 .read_tex_coords(i)
@@ -242,54 +192,61 @@ async fn load_geom(
     {
         bail!("inconsistent vertex attribute counts");
     }
-
-    unsafe {
-        Ok(Geometry::new(
-            ctx,
-            positions.zip(normals).map(|(pos, norm)| Vertex {
-                position: math::MVector::from(transform * (na::Point3::from(pos)).to_homogeneous())
-                    .to_point_unchecked(),
-                texcoords: texcoords.as_mut().map_or_else(na::zero, |x| {
-                    let coords = x.next().unwrap();
-                    na::Vector3::<f32>::new(coords[0], coords[1], 0.0)
-                }),
-                normal: math::MVector::from(
-                    normal_transform * na::Vector3::from(norm).to_homogeneous(),
-                )
-                .to_direction_unchecked(),
-            }),
-            prim.read_indices()
-                .ok_or_else(|| anyhow!("indices missing"))?
-                .into_u32(),
+    let vertices: Vec<_> = positions
+        .zip(normals)
+        .zip(
+            texcoords
+                .into_iter()
+                .flatten()
+                .chain(std::iter::repeat([0.0, 0.0])),
         )
-        .await?)
-    }
+        .map(|((position, normal), texcoords)| Vertex {
+            position: math::MVector::from(
+                transform * (na::Point3::from(position)).to_homogeneous(),
+            )
+            .to_point_unchecked(),
+            normal: math::MVector::from(
+                normal_transform * na::Vector3::from(normal).to_homogeneous(),
+            )
+            .to_direction_unchecked(),
+            texcoords: [texcoords[0], texcoords[1], 0.0].into(),
+        })
+        .collect();
+    let indices: Vec<_> = prim
+        .read_indices()
+        .ok_or_else(|| anyhow!("indices missing"))?
+        .into_u32()
+        .collect();
+    Ok(MeshGeometryDefinition { vertices, indices })
 }
 
 async fn load_material(
-    ctx: &LoadCtx,
+    ctx: &AssetLoadContext,
     buffer: &[u8],
     prim: &gltf::Primitive<'_>,
-) -> Result<DedicatedImage> {
-    let device = &*ctx.gfx.device;
+) -> Result<MeshMaterialDefinition> {
     let color = match prim
         .material()
         .pbr_metallic_roughness()
         .base_color_texture()
     {
         None => {
-            return load_solid_color(
-                ctx,
-                prim.material().pbr_metallic_roughness().base_color_factor(),
-            )
-            .await;
+            return Ok(MeshMaterialDefinition {
+                width: 1,
+                height: 1,
+                srgb_rgba_color_data: prim
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_factor()
+                    .map(|_c| 255) // TODO: Will likely want a crate for color conversion
+                    .to_vec(),
+            });
         }
         Some(x) => x,
     };
     let color_data = match color.texture().source().source() {
         gltf::image::Source::Uri { uri, .. } => {
             let path = ctx
-                .cfg
                 .find_asset(Path::new(uri))
                 .ok_or_else(|| anyhow!("texture {} not found", uri))?;
             trace!(path = %path.anonymize().display(), "reading texture");
@@ -313,165 +270,13 @@ async fn load_material(
         let info = color_reader.info();
         (info.width, info.height)
     };
-    let mut color_staging = ctx
-        .staging
-        .alloc(width as usize * height as usize * 4)
-        .await
-        .ok_or_else(|| anyhow!("texture too large"))?;
+    let mut image_data = vec![0; width as usize * height as usize * 4];
     color_reader
-        .next_frame(&mut color_staging)
+        .next_frame(&mut image_data)
         .with_context(|| "decoding PNG data")?;
-    let color = unsafe {
-        DedicatedImage::new(
-            device,
-            &ctx.gfx.memory_properties,
-            &vk::ImageCreateInfo::default()
-                .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_SRGB)
-                .extent(vk::Extent3D {
-                    width,
-                    height,
-                    depth: 1,
-                })
-                .mip_levels(1)
-                .array_layers(1)
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
-        )
-    };
-    let staging_buffer = ctx.staging.buffer();
-    let color_handle = color.handle;
-    let color_offset = color_staging.offset();
-    unsafe {
-        ctx.transfer
-            .run(move |xf, cmd| {
-                let range = vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                };
-                xf.device.cmd_pipeline_barrier(
-                    cmd,
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::default(),
-                    &[],
-                    &[],
-                    &[vk::ImageMemoryBarrier::default()
-                        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                        .old_layout(vk::ImageLayout::UNDEFINED)
-                        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                        .image(color_handle)
-                        .subresource_range(range)],
-                );
-                xf.device.cmd_copy_buffer_to_image(
-                    cmd,
-                    staging_buffer,
-                    color_handle,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &[vk::BufferImageCopy {
-                        buffer_offset: color_offset,
-                        image_subresource: vk::ImageSubresourceLayers {
-                            aspect_mask: vk::ImageAspectFlags::COLOR,
-                            mip_level: 0,
-                            base_array_layer: 0,
-                            layer_count: 1,
-                        },
-                        image_extent: vk::Extent3D {
-                            width,
-                            height,
-                            depth: 1,
-                        },
-                        ..Default::default()
-                    }],
-                );
-                xf.stages |= vk::PipelineStageFlags::FRAGMENT_SHADER;
-                xf.image_barriers.push(
-                    vk::ImageMemoryBarrier::default()
-                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                        .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                        .src_queue_family_index(xf.queue_family)
-                        .dst_queue_family_index(xf.dst_queue_family)
-                        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                        .image(color_handle)
-                        .subresource_range(range),
-                );
-            })
-            .await?;
-    }
-    Ok(color)
-}
-
-async fn load_solid_color(ctx: &LoadCtx, rgba: [f32; 4]) -> Result<DedicatedImage> {
-    unsafe {
-        let image = DedicatedImage::new(
-            &ctx.gfx.device,
-            &ctx.gfx.memory_properties,
-            &vk::ImageCreateInfo::default()
-                .image_type(vk::ImageType::TYPE_2D)
-                .format(vk::Format::R8G8B8A8_SRGB)
-                .extent(vk::Extent3D {
-                    width: 1,
-                    height: 1,
-                    depth: 1,
-                })
-                .mip_levels(1)
-                .array_layers(1)
-                .samples(vk::SampleCountFlags::TYPE_1)
-                .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
-        );
-        let handle = image.handle;
-        ctx.transfer
-            .run(move |xf, cmd| {
-                let range = vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                };
-                xf.device.cmd_pipeline_barrier(
-                    cmd,
-                    vk::PipelineStageFlags::TOP_OF_PIPE,
-                    vk::PipelineStageFlags::TRANSFER,
-                    vk::DependencyFlags::default(),
-                    &[],
-                    &[],
-                    &[vk::ImageMemoryBarrier::default()
-                        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                        .old_layout(vk::ImageLayout::UNDEFINED)
-                        .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                        .image(handle)
-                        .subresource_range(range)],
-                );
-                xf.device.cmd_clear_color_image(
-                    cmd,
-                    handle,
-                    vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    &vk::ClearColorValue { float32: rgba },
-                    &[range],
-                );
-                xf.stages |= vk::PipelineStageFlags::FRAGMENT_SHADER;
-                xf.image_barriers.push(
-                    vk::ImageMemoryBarrier::default()
-                        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                        .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                        .src_queue_family_index(xf.queue_family)
-                        .dst_queue_family_index(xf.dst_queue_family)
-                        .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                        .image(handle)
-                        .subresource_range(range),
-                );
-            })
-            .await?;
-        Ok(image)
-    }
+    Ok(MeshMaterialDefinition {
+        width,
+        height,
+        srgb_rgba_color_data: image_data,
+    })
 }

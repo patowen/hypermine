@@ -7,7 +7,8 @@ use lahar::Staged;
 use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
-use crate::{Asset, Config, Loader, Sim};
+use crate::graphics::asset_loader::AssetLoader;
+use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
 
@@ -32,9 +33,6 @@ pub struct Draw {
     /// Descriptor pool from which descriptor sets shared between many pipelines are allocated
     common_descriptor_pool: vk::DescriptorPool,
 
-    /// Drives async asset loading
-    loader: Loader,
-
     //
     // Rendering pipelines
     //
@@ -52,7 +50,10 @@ pub struct Draw {
     yakui_vulkan: yakui_vulkan::YakuiVulkan,
 
     /// Miscellany
-    character_model: Asset<GltfScene>,
+    character_model: skid_steer::Asset<GltfScene>,
+
+    /// Drives async asset loading
+    asset_loader: AssetLoader, // TODO: Make code more robust by not requiring this to be defined last (due to Drop order)
 }
 
 /// Maximum number of simultaneous frames in flight
@@ -95,7 +96,8 @@ impl Draw {
 
             let common_pipeline_layout = device
                 .create_pipeline_layout(
-                    &vk::PipelineLayoutCreateInfo::default().set_layouts(&[gfx.common_layout]),
+                    &vk::PipelineLayoutCreateInfo::default()
+                        .set_layouts(&[gfx.shader_data.common_layout]),
                     None,
                 )
                 .unwrap();
@@ -123,11 +125,14 @@ impl Draw {
                 .allocate_descriptor_sets(
                     &vk::DescriptorSetAllocateInfo::default()
                         .descriptor_pool(common_descriptor_pool)
-                        .set_layouts(&vec![gfx.common_layout; PIPELINE_DEPTH as usize]),
+                        .set_layouts(&vec![
+                            gfx.shader_data.common_layout;
+                            PIPELINE_DEPTH as usize
+                        ]),
                 )
                 .unwrap();
 
-            let mut loader = Loader::new(cfg.clone(), gfx.clone());
+            let asset_loader = AssetLoader::new(gfx.clone(), cfg.clone());
 
             // Construct the per-frame states
             let states = cmds
@@ -178,7 +183,7 @@ impl Draw {
                 })
                 .collect();
 
-            let meshes = Meshes::new(&gfx, loader.ctx().mesh_ds_layout);
+            let meshes = Meshes::new(&gfx);
 
             let fog = Fog::new(&gfx);
 
@@ -195,12 +200,9 @@ impl Draw {
                 yakui_vulkan.transfers_submitted();
             }
 
-            let character_model = loader.load(
-                "character model",
-                super::GlbFile {
-                    path: "character.glb".into(),
-                },
-            );
+            let character_model = asset_loader.load(super::GlbFile {
+                path: "character.glb".into(),
+            });
 
             Self {
                 gfx,
@@ -213,8 +215,6 @@ impl Draw {
                 common_pipeline_layout,
                 common_descriptor_pool,
 
-                loader,
-
                 voxels: None,
                 meshes,
                 fog,
@@ -225,6 +225,8 @@ impl Draw {
                 yakui_vulkan,
 
                 character_model,
+
+                asset_loader,
             }
         }
     }
@@ -234,7 +236,7 @@ impl Draw {
         let voxels = Voxels::new(
             &self.gfx,
             self.cfg.clone(),
-            &mut self.loader,
+            &self.asset_loader,
             u32::from(cfg.chunk_size),
             PIPELINE_DEPTH,
         );
@@ -293,7 +295,6 @@ impl Draw {
             let view = sim.as_ref().map_or_else(Position::origin, |sim| sim.view());
             let projection = frustum.projection(1.0e-4);
             let view_projection = projection.matrix() * na::Matrix4::from(view.local.inverse());
-            self.loader.drive();
 
             let device = &*self.gfx.device;
             let state_index = self.next_state;
@@ -473,13 +474,7 @@ impl Draw {
 
             // Record the actual rendering commands
             if let Some(ref mut voxels) = self.voxels {
-                voxels.draw(
-                    device,
-                    &self.loader,
-                    state.common_ds,
-                    state.voxels.as_ref().unwrap(),
-                    cmd,
-                );
+                voxels.draw(device, state.common_ds, state.voxels.as_ref().unwrap(), cmd);
             }
 
             if let Some(sim) = sim.as_deref() {
@@ -493,7 +488,7 @@ impl Draw {
                             .world
                             .get::<&Position>(entity)
                             .expect("positionless entity in graph");
-                        if let Some(character_model) = self.loader.get(self.character_model)
+                        if let Some(character_model) = self.character_model.try_get()
                             && let Ok(ch) = sim.world.get::<&Character>(entity)
                         {
                             let transform = na::Matrix4::from(transform * pos.local)
