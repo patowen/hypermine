@@ -146,14 +146,14 @@ impl AssetLoader {
             task_executor_threads.push(thread);
         }
 
-        let queue_driver = QueueDriver::new(
-            &gfx,
+        let queue_driver = QueueDriver {
+            gfx: Arc::clone(&gfx),
             queue,
-            &queue_unparker,
-            &queue_shutdown_token,
-            &queue_watch_sender,
-            &staging,
-        );
+            queue_unpark_semaphore: queue_unparker.semaphore(),
+            queue_shutdown_token: queue_shutdown_token.clone(),
+            queue_watch_sender: queue_watch_sender.clone(),
+            staging: Arc::clone(&staging),
+        };
 
         let queue_driver_thread = thread::Builder::new()
             .name("queue_driver".to_owned())
@@ -302,24 +302,6 @@ struct QueueDriver {
 }
 
 impl QueueDriver {
-    pub fn new(
-        gfx: &Arc<Base>,
-        queue: ParallelQueue,
-        queue_unparker: &QueueUnparker,
-        queue_shutdown_token: &CancellationToken,
-        queue_watch_sender: &tokio::sync::watch::Sender<u64>,
-        staging: &Arc<GrowableRing>,
-    ) -> Self {
-        QueueDriver {
-            gfx: Arc::clone(gfx),
-            queue,
-            queue_unpark_semaphore: queue_unparker.semaphore(),
-            queue_shutdown_token: queue_shutdown_token.clone(),
-            queue_watch_sender: queue_watch_sender.clone(),
-            staging: Arc::clone(staging),
-        }
-    }
-
     pub fn run(mut self) {
         loop {
             // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
