@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use ash::vk;
 use common::graph::NodeId;
-use common::math::{MDirection, MPoint, MVector};
+use common::math::MVector;
 use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
@@ -12,7 +12,7 @@ use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
 use crate::graphics::Mesh;
 use crate::graphics::asset_loader::AssetLoader;
 use crate::graphics::binary_like_tiling::SampleSurface;
-use crate::graphics::meshes::{MeshGeometryDefinition, Vertex};
+use crate::graphics::meshes::Vertex;
 use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
@@ -210,29 +210,7 @@ impl Draw {
                 path: "character.glb".into(),
             });
 
-            let sample_surface = asset_loader.load(SampleSurface {
-                geometry: MeshGeometryDefinition {
-                    vertices: [
-                        Vertex {
-                            position: MVector::new(0.0, 0.0, -0.5, 1.0).normalized_point(),
-                            normal: MDirection::x(),
-                            texcoords: [0.0, 0.0, 0.0].into(),
-                        },
-                        Vertex {
-                            position: MVector::new(0.5, 0.0, -0.5, 1.0).normalized_point(),
-                            normal: MDirection::x(),
-                            texcoords: [1.0, 0.0, 0.0].into(),
-                        },
-                        Vertex {
-                            position: MVector::new(0.0, 0.5, -0.5, 1.0).normalized_point(),
-                            normal: MDirection::x(),
-                            texcoords: [0.0, 1.0, 0.0].into(),
-                        },
-                    ]
-                    .to_vec(),
-                    indices: [0, 1, 2, 0, 2, 1].to_vec(),
-                },
-            });
+            let sample_surface = asset_loader.load(SampleSurface::new());
 
             Self {
                 gfx,

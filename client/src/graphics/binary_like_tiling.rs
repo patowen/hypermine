@@ -1,7 +1,11 @@
-use common::math::{MVector, sqr};
+use common::math::{MVector, PermuteXYZ, sqr};
 use libm::{coshf, sinhf, sqrtf, tanhf};
 
-use crate::graphics::{Mesh, asset_loader::AssetLoadContext, meshes::MeshGeometryDefinition};
+use crate::graphics::{
+    Mesh,
+    asset_loader::AssetLoadContext,
+    meshes::{MeshGeometryDefinition, Vertex},
+};
 
 fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
     let factor = sqrtf(1.0 - sqr(voxel.x) - sqr(voxel.y));
@@ -20,8 +24,76 @@ fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32>
     )
 }
 
+fn coords_to_mvector(coords: na::Vector3<i32>) -> MVector<f32> {
+    voxel_to_mvector_simple(na::Vector3::new(
+        coords[0] as f32 * 0.1,
+        coords[1] as f32 * 0.1,
+        coords[2] as f32 * 0.1,
+    ))
+}
+
+fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]) {
+    let vertices: Vec<_> = points
+        .into_iter()
+        .enumerate()
+        .map(|(i, point)| {
+            let len = geometry.vertices.len();
+            geometry.vertices.push(Vertex {
+                position: coords_to_mvector(point).normalized_point(),
+                texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, 0.0),
+                normal: common::math::MDirection::x(),
+            });
+            len as u32
+        })
+        .collect();
+    geometry.indices.extend(&[
+        vertices[0],
+        vertices[1],
+        vertices[2],
+        vertices[1],
+        vertices[2],
+        vertices[3],
+        // TODO: Stop making this double-sided
+        vertices[0],
+        vertices[2],
+        vertices[1],
+        vertices[1],
+        vertices[3],
+        vertices[2],
+    ]);
+}
+
+fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>) {
+    for x_axis in 0..3 {
+        let t = na::Vector3::x().tuv_to_xyz(x_axis);
+        let u = na::Vector3::y().tuv_to_xyz(x_axis);
+        let v = na::Vector3::z().tuv_to_xyz(x_axis);
+        add_quad(geometry, [coords, coords + t, coords + u, coords + t + u]);
+        add_quad(
+            geometry,
+            [
+                coords + v,
+                coords + u + v,
+                coords + t + v,
+                coords + t + u + v,
+            ],
+        );
+    }
+}
+
 pub struct SampleSurface {
     pub geometry: MeshGeometryDefinition,
+}
+
+impl SampleSurface {
+    pub fn new() -> Self {
+        let mut geometry = MeshGeometryDefinition {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+        add_voxel(&mut geometry, na::Vector3::new(0, 0, 0));
+        SampleSurface { geometry }
+    }
 }
 
 impl skid_steer::Source for SampleSurface {
