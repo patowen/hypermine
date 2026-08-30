@@ -39,7 +39,8 @@ fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]
         .map(|(i, point)| {
             let len = geometry.vertices.len();
             geometry.vertices.push(Vertex {
-                position: coords_to_mvector(point).normalized_point(),
+                position: common::dodeca::Vertex::A.dual_to_node()
+                    * coords_to_mvector(point).normalized_point().tuv_to_xyz(1),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, 0.0),
                 normal: common::math::MDirection::x(),
             });
