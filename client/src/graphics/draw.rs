@@ -2,7 +2,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::vk;
-use common::math::{MDirection, MVector};
+use common::graph::NodeId;
+use common::math::{MDirection, MPoint, MVector};
 use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
@@ -512,7 +513,7 @@ impl Draw {
                     for &entity in sim.graph_entities.get(node) {
                         if sim.local_character == Some(entity) {
                             // Don't draw ourself
-                            //continue; (Draw self to debug mesh drawing)
+                            continue;
                         }
                         let pos = sim
                             .world
@@ -530,17 +531,18 @@ impl Draw {
                             }
                         }
                     }
+                    if node == NodeId::ROOT
+                        && let Some(sample_surface) = self.sample_surface.try_get()
+                    {
+                        self.meshes.draw(
+                            device,
+                            state.common_ds,
+                            cmd,
+                            sample_surface,
+                            &na::Matrix4::from(transform),
+                        );
+                    }
                 }
-            }
-
-            if let Some(sample_surface) = self.sample_surface.try_get() {
-                self.meshes.draw(
-                    device,
-                    state.common_ds,
-                    cmd,
-                    sample_surface,
-                    &na::Matrix4::identity(),
-                );
             }
 
             device.cmd_next_subpass(cmd, vk::SubpassContents::INLINE);
