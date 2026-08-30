@@ -5,7 +5,7 @@ use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
 use vk_shader_macros::include_glsl;
 
-use crate::graphics::asset_loader::AssetLoadContext;
+use crate::graphics::asset_loader::{AssetLoadContext, LoadedAsset};
 
 use super::Base;
 use common::{defer, math};
@@ -235,13 +235,13 @@ pub struct MeshMaterialDefinition {
     pub srgb_rgba_color_data: Vec<u8>,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct Mesh {
     pub geometry: MeshGeometry,
     pub pool: vk::DescriptorPool,
     pub ds: vk::DescriptorSet,
     // TODO: Make shareable
-    pub material: MeshMaterial,
+    pub material: LoadedAsset<MeshMaterial>,
 }
 
 impl Mesh {
@@ -249,12 +249,13 @@ impl Mesh {
         ctx: &AssetLoadContext,
         mesh_geometry: MeshGeometryDefinition,
         mesh_material: MeshMaterialDefinition,
-    ) -> Self {
+    ) -> Option<Self> {
         unsafe {
             let (geometry, material) = tokio::join!(
                 MeshGeometry::from_definition(ctx, mesh_geometry),
-                MeshMaterial::from_definition(ctx, mesh_material)
+                LoadedAsset::from_asset(ctx.load(mesh_material)),
             );
+            let material = material?;
 
             let pool = ctx
                 .device()
@@ -289,19 +290,18 @@ impl Mesh {
                 &[],
             );
 
-            Mesh {
+            Some(Mesh {
                 geometry,
                 pool,
                 ds,
                 material,
-            }
+            })
         }
     }
 
     pub unsafe fn destroy(&mut self, device: &ash::Device) {
         unsafe {
             device.destroy_descriptor_pool(self.pool, None);
-            self.material.destroy(device);
             self.geometry.destroy(device);
         }
     }
@@ -536,5 +536,18 @@ impl MeshMaterial {
             device.destroy_image_view(self.color_view, None);
             self.color.destroy(device);
         }
+    }
+}
+
+impl skid_steer::Source for MeshMaterialDefinition {
+    type Output = MeshMaterial;
+
+    async fn load<'a>(self, context: &'a skid_steer::Context<'a>) -> Option<MeshMaterial> {
+        Some(MeshMaterial::from_definition(context.get().unwrap(), self).await)
+    }
+
+    fn free(mut output: Self::Output, context: &skid_steer::Context) {
+        let ctx: &AssetLoadContext = context.get().unwrap();
+        unsafe { output.destroy(ctx.device()) };
     }
 }

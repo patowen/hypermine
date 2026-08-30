@@ -24,6 +24,7 @@ pub struct AssetLoadContext {
     queue_watch_receiver: tokio::sync::watch::Receiver<u64>,
     queue_unparker: Arc<QueueUnparker>,
     staging: Arc<GrowableRing>,
+    loader: skid_steer::Loader,
 }
 
 // Rather than exposing its fields, we expose helper functions for the kinds of tasks
@@ -99,6 +100,13 @@ impl AssetLoadContext {
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
         self.config.find_asset(path)
     }
+
+    pub fn load<S: skid_steer::Source>(
+        &self,
+        source: S,
+    ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
+        self.loader.load(source)
+    }
 }
 
 /// Convenience wrapper around lahar::GrowableRing's allocation tuple
@@ -146,6 +154,7 @@ impl AssetLoader {
                 queue_watch_receiver: queue_watch_receiver.clone(),
                 queue_unparker: Arc::clone(&queue_unparker),
                 staging: Arc::clone(&staging),
+                loader: loader.clone(),
             };
             let loader = loader.clone();
 
@@ -369,6 +378,30 @@ impl Drop for AssetLoader {
                 .expect("All threads using staging should now be joined")
                 .destroy(&self.gfx.device);
         }
+    }
+}
+
+/// TODO: This could be part of skid_steer. We can't just use a raw `T` because the asset
+/// would be prematurely freed (or never freed)
+#[derive(Clone)]
+pub struct LoadedAsset<T: Send + 'static>(skid_steer::Asset<T>);
+
+impl<T: Send + 'static> LoadedAsset<T> {
+    pub async fn from_asset(asset: skid_steer::Asset<T>) -> Option<LoadedAsset<T>> {
+        asset.get().await?;
+        Some(LoadedAsset(asset))
+    }
+
+    pub fn get(&self) -> &T {
+        self.0.try_get().unwrap()
+    }
+}
+
+impl<T: Send + 'static> std::ops::Deref for LoadedAsset<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.get()
     }
 }
 
