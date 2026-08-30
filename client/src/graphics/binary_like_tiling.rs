@@ -91,7 +91,13 @@ impl SampleSurface {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        add_voxel(&mut geometry, na::Vector3::new(0, 0, 0));
+        for x in -3..=3 {
+            for y in -3..=3 {
+                for z in -3..=3 {
+                    add_voxel(&mut geometry, na::Vector3::new(x * 2, y * 2, z * 2));
+                }
+            }
+        }
         SampleSurface { geometry }
     }
 }
