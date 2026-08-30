@@ -2,6 +2,7 @@
 
 mod asset_loader;
 mod base;
+mod binary_like_tiling;
 mod core;
 mod draw;
 mod fog;
