@@ -3,6 +3,7 @@ use std::mem;
 use ash::{Device, vk};
 use lahar::{BufferRegionAlloc, DedicatedImage};
 use memoffset::offset_of;
+use skid_steer::Asset;
 use vk_shader_macros::include_glsl;
 
 use crate::graphics::asset_loader::{AssetLoadContext, LoadedAsset};
@@ -217,6 +218,7 @@ impl Meshes {
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct Vertex {
     pub position: math::MPoint<f32>,
     pub texcoords: na::Vector3<f32>,
@@ -248,12 +250,12 @@ impl Mesh {
     pub async fn from_definition(
         ctx: &AssetLoadContext,
         mesh_geometry: MeshGeometryDefinition,
-        mesh_material: MeshMaterialDefinition,
+        mesh_material: Asset<MeshMaterial>,
     ) -> Option<Self> {
         unsafe {
             let (geometry, material) = tokio::join!(
                 MeshGeometry::from_definition(ctx, mesh_geometry),
-                LoadedAsset::from_asset(ctx.load(mesh_material)),
+                LoadedAsset::from_asset(mesh_material),
             );
             let material = material?;
 

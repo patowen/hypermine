@@ -150,7 +150,7 @@ async fn load_primitive(
     );
     let geom = geom?;
     let color = color?;
-    Mesh::from_definition(ctx, geom, color)
+    Mesh::from_definition(ctx, geom, ctx.load(color))
         .await
         .context("Mesh-loading interrupted")
 }

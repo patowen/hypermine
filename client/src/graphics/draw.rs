@@ -2,12 +2,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::vk;
+use common::math::{MDirection, MVector};
 use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
+use crate::graphics::Mesh;
 use crate::graphics::asset_loader::AssetLoader;
+use crate::graphics::binary_like_tiling::SampleSurface;
+use crate::graphics::meshes::{MeshGeometryDefinition, Vertex};
 use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
@@ -51,6 +55,7 @@ pub struct Draw {
 
     /// Miscellany
     character_model: skid_steer::Asset<GltfScene>,
+    sample_surface: skid_steer::Asset<Mesh>,
 
     /// Drives async asset loading
     asset_loader: AssetLoader, // TODO: Make code more robust by not requiring this to be defined last (due to Drop order)
@@ -204,6 +209,30 @@ impl Draw {
                 path: "character.glb".into(),
             });
 
+            let sample_surface = asset_loader.load(SampleSurface {
+                geometry: MeshGeometryDefinition {
+                    vertices: [
+                        Vertex {
+                            position: MVector::new(0.0, 0.0, -0.5, 1.0).normalized_point(),
+                            normal: MDirection::x(),
+                            texcoords: [0.0, 0.0, 0.0].into(),
+                        },
+                        Vertex {
+                            position: MVector::new(0.5, 0.0, -0.5, 1.0).normalized_point(),
+                            normal: MDirection::x(),
+                            texcoords: [1.0, 0.0, 0.0].into(),
+                        },
+                        Vertex {
+                            position: MVector::new(0.0, 0.5, -0.5, 1.0).normalized_point(),
+                            normal: MDirection::x(),
+                            texcoords: [0.0, 1.0, 0.0].into(),
+                        },
+                    ]
+                    .to_vec(),
+                    indices: [0, 1, 2, 0, 2, 1].to_vec(),
+                },
+            });
+
             Self {
                 gfx,
                 cfg,
@@ -225,6 +254,7 @@ impl Draw {
                 yakui_vulkan,
 
                 character_model,
+                sample_surface,
 
                 asset_loader,
             }
@@ -501,6 +531,16 @@ impl Draw {
                         }
                     }
                 }
+            }
+
+            if let Some(sample_surface) = self.sample_surface.try_get() {
+                self.meshes.draw(
+                    device,
+                    state.common_ds,
+                    cmd,
+                    sample_surface,
+                    &na::Matrix4::identity(),
+                );
             }
 
             device.cmd_next_subpass(cmd, vk::SubpassContents::INLINE);
