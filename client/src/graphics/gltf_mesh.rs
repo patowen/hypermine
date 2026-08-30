@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow, bail};
+use color::{AlphaColor, LinearSrgb};
 use common::{Anonymize, math};
 use futures_util::future::{FutureExt, LocalBoxFuture, try_join_all};
 use tracing::{error, trace};
@@ -235,16 +236,22 @@ async fn load_material(
                 width: 1,
                 height: 1,
                 array_layers: 1,
-                srgb_rgba_color_data: prim
-                    .material()
-                    .pbr_metallic_roughness()
-                    .base_color_factor()
-                    .map(|_c| 255) // TODO: Will likely want a crate for color conversion
-                    .to_vec(),
+                srgb_rgba_color_data: AlphaColor::<LinearSrgb>::new(
+                    prim.material().pbr_metallic_roughness().base_color_factor(),
+                )
+                .to_rgba8()
+                .to_u8_array()
+                .to_vec(),
             });
         }
         Some(x) => x,
     };
+    if prim.material().pbr_metallic_roughness().base_color_factor() != [1.0, 1.0, 1.0, 1.0] {
+        tracing::warn!(
+            "Ignoring base color factor {:?}, as this setting is currently only supported for GLTF materials without color textures.",
+            prim.material().pbr_metallic_roughness().base_color_factor()
+        );
+    }
     let color_data = match color.texture().source().source() {
         gltf::image::Source::Uri { uri, .. } => {
             let path = ctx

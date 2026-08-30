@@ -1,23 +1,19 @@
 use std::{
     path::{Path, PathBuf},
+    ptr::NonNull,
     rc::Rc,
     sync::Arc,
     thread::{self, JoinHandle},
 };
 
 use ash::vk;
-use lahar::{BufferRegionAlloc, ParallelQueue, parallel_queue};
+use lahar::{BufferRegionAlloc, GrowableRing, ParallelQueue, parallel_queue};
 use skid_steer::Context;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     Config,
-    graphics::{
-        Base,
-        growable_ring::{self, GrowableRing},
-        meshes,
-        shader_data::ShaderData,
-    },
+    graphics::{Base, meshes, shader_data::ShaderData},
 };
 
 /// Contains all the dependencies necessary to load assets.
@@ -47,8 +43,17 @@ impl AssetLoadContext {
         count: usize,
         align: usize,
         free_at: u64,
-    ) -> growable_ring::Allocation<T> {
-        self.staging.alloc(&self.gfx, count, align, free_at)
+    ) -> GrowableRingAllocation<T> {
+        let (buffer, offset, pointer) =
+            self.staging
+                .alloc(&self.gfx.device, None, count, align, free_at);
+        let size = (count * std::mem::size_of::<T>()) as u64;
+        GrowableRingAllocation {
+            buffer,
+            offset,
+            size,
+            pointer,
+        }
     }
 
     pub fn alloc_vertices(&self, num_vertices: usize) -> BufferRegionAlloc {
@@ -83,25 +88,25 @@ impl AssetLoadContext {
         // To actually get the work to start, we need to unpark the queue. We do it here to avoid getting stuck awaiting something we never kicked off.
         unsafe { self.queue_unparker.unpark_queue(&self.gfx.device) };
 
-        if self
+        self
             .queue_watch_receiver
             .clone()
             .wait_for(|&value| value >= semaphore_value)
             .await
-            .is_err()
-        {
-            // Don't assume things have finished loading just because `queue_watch_sender` was dropped.
-            // Instead, print an error and wait forever, since the work will never complete.
-            tracing::error!(
-                "Work was submitted to the parallel queue but never completed. This should never happen."
-            );
-            std::future::pending::<()>().await;
-        }
+            .expect("queue_watch_sender should not be dropped until there are no more AssetLoadContexts");
     }
 
     pub fn find_asset(&self, path: &Path) -> Option<PathBuf> {
         self.config.find_asset(path)
     }
+}
+
+/// Convenience wrapper around lahar::GrowableRing's allocation tuple
+pub struct GrowableRingAllocation<T> {
+    pub buffer: vk::Buffer,
+    pub offset: u64,
+    pub size: u64,
+    pub pointer: NonNull<T>,
 }
 
 pub struct AssetLoader {
@@ -119,7 +124,12 @@ impl AssetLoader {
         let loader = skid_steer::Loader::new();
         let queue_shutdown_token = CancellationToken::new();
         let queue = unsafe { ParallelQueue::new(&gfx.device, gfx.queue_family, gfx.queue, None) };
-        let staging = Arc::new(GrowableRing::new(&gfx, 32 * 1024 * 1024));
+        let staging = Arc::new(GrowableRing::new(
+            &gfx.device,
+            gfx.memory_properties,
+            None,
+            32 * 1024 * 1024,
+        ));
         let queue_unparker = Arc::new(QueueUnparker::new(&gfx.device));
         let (queue_watch_sender, queue_watch_receiver) = tokio::sync::watch::channel(0);
 
@@ -146,14 +156,14 @@ impl AssetLoader {
             task_executor_threads.push(thread);
         }
 
-        let queue_driver = QueueDriver::new(
-            &gfx,
+        let queue_driver = QueueDriver {
+            gfx: Arc::clone(&gfx),
             queue,
-            &queue_unparker,
-            &queue_shutdown_token,
-            &queue_watch_sender,
-            &staging,
-        );
+            queue_unpark_semaphore: queue_unparker.semaphore(),
+            queue_shutdown_token: queue_shutdown_token.clone(),
+            queue_watch_sender: queue_watch_sender.clone(),
+            staging: Arc::clone(&staging),
+        };
 
         let queue_driver_thread = thread::Builder::new()
             .name("queue_driver".to_owned())
@@ -302,24 +312,6 @@ struct QueueDriver {
 }
 
 impl QueueDriver {
-    pub fn new(
-        gfx: &Arc<Base>,
-        queue: ParallelQueue,
-        queue_unparker: &QueueUnparker,
-        queue_shutdown_token: &CancellationToken,
-        queue_watch_sender: &tokio::sync::watch::Sender<u64>,
-        staging: &Arc<GrowableRing>,
-    ) -> Self {
-        QueueDriver {
-            gfx: Arc::clone(gfx),
-            queue,
-            queue_unpark_semaphore: queue_unparker.semaphore(),
-            queue_shutdown_token: queue_shutdown_token.clone(),
-            queue_watch_sender: queue_watch_sender.clone(),
-            staging: Arc::clone(staging),
-        }
-    }
-
     pub fn run(mut self) {
         loop {
             // Systems increment the `queue_unpark_semaphore` value when they want to guarantee
