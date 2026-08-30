@@ -107,6 +107,13 @@ impl AssetLoadContext {
     ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
         self.loader.load(source)
     }
+
+    pub fn load_cached<S: skid_steer::Source + std::hash::Hash + Clone + Sync + Eq>(
+        &self,
+        source: S,
+    ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
+        self.loader.load_cached(source)
+    }
 }
 
 /// Convenience wrapper around lahar::GrowableRing's allocation tuple
@@ -197,6 +204,13 @@ impl AssetLoader {
         source: S,
     ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
         self.loader.load(source)
+    }
+
+    pub fn load_cached<S: skid_steer::Source + std::hash::Hash + Clone + Sync + Eq>(
+        &self,
+        source: S,
+    ) -> skid_steer::Asset<<S as skid_steer::Source>::Output> {
+        self.loader.load_cached(source)
     }
 }
 

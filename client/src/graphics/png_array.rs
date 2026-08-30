@@ -12,6 +12,7 @@ use crate::graphics::{
     meshes::{MeshMaterial, MeshMaterialDefinition},
 };
 
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PngArray {
     pub path: PathBuf,
     pub size: usize,

@@ -224,7 +224,7 @@ impl Surface {
             v_guard.invoke();
             f_guard.invoke();
 
-            let colors = loader.load(crate::graphics::PngArray {
+            let colors = loader.load_cached(crate::graphics::PngArray {
                 path: "materials".into(),
                 size: common::world::Material::COUNT - 1,
             });
