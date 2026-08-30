@@ -1,10 +1,10 @@
 use ash::{Device, vk};
-use lahar::{DedicatedImage, DedicatedMapping};
+use lahar::DedicatedMapping;
 use vk_shader_macros::include_glsl;
 
 use super::surface_extraction::DrawBuffer;
-use crate::graphics::{Base, asset_loader::AssetLoader};
-use common::{defer, world::Material};
+use crate::graphics::{Base, asset_loader::AssetLoader, meshes::MeshMaterial};
+use common::defer;
 
 const VERT: &[u32] = include_glsl!("shaders/voxels.vert");
 const FRAG: &[u32] = include_glsl!("shaders/voxels.frag");
@@ -15,8 +15,8 @@ pub struct Surface {
     pipeline: vk::Pipeline,
     descriptor_pool: vk::DescriptorPool,
     ds: vk::DescriptorSet,
-    colors: skid_steer::Asset<DedicatedImage>,
-    colors_view: vk::ImageView,
+    colors: skid_steer::Asset<MeshMaterial>,
+    colors_initialized: bool,
 }
 
 impl Surface {
@@ -236,7 +236,7 @@ impl Surface {
                 descriptor_pool,
                 ds,
                 colors,
-                colors_view: vk::ImageView::null(),
+                colors_initialized: false,
             }
         }
     }
@@ -250,24 +250,8 @@ impl Surface {
         cmd: vk::CommandBuffer,
     ) -> bool {
         unsafe {
-            if self.colors_view == vk::ImageView::null() {
+            if !self.colors_initialized {
                 if let Some(colors) = self.colors.try_get() {
-                    self.colors_view = device
-                        .create_image_view(
-                            &vk::ImageViewCreateInfo::default()
-                                .image(colors.handle)
-                                .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
-                                .format(vk::Format::R8G8B8A8_SRGB)
-                                .subresource_range(vk::ImageSubresourceRange {
-                                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                                    base_mip_level: 0,
-                                    level_count: 1,
-                                    base_array_layer: 0,
-                                    layer_count: (Material::COUNT - 1) as u32,
-                                }),
-                            None,
-                        )
-                        .unwrap();
                     device.update_descriptor_sets(
                         &[vk::WriteDescriptorSet::default()
                             .dst_set(self.ds)
@@ -275,11 +259,12 @@ impl Surface {
                             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                             .image_info(&[vk::DescriptorImageInfo {
                                 sampler: vk::Sampler::null(),
-                                image_view: self.colors_view,
+                                image_view: colors.color_view,
                                 image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                             }])],
                         &[],
                     );
+                    self.colors_initialized = true;
                 } else {
                     return false;
                 }
@@ -332,9 +317,6 @@ impl Surface {
             device.destroy_pipeline_layout(self.pipeline_layout, None);
             device.destroy_descriptor_set_layout(self.static_ds_layout, None);
             device.destroy_descriptor_pool(self.descriptor_pool, None);
-            if self.colors_view != vk::ImageView::null() {
-                device.destroy_image_view(self.colors_view, None);
-            }
         }
     }
 }

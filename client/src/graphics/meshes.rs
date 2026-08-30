@@ -416,11 +416,14 @@ impl MeshMaterial {
         unsafe {
             let work = ctx.begin_work();
             let finish_time = work.time().get();
-            let color_staging = ctx.alloc_staging::<u8>(
-                mesh_material.width as usize * mesh_material.height as usize * 4,
-                4,
-                finish_time,
+            assert!(
+                mesh_material.srgb_rgba_color_data.len()
+                    == 4 * mesh_material.width as usize
+                        * mesh_material.height as usize
+                        * mesh_material.array_layers as usize
             );
+            let color_staging =
+                ctx.alloc_staging::<u8>(mesh_material.srgb_rgba_color_data.len(), 4, finish_time);
             std::ptr::copy_nonoverlapping(
                 mesh_material.srgb_rgba_color_data.as_ptr(),
                 color_staging.pointer.as_ptr(),
@@ -447,7 +450,7 @@ impl MeshMaterial {
                 base_mip_level: 0,
                 level_count: 1,
                 base_array_layer: 0,
-                layer_count: 1,
+                layer_count: mesh_material.array_layers,
             };
             ctx.device().cmd_pipeline_barrier(
                 work.cmd(),
@@ -476,7 +479,7 @@ impl MeshMaterial {
                         aspect_mask: vk::ImageAspectFlags::COLOR,
                         mip_level: 0,
                         base_array_layer: 0,
-                        layer_count: 1,
+                        layer_count: mesh_material.array_layers,
                     },
                     image_extent: vk::Extent3D {
                         width: mesh_material.width,
@@ -511,7 +514,7 @@ impl MeshMaterial {
                 .create_image_view(
                     &vk::ImageViewCreateInfo::default()
                         .image(color.handle)
-                        .view_type(vk::ImageViewType::TYPE_2D)
+                        .view_type(vk::ImageViewType::TYPE_2D_ARRAY)
                         .format(vk::Format::R8G8B8A8_SRGB)
                         .subresource_range(vk::ImageSubresourceRange {
                             aspect_mask: vk::ImageAspectFlags::COLOR,

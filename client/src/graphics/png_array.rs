@@ -5,11 +5,12 @@ use std::{
 };
 
 use anyhow::{Context, anyhow, bail, ensure};
-use ash::vk;
 use common::Anonymize;
-use lahar::DedicatedImage;
 
-use crate::graphics::asset_loader::AssetLoadContext;
+use crate::graphics::{
+    asset_loader::AssetLoadContext,
+    meshes::{MeshMaterial, MeshMaterialDefinition},
+};
 
 pub struct PngArray {
     pub path: PathBuf,
@@ -17,7 +18,7 @@ pub struct PngArray {
 }
 
 impl PngArray {
-    async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<DedicatedImage> {
+    async fn load_inner(self, context: &skid_steer::Context<'_>) -> anyhow::Result<MeshMaterial> {
         tracing::trace!("Started loading png array");
         let ctx: &AssetLoadContext = context.get().unwrap();
         let full_path = ctx
@@ -72,114 +73,23 @@ impl PngArray {
                 .with_context(|| format!("decoding {}", path.anonymize().display()))?;
         }
         let (width, height) = dims.unwrap();
-        unsafe {
-            let image = DedicatedImage::new(
-                ctx.device(),
-                ctx.memory_properties(),
-                &vk::ImageCreateInfo::default()
-                    .image_type(vk::ImageType::TYPE_2D)
-                    .format(vk::Format::R8G8B8A8_SRGB)
-                    .extent(vk::Extent3D {
-                        width,
-                        height,
-                        depth: 1,
-                    })
-                    .mip_levels(1)
-                    .array_layers(self.size as u32)
-                    .samples(vk::SampleCountFlags::TYPE_1)
-                    .usage(vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST),
-            );
-
-            let range = vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: self.size as u32,
-            };
-            let work = ctx.begin_work();
-            let finish_time = work.time().get();
-            let mem = ctx.alloc_staging(image_data.len(), 4, finish_time);
-            std::ptr::copy_nonoverlapping(
-                image_data.as_ptr(),
-                mem.pointer.as_ptr(),
-                image_data.len(),
-            );
-            ctx.device().cmd_pipeline_barrier(
-                work.cmd(),
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::TRANSFER,
-                vk::DependencyFlags::default(),
-                &[],
-                &[],
-                &[vk::ImageMemoryBarrier::default()
-                    .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .old_layout(vk::ImageLayout::UNDEFINED)
-                    .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .image(image.handle)
-                    .subresource_range(range)],
-            );
-            ctx.device().cmd_copy_buffer_to_image(
-                work.cmd(),
-                mem.buffer,
-                image.handle,
-                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                &[vk::BufferImageCopy {
-                    buffer_offset: mem.offset,
-                    image_subresource: vk::ImageSubresourceLayers {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
-                        mip_level: 0,
-                        base_array_layer: 0,
-                        layer_count: range.layer_count,
-                    },
-                    image_extent: vk::Extent3D {
-                        width,
-                        height,
-                        depth: 1,
-                    },
-                    ..Default::default()
-                }],
-            );
-            ctx.device().cmd_pipeline_barrier(
-                work.cmd(),
-                vk::PipelineStageFlags::TRANSFER,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::DependencyFlags::default(),
-                &[],
-                &[],
-                &[vk::ImageMemoryBarrier::default()
-                    .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
-                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
-                    .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                    .image(image.handle)
-                    .subresource_range(range)],
-            );
-            work.end();
-            tracing::trace!("Awaiting parallel queue");
-            ctx.wait_for_completion(finish_time).await;
-            tracing::trace!("Finished awaiting parallel queue");
-
-            tracing::trace!(
-                width = width,
-                height = height,
-                path = %full_path.anonymize().display(),
-                "loaded array"
-            );
-            tracing::trace!("png_array loaded");
-            Ok(image)
-        }
+        Ok(MeshMaterial::from_definition(
+            ctx,
+            MeshMaterialDefinition {
+                width,
+                height,
+                array_layers: self.size as u32,
+                srgb_rgba_color_data: image_data,
+            },
+        )
+        .await)
     }
 }
 
 impl skid_steer::Source for PngArray {
-    type Output = DedicatedImage;
+    type Output = MeshMaterial;
 
-    async fn load(self, context: &skid_steer::Context<'_>) -> Option<DedicatedImage> {
+    async fn load(self, context: &skid_steer::Context<'_>) -> Option<MeshMaterial> {
         self.load_inner(context)
             .await
             .inspect_err(|e| tracing::error!("{}", e))
