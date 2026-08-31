@@ -49,18 +49,11 @@ fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]
         .collect();
     geometry.indices.extend(&[
         vertices[0],
-        vertices[1],
         vertices[2],
+        vertices[1],
         vertices[1],
         vertices[2],
         vertices[3],
-        // TODO: Stop making this double-sided
-        vertices[0],
-        vertices[2],
-        vertices[1],
-        vertices[1],
-        vertices[3],
-        vertices[2],
     ]);
 }
 
@@ -94,7 +87,7 @@ impl SampleSurface {
         };
         for x in -3..=3 {
             for y in -3..=3 {
-                for z in -3..=3 {
+                for z in -10..=10 {
                     add_voxel(&mut geometry, na::Vector3::new(x * 2, y * 2, z * 2));
                 }
             }
