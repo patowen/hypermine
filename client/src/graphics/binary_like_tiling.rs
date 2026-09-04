@@ -1,5 +1,5 @@
 use common::math::{MVector, PermuteXYZ, sqr};
-use libm::{coshf, sinhf, sqrtf, tanhf};
+use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
     Mesh,
@@ -24,15 +24,19 @@ fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32>
     )
 }
 
-fn coords_to_mvector(coords: na::Vector3<i32>) -> MVector<f32> {
+fn coords_to_mvector(coords: na::Vector3<i32>, width_factor: f32) -> MVector<f32> {
     voxel_to_mvector_simple(na::Vector3::new(
-        coords[0] as f32 * 0.1,
-        coords[1] as f32 * 0.1,
-        coords[2] as f32 * 0.1,
+        coords[0] as f32 * 0.04 * width_factor,
+        coords[1] as f32 * 0.04 * width_factor,
+        coords[2] as f32 * logf(2.0) / 20.0,
     ))
 }
 
-fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]) {
+fn add_quad(
+    geometry: &mut MeshGeometryDefinition,
+    points: [na::Vector3<i32>; 4],
+    width_factor: f32,
+) {
     let vertices: Vec<_> = points
         .into_iter()
         .enumerate()
@@ -40,7 +44,9 @@ fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]
             let len = geometry.vertices.len();
             geometry.vertices.push(Vertex {
                 position: common::dodeca::Vertex::A.dual_to_node()
-                    * coords_to_mvector(point).normalized_point().tuv_to_xyz(1),
+                    * coords_to_mvector(point, width_factor)
+                        .normalized_point()
+                        .tuv_to_xyz(1),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, 0.0),
                 normal: common::math::MDirection::x(),
             });
@@ -57,12 +63,16 @@ fn add_quad(geometry: &mut MeshGeometryDefinition, points: [na::Vector3<i32>; 4]
     ]);
 }
 
-fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>) {
+fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>, width_factor: f32) {
     for x_axis in 0..3 {
         let t = na::Vector3::x().tuv_to_xyz(x_axis);
         let u = na::Vector3::y().tuv_to_xyz(x_axis);
         let v = na::Vector3::z().tuv_to_xyz(x_axis);
-        add_quad(geometry, [coords, coords + t, coords + u, coords + t + u]);
+        add_quad(
+            geometry,
+            [coords, coords + t, coords + u, coords + t + u],
+            width_factor,
+        );
         add_quad(
             geometry,
             [
@@ -71,6 +81,7 @@ fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>) {
                 coords + t + v,
                 coords + t + u + v,
             ],
+            width_factor,
         );
     }
 }
@@ -87,8 +98,14 @@ impl SampleSurface {
         };
         for x in -3..=3 {
             for y in -3..=3 {
-                for z in -10..=10 {
-                    add_voxel(&mut geometry, na::Vector3::new(x * 2, y * 2, z * 2));
+                for z in 0..=10 {
+                    for k in 0..6 {
+                        add_voxel(
+                            &mut geometry,
+                            na::Vector3::new(x * 2, y * 2, -z * 2 - 20 * k),
+                            powf(0.5, k as f32),
+                        );
+                    }
                 }
             }
         }
