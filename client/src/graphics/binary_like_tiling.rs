@@ -9,7 +9,15 @@ use crate::graphics::{
 
 fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
     let factor = sqrtf(1.0 - sqr(voxel.x) - sqr(voxel.y));
-    MVector::new(voxel.x, voxel.y, factor * tanhf(voxel.z), 1.0)
+    //MVector::new(voxel.x, voxel.y, factor * tanhf(voxel.z), 1.0)
+
+    // This is already pre-scaled
+    MVector::new(
+        voxel.x * coshf(voxel.z) / factor,
+        voxel.y * coshf(voxel.z) / factor,
+        sinhf(voxel.z),
+        coshf(voxel.z) / factor,
+    )
 }
 
 fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
