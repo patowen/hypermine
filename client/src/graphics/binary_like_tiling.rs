@@ -8,27 +8,33 @@ use crate::graphics::{
 };
 
 fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
-    let factor = sqrtf(1.0 - sqr(voxel.x) - sqr(voxel.y));
+    let factor = 1.0 / sqrtf(1.0 - sqr(voxel.x) - sqr(voxel.y));
     //MVector::new(voxel.x, voxel.y, factor * tanhf(voxel.z), 1.0)
 
     // This is already pre-scaled
     MVector::new(
-        voxel.x * coshf(voxel.z) / factor,
-        voxel.y * coshf(voxel.z) / factor,
+        voxel.x * coshf(voxel.z) * factor,
+        voxel.y * coshf(voxel.z) * factor,
         sinhf(voxel.z),
-        coshf(voxel.z) / factor,
+        coshf(voxel.z) * factor,
     )
 }
 
+/// Computes
+/// `translation_along([0, 0, -boost]) * voxel_to_mvector_simple([x / cosh(boost), y / cosh(boost), boost + z])`
 fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
-    let f = 1.0 - sqrtf(1.0 - sqr(voxel.x) - sqr(voxel.y));
-    let g = f * sqr(coshf(boost));
-    let u = voxel.z + boost;
+    // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
+    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let factor_radicand = 1.0 - dist_squared / coshf(boost);
+    let factor = 1.0 / sqrtf(factor_radicand);
+    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        voxel.x * coshf(boost),
-        voxel.y * coshf(boost),
-        (coshf(u) * tanhf(boost) * g + sinhf(u) * (1.0 - g)) / (coshf(u) - tanhf(boost) * sinhf(u)),
-        0.0, // TODO
+        voxel.x * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)) * factor,
+        voxel.y * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)) * factor,
+        sinhf(voxel.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
+            - scaled_factor_delta * tanhf(boost) * coshf(voxel.z),
+        coshf(voxel.z) * (1.0 + scaled_factor_delta)
+            + scaled_factor_delta * tanhf(boost) * sinhf(voxel.z),
     )
 }
 
@@ -44,6 +50,7 @@ fn add_quad(
     geometry: &mut MeshGeometryDefinition,
     points: [na::Vector3<i32>; 4],
     width_factor: f32,
+    texture: usize,
 ) {
     let vertices: Vec<_> = points
         .into_iter()
@@ -55,7 +62,7 @@ fn add_quad(
                     * coords_to_mvector(point, width_factor)
                         .normalized_point()
                         .tuv_to_xyz(1),
-                texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, 0.0),
+                texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
                 normal: common::math::MDirection::x(),
             });
             len as u32
@@ -80,6 +87,7 @@ fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>, wi
             geometry,
             [coords, coords + t, coords + u, coords + t + u],
             width_factor,
+            x_axis,
         );
         add_quad(
             geometry,
@@ -90,6 +98,7 @@ fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>, wi
                 coords + t + u + v,
             ],
             width_factor,
+            x_axis,
         );
     }
 }
