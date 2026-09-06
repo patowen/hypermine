@@ -25,7 +25,7 @@ fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
 fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
     // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
     let dist_squared = sqr(voxel.x) + sqr(voxel.y);
-    let factor_radicand = 1.0 - dist_squared / coshf(boost);
+    let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
     let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     MVector::new(
@@ -39,11 +39,14 @@ fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32>
 }
 
 fn coords_to_mvector(coords: na::Vector3<i32>, width_factor: f32) -> MVector<f32> {
-    voxel_to_mvector_simple(na::Vector3::new(
-        coords[0] as f32 * 0.04 * width_factor,
-        coords[1] as f32 * 0.04 * width_factor,
-        coords[2] as f32 * logf(2.0) / 20.0,
-    ))
+    voxel_to_mvector_boosted(
+        na::Vector3::new(
+            coords[0] as f32 * 0.04 * width_factor,
+            coords[1] as f32 * 0.04 * width_factor,
+            coords[2] as f32 * logf(2.0) / 20.0,
+        ),
+        0.0,
+    )
 }
 
 fn add_quad(
@@ -115,11 +118,11 @@ impl SampleSurface {
         };
         for x in -3..=3 {
             for y in -3..=3 {
-                for z in 0..=10 {
+                for z in 0..10 {
                     for k in 0..6 {
                         add_voxel(
                             &mut geometry,
-                            na::Vector3::new(x * 2, y * 2, -z * 2 - 20 * k),
+                            na::Vector3::new(x * 2, y * 2, -1 - z * 2 - 20 * k),
                             powf(0.5, k as f32),
                         );
                     }
@@ -150,6 +153,19 @@ impl skid_steer::Source for SampleSurface {
     }
 }
 
+struct BltGraph {}
+
+struct CentralBltChunk {
+    upper_neighbors: [Option<u32>; 4],
+    lower_neighbors: [Option<u32>; 4],
+}
+
+struct OuterBltChunk {
+    inner_neighbor: Option<u32>,
+    inner_neighbor_index: u8,
+    outer_neighbors: [Option<u32>; 4],
+}
+
 #[cfg(test)]
 mod tests {
     use common::math::MIsometry;
@@ -160,12 +176,14 @@ mod tests {
     fn example() {
         let example = na::vector![0.1, 0.2, 2.0];
         let boost = 1.0;
-        // I'll have to think about this later.
         println!(
             "{:?}",
-            MIsometry::translation_along(&(na::Vector3::z() * boost))
-                * voxel_to_mvector_simple(example)
-                * coshf(boost)
+            MIsometry::translation_along(&(na::Vector3::z() * -boost))
+                * voxel_to_mvector_simple(na::Vector3::new(
+                    example.x / coshf(boost),
+                    example.y / coshf(boost),
+                    boost + example.z
+                ))
         );
         println!("{:?}", voxel_to_mvector_boosted(example, boost));
     }
