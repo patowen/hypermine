@@ -1,4 +1,4 @@
-use common::math::{MVector, PermuteXYZ, sqr};
+use common::math::{MPoint, MVector, PermuteXYZ, sqr};
 use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
@@ -63,7 +63,7 @@ fn add_quad(
             geometry.vertices.push(Vertex {
                 position: common::dodeca::Vertex::A.dual_to_node()
                     * coords_to_mvector(point, width_factor)
-                        .normalized_point()
+                        .to_point_unchecked()
                         .tuv_to_xyz(1),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
                 normal: common::math::MDirection::x(),
@@ -116,13 +116,17 @@ impl SampleSurface {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for x in -3..=3 {
-            for y in -3..=3 {
+        for x in -6..=7 {
+            for y in -6..=7 {
                 for z in 0..10 {
-                    for k in 0..6 {
+                    for k in 0..5 {
                         add_voxel(
                             &mut geometry,
-                            na::Vector3::new(x * 2, y * 2, -1 - z * 2 - 20 * k),
+                            na::Vector3::new(
+                                x * 2 + (2i32.pow(k as u32) - 1) * 15,
+                                y * 2 + (2i32.pow(k as u32) - 1) * 15,
+                                -1 - z * 2 - 20 * k,
+                            ),
                             powf(0.5, k as f32),
                         );
                     }
@@ -153,17 +157,95 @@ impl skid_steer::Source for SampleSurface {
     }
 }
 
-struct BltGraph {}
-
-struct CentralBltChunk {
-    upper_neighbors: [Option<u32>; 4],
-    lower_neighbors: [Option<u32>; 4],
+struct BltGraph {
+    chunks: Vec<BltChunk>,
+    root_chunk: u32,
+    layout: BltLayout,
 }
 
-struct OuterBltChunk {
+impl BltGraph {
+    fn new() -> Self {
+        BltGraph {
+            chunks: vec![BltChunk::new_central()],
+            root_chunk: 0,
+            layout: BltLayout::default(),
+        }
+    }
+
+    fn add_outer(&mut self, inner_chunk: u32, index: u8) {
+        let outer_chunk = self.chunks.len() as u32;
+        let inner = &mut self.chunks[inner_chunk as usize];
+        let mut outer = inner.new_outer(&self.layout, index);
+        inner.outer_neighbors[index as usize] = Some(outer_chunk);
+        outer.inner_neighbor = Some(inner_chunk);
+        self.chunks.push(outer);
+    }
+}
+
+struct BltLayout {
+    horizontal_size: u8,
+    central_vertical_size: u8,
+    outer_vertical_size: u8,
+    central_voxel_width: f32,
+    voxel_height: f32,
+}
+
+impl Default for BltLayout {
+    fn default() -> Self {
+        Self {
+            horizontal_size: 12,
+            central_vertical_size: 12,
+            outer_vertical_size: 12,
+            central_voxel_width: 0.7 / 12.0,
+            voxel_height: logf(2.0) / 12.0,
+        }
+    }
+}
+
+struct BltChunk {
     inner_neighbor: Option<u32>,
     inner_neighbor_index: u8,
     outer_neighbors: [Option<u32>; 4],
+    voxel_coords_conversion: na::Matrix3<f32>,
+    boost: f32,
+}
+
+impl BltChunk {
+    fn new_central() -> Self {
+        BltChunk {
+            inner_neighbor: None,
+            inner_neighbor_index: 0,
+            outer_neighbors: [None; 4],
+            voxel_coords_conversion: na::Matrix3::identity(),
+            boost: 0.0,
+        }
+    }
+
+    fn point_from_voxel(&self, voxel: na::Vector3<f32>) -> MPoint<f32> {
+        let horizontal_coords = self.voxel_coords_conversion * voxel.xy().push(1.0);
+        voxel_to_mvector_boosted(
+            na::Vector3::new(
+                horizontal_coords[0] / horizontal_coords[2],
+                horizontal_coords[1] / horizontal_coords[2],
+                voxel.z,
+            ),
+            self.boost,
+        )
+        .to_point_unchecked()
+    }
+
+    fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
+        if index != 0 {
+            unimplemented!();
+        }
+        BltChunk {
+            inner_neighbor: None,
+            inner_neighbor_index: 0,
+            outer_neighbors: [None; 4],
+            voxel_coords_conversion: na::Matrix3::identity(),
+            boost: self.boost + layout.voxel_height * layout.outer_vertical_size as f32,
+        }
+    }
 }
 
 #[cfg(test)]
