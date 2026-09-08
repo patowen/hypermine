@@ -29,12 +29,78 @@ fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32>
     let factor = 1.0 / sqrtf(factor_radicand);
     let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        voxel.x * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)) * factor,
-        voxel.y * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)) * factor,
+        voxel.x * factor * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
+        voxel.y * factor * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
         sinhf(voxel.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
             - scaled_factor_delta * tanhf(boost) * coshf(voxel.z),
         coshf(voxel.z) * (1.0 + scaled_factor_delta)
             + scaled_factor_delta * tanhf(boost) * sinhf(voxel.z),
+    )
+}
+
+fn voxel_to_mvector_boosted_partial_x(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+    // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
+    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let dist_squared_partial_x = voxel.x * 2.0;
+    let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
+    let factor_radicand_partial_x = -dist_squared_partial_x / sqr(coshf(boost));
+    let factor = 1.0 / sqrtf(factor_radicand);
+    let factor_partial_x = -0.5 * factor_radicand_partial_x * factor / factor_radicand;
+    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
+    let scaled_factor_delta_partial_x = (dist_squared_partial_x
+        * (factor_radicand + sqrtf(factor_radicand))
+        - dist_squared
+            * (factor_radicand_partial_x
+                + 0.5 / sqrtf(factor_radicand) * factor_radicand_partial_x))
+        / sqr(factor_radicand + sqrtf(factor_radicand));
+    MVector::new(
+        (factor + voxel.x * factor_partial_x) * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
+        voxel.y * factor_partial_x * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
+        sinhf(voxel.z) * (-scaled_factor_delta_partial_x * sqr(tanhf(boost)))
+            - scaled_factor_delta_partial_x * tanhf(boost) * coshf(voxel.z),
+        coshf(voxel.z) * (scaled_factor_delta_partial_x)
+            + scaled_factor_delta_partial_x * tanhf(boost) * sinhf(voxel.z),
+    )
+}
+
+fn voxel_to_mvector_boosted_partial_y(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+    // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
+    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let dist_squared_partial_y = voxel.y * 2.0;
+    let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
+    let factor_radicand_partial_y = -dist_squared_partial_y / sqr(coshf(boost));
+    let factor = 1.0 / sqrtf(factor_radicand);
+    let factor_partial_y = -0.5 * factor_radicand_partial_y * factor / factor_radicand;
+    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
+    let scaled_factor_delta_partial_y = (dist_squared_partial_y
+        * (factor_radicand + sqrtf(factor_radicand))
+        - dist_squared
+            * (factor_radicand_partial_y
+                + 0.5 / sqrtf(factor_radicand) * factor_radicand_partial_y))
+        / sqr(factor_radicand + sqrtf(factor_radicand));
+    MVector::new(
+        voxel.x * factor_partial_y * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
+        (factor + voxel.y * factor_partial_y) * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
+        sinhf(voxel.z) * (-scaled_factor_delta_partial_y * sqr(tanhf(boost)))
+            - scaled_factor_delta_partial_y * tanhf(boost) * coshf(voxel.z),
+        coshf(voxel.z) * (scaled_factor_delta_partial_y)
+            + scaled_factor_delta_partial_y * tanhf(boost) * sinhf(voxel.z),
+    )
+}
+
+fn voxel_to_mvector_boosted_partial_z(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+    // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
+    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
+    let factor = 1.0 / sqrtf(factor_radicand);
+    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
+    MVector::new(
+        voxel.x * factor * (sinhf(voxel.z) + coshf(voxel.z) * tanhf(boost)),
+        voxel.y * factor * (sinhf(voxel.z) + coshf(voxel.z) * tanhf(boost)),
+        coshf(voxel.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
+            - scaled_factor_delta * tanhf(boost) * sinhf(voxel.z),
+        sinhf(voxel.z) * (1.0 + scaled_factor_delta)
+            + scaled_factor_delta * tanhf(boost) * coshf(voxel.z),
     )
 }
 
@@ -268,5 +334,19 @@ mod tests {
                 ))
         );
         println!("{:?}", voxel_to_mvector_boosted(example, boost));
+
+        println!(
+            "{:?}",
+            (voxel_to_mvector_boosted(example + na::Vector3::z() * 0.001, boost)
+                - voxel_to_mvector_boosted(example + na::Vector3::z() * -0.001, boost))
+                / 0.002
+        );
+        println!(
+            "{:?}",
+            (voxel_to_mvector_boosted(example + na::Vector3::z() * 0.0001, boost)
+                - voxel_to_mvector_boosted(example + na::Vector3::z() * -0.0001, boost))
+                / 0.0002
+        );
+        println!("{:?}", voxel_to_mvector_boosted_partial_z(example, boost));
     }
 }
