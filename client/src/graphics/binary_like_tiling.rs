@@ -283,8 +283,6 @@ impl SampleSurface {
                 .outer_isometry(&graph.layout, index);
             current_chunk = graph.add_outer(current_chunk, index);
             if k == 2 {
-                let new_chunk = graph.chunk(graph.root_chunk).new_debug(&graph.layout);
-                graph.chunks[current_chunk as usize] = new_chunk;
                 current_transform = graph.chunk(graph.root_chunk).debug_isometry(&graph.layout);
             }
         }
