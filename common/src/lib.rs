@@ -23,6 +23,7 @@ mod graph_entities;
 pub mod graph_ray_casting;
 mod margins;
 pub mod math;
+pub mod math_21d;
 pub mod node;
 pub mod peer_traverser;
 pub mod proto;

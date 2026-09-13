@@ -1,4 +1,4 @@
-use common::math::{MPoint, MVector, PermuteXYZ, sqr};
+use common::math::{MIsometry, MPoint, MVector, PermuteXYZ, sqr};
 use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
@@ -22,26 +22,26 @@ fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
 
 /// Computes
 /// `translation_along([0, 0, -boost]) * voxel_to_mvector_simple([x / cosh(boost), y / cosh(boost), boost + z])`
-fn voxel_to_mvector_boosted(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+fn voxel_to_mvector_boosted(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MVector<f32> {
     // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
-    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let dist_squared = sqr(pseudo_chunk.x) + sqr(pseudo_chunk.y);
     let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
     let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        voxel.x * factor * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        voxel.y * factor * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        sinhf(voxel.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
-            - scaled_factor_delta * tanhf(boost) * coshf(voxel.z),
-        coshf(voxel.z) * (1.0 + scaled_factor_delta)
-            + scaled_factor_delta * tanhf(boost) * sinhf(voxel.z),
+        pseudo_chunk.x * factor * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        pseudo_chunk.y * factor * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        sinhf(pseudo_chunk.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
+            - scaled_factor_delta * tanhf(boost) * coshf(pseudo_chunk.z),
+        coshf(pseudo_chunk.z) * (1.0 + scaled_factor_delta)
+            + scaled_factor_delta * tanhf(boost) * sinhf(pseudo_chunk.z),
     )
 }
 
-fn voxel_to_mvector_boosted_partial_x(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+fn voxel_to_mvector_boosted_partial_x(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MVector<f32> {
     // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
-    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
-    let dist_squared_partial_x = voxel.x * 2.0;
+    let dist_squared = sqr(pseudo_chunk.x) + sqr(pseudo_chunk.y);
+    let dist_squared_partial_x = pseudo_chunk.x * 2.0;
     let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
     let factor_radicand_partial_x = -dist_squared_partial_x / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
@@ -54,19 +54,22 @@ fn voxel_to_mvector_boosted_partial_x(voxel: na::Vector3<f32>, boost: f32) -> MV
                 + 0.5 / sqrtf(factor_radicand) * factor_radicand_partial_x))
         / sqr(factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        (factor + voxel.x * factor_partial_x) * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        voxel.y * factor_partial_x * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        sinhf(voxel.z) * (-scaled_factor_delta_partial_x * sqr(tanhf(boost)))
-            - scaled_factor_delta_partial_x * tanhf(boost) * coshf(voxel.z),
-        coshf(voxel.z) * (scaled_factor_delta_partial_x)
-            + scaled_factor_delta_partial_x * tanhf(boost) * sinhf(voxel.z),
+        (factor + pseudo_chunk.x * factor_partial_x)
+            * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        pseudo_chunk.y
+            * factor_partial_x
+            * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        sinhf(pseudo_chunk.z) * (-scaled_factor_delta_partial_x * sqr(tanhf(boost)))
+            - scaled_factor_delta_partial_x * tanhf(boost) * coshf(pseudo_chunk.z),
+        coshf(pseudo_chunk.z) * (scaled_factor_delta_partial_x)
+            + scaled_factor_delta_partial_x * tanhf(boost) * sinhf(pseudo_chunk.z),
     )
 }
 
-fn voxel_to_mvector_boosted_partial_y(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+fn voxel_to_mvector_boosted_partial_y(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MVector<f32> {
     // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
-    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
-    let dist_squared_partial_y = voxel.y * 2.0;
+    let dist_squared = sqr(pseudo_chunk.x) + sqr(pseudo_chunk.y);
+    let dist_squared_partial_y = pseudo_chunk.y * 2.0;
     let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
     let factor_radicand_partial_y = -dist_squared_partial_y / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
@@ -79,28 +82,31 @@ fn voxel_to_mvector_boosted_partial_y(voxel: na::Vector3<f32>, boost: f32) -> MV
                 + 0.5 / sqrtf(factor_radicand) * factor_radicand_partial_y))
         / sqr(factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        voxel.x * factor_partial_y * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        (factor + voxel.y * factor_partial_y) * (coshf(voxel.z) + sinhf(voxel.z) * tanhf(boost)),
-        sinhf(voxel.z) * (-scaled_factor_delta_partial_y * sqr(tanhf(boost)))
-            - scaled_factor_delta_partial_y * tanhf(boost) * coshf(voxel.z),
-        coshf(voxel.z) * (scaled_factor_delta_partial_y)
-            + scaled_factor_delta_partial_y * tanhf(boost) * sinhf(voxel.z),
+        pseudo_chunk.x
+            * factor_partial_y
+            * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        (factor + pseudo_chunk.y * factor_partial_y)
+            * (coshf(pseudo_chunk.z) + sinhf(pseudo_chunk.z) * tanhf(boost)),
+        sinhf(pseudo_chunk.z) * (-scaled_factor_delta_partial_y * sqr(tanhf(boost)))
+            - scaled_factor_delta_partial_y * tanhf(boost) * coshf(pseudo_chunk.z),
+        coshf(pseudo_chunk.z) * (scaled_factor_delta_partial_y)
+            + scaled_factor_delta_partial_y * tanhf(boost) * sinhf(pseudo_chunk.z),
     )
 }
 
-fn voxel_to_mvector_boosted_partial_z(voxel: na::Vector3<f32>, boost: f32) -> MVector<f32> {
+fn voxel_to_mvector_boosted_partial_z(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MVector<f32> {
     // `factor = 1 + scaled_factor_delta/cosh(boost)^2`
-    let dist_squared = sqr(voxel.x) + sqr(voxel.y);
+    let dist_squared = sqr(pseudo_chunk.x) + sqr(pseudo_chunk.y);
     let factor_radicand = 1.0 - dist_squared / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
     let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     MVector::new(
-        voxel.x * factor * (sinhf(voxel.z) + coshf(voxel.z) * tanhf(boost)),
-        voxel.y * factor * (sinhf(voxel.z) + coshf(voxel.z) * tanhf(boost)),
-        coshf(voxel.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
-            - scaled_factor_delta * tanhf(boost) * sinhf(voxel.z),
-        sinhf(voxel.z) * (1.0 + scaled_factor_delta)
-            + scaled_factor_delta * tanhf(boost) * coshf(voxel.z),
+        pseudo_chunk.x * factor * (sinhf(pseudo_chunk.z) + coshf(pseudo_chunk.z) * tanhf(boost)),
+        pseudo_chunk.y * factor * (sinhf(pseudo_chunk.z) + coshf(pseudo_chunk.z) * tanhf(boost)),
+        coshf(pseudo_chunk.z) * (1.0 - scaled_factor_delta * sqr(tanhf(boost)))
+            - scaled_factor_delta * tanhf(boost) * sinhf(pseudo_chunk.z),
+        sinhf(pseudo_chunk.z) * (1.0 + scaled_factor_delta)
+            + scaled_factor_delta * tanhf(boost) * coshf(pseudo_chunk.z),
     )
 }
 
@@ -116,9 +122,10 @@ fn coords_to_mvector(coords: na::Vector3<i32>, width_factor: f32) -> MVector<f32
 }
 
 fn add_quad(
+    chunk: &BltChunk,
+    layout: &BltLayout,
     geometry: &mut MeshGeometryDefinition,
     points: [na::Vector3<i32>; 4],
-    width_factor: f32,
     texture: usize,
 ) {
     let vertices: Vec<_> = points
@@ -127,10 +134,9 @@ fn add_quad(
         .map(|(i, point)| {
             let len = geometry.vertices.len();
             geometry.vertices.push(Vertex {
-                position: common::dodeca::Vertex::A.dual_to_node()
-                    * coords_to_mvector(point, width_factor)
-                        .to_point_unchecked()
-                        .tuv_to_xyz(1),
+                position: common::dodeca::Side::A.reflection()
+                    * common::dodeca::Vertex::A.dual_to_node()
+                    * chunk.point_from_voxel(layout, point.cast()).tuv_to_xyz(1),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
                 normal: common::math::MDirection::x(),
             });
@@ -139,26 +145,34 @@ fn add_quad(
         .collect();
     geometry.indices.extend(&[
         vertices[0],
-        vertices[2],
-        vertices[1],
         vertices[1],
         vertices[2],
+        vertices[1],
         vertices[3],
+        vertices[2],
     ]);
 }
 
-fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>, width_factor: f32) {
+fn add_voxel(
+    chunk: &BltChunk,
+    layout: &BltLayout,
+    geometry: &mut MeshGeometryDefinition,
+    coords: na::Vector3<i32>,
+) {
     for x_axis in 0..3 {
         let t = na::Vector3::x().tuv_to_xyz(x_axis);
         let u = na::Vector3::y().tuv_to_xyz(x_axis);
         let v = na::Vector3::z().tuv_to_xyz(x_axis);
         add_quad(
+            chunk,
+            layout,
             geometry,
             [coords, coords + t, coords + u, coords + t + u],
-            width_factor,
             x_axis,
         );
         add_quad(
+            chunk,
+            layout,
             geometry,
             [
                 coords + v,
@@ -166,7 +180,6 @@ fn add_voxel(geometry: &mut MeshGeometryDefinition, coords: na::Vector3<i32>, wi
                 coords + t + v,
                 coords + t + u + v,
             ],
-            width_factor,
             x_axis,
         );
     }
@@ -178,26 +191,29 @@ pub struct SampleSurface {
 
 impl SampleSurface {
     pub fn new() -> Self {
+        let mut graph = BltGraph::new();
+        let mut current_chunk = graph.root_chunk;
+        let mut current_transform = MIsometry::<f32>::identity();
+
         let mut geometry = MeshGeometryDefinition {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for x in -6..=7 {
-            for y in -6..=7 {
-                for z in 0..10 {
-                    for k in 0..5 {
+        for k in 0..1 {
+            for x in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
+                for y in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
+                    for z in (0..(graph.layout.outer_vertical_size as i32)).step_by(2) {
                         add_voxel(
+                            graph.chunk(current_chunk),
+                            &graph.layout,
                             &mut geometry,
-                            na::Vector3::new(
-                                x * 2 + (2i32.pow(k as u32) - 1) * 15,
-                                y * 2 + (2i32.pow(k as u32) - 1) * 15,
-                                -1 - z * 2 - 20 * k,
-                            ),
-                            powf(0.5, k as f32),
+                            na::Vector3::new(x, y, z),
                         );
                     }
                 }
             }
+            current_transform *= graph.chunk(current_chunk).outer_isometry(&graph.layout, 3);
+            current_chunk = graph.add_outer(current_chunk, 3);
         }
         SampleSurface { geometry }
     }
@@ -238,13 +254,18 @@ impl BltGraph {
         }
     }
 
-    fn add_outer(&mut self, inner_chunk: u32, index: u8) {
+    fn add_outer(&mut self, inner_chunk: u32, index: u8) -> u32 {
         let outer_chunk = self.chunks.len() as u32;
         let inner = &mut self.chunks[inner_chunk as usize];
         let mut outer = inner.new_outer(&self.layout, index);
         inner.outer_neighbors[index as usize] = Some(outer_chunk);
         outer.inner_neighbor = Some(inner_chunk);
         self.chunks.push(outer);
+        outer_chunk
+    }
+
+    fn chunk(&self, chunk: u32) -> &BltChunk {
+        &self.chunks[chunk as usize]
     }
 }
 
@@ -272,6 +293,7 @@ struct BltChunk {
     inner_neighbor: Option<u32>,
     inner_neighbor_index: u8,
     outer_neighbors: [Option<u32>; 4],
+    klein_coords: na::Vector2<f32>,
     voxel_coords_conversion: na::Matrix3<f32>,
     boost: f32,
 }
@@ -282,32 +304,72 @@ impl BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: 0,
             outer_neighbors: [None; 4],
+            klein_coords: na::Vector2::zeros(),
             voxel_coords_conversion: na::Matrix3::identity(),
             boost: 0.0,
         }
     }
 
-    fn point_from_voxel(&self, voxel: na::Vector3<f32>) -> MPoint<f32> {
-        let horizontal_coords = self.voxel_coords_conversion * voxel.xy().push(1.0);
+    fn point_from_voxel(&self, layout: &BltLayout, voxel_coords: na::Vector3<f32>) -> MPoint<f32> {
+        self.point_from_chunk(na::Vector3::new(
+            voxel_coords[0] * layout.central_voxel_width,
+            voxel_coords[1] * layout.central_voxel_width,
+            voxel_coords[2] * layout.voxel_height,
+        ))
+    }
+
+    fn point_from_chunk(&self, chunk_coords: na::Vector3<f32>) -> MPoint<f32> {
+        let horizontal_coords = self.voxel_coords_conversion * chunk_coords.xy().push(1.0);
         voxel_to_mvector_boosted(
             na::Vector3::new(
                 horizontal_coords[0] / horizontal_coords[2],
                 horizontal_coords[1] / horizontal_coords[2],
-                voxel.z,
+                chunk_coords.z,
             ),
             self.boost,
         )
         .to_point_unchecked()
     }
 
+    fn outer_isometry(&self, layout: &BltLayout, index: u8) -> MIsometry<f32> {
+        let scale = layout.central_voxel_width * layout.horizontal_size as f32 * 0.5;
+        let voxel_pos = na::Vector3::new(
+            scale * (index & 1) as f32,
+            scale * (index >> 1) as f32,
+            layout.voxel_height * layout.outer_vertical_size as f32,
+        );
+        self.isometry_from_chunk(voxel_pos)
+    }
+
+    fn isometry_from_chunk(&self, voxel: na::Vector3<f32>) -> MIsometry<f32> {
+        let horizontal_coords = self.voxel_coords_conversion * voxel.xy().push(1.0);
+        let adjusted_voxel = na::Vector3::new(
+            horizontal_coords[0] / horizontal_coords[2],
+            horizontal_coords[1] / horizontal_coords[2],
+            voxel.z,
+        );
+        let w = voxel_to_mvector_boosted(adjusted_voxel, self.boost).to_point_unchecked();
+        let x =
+            voxel_to_mvector_boosted_partial_x(adjusted_voxel, self.boost).normalized_direction();
+        let z =
+            voxel_to_mvector_boosted_partial_z(adjusted_voxel, self.boost).to_direction_unchecked();
+        // TODO: There might be a better way to get `y`, especially since voxel_to_mvector_boosted_partial_y will be
+        // in the wrong direction.
+        let mut y = voxel_to_mvector_boosted_partial_y(adjusted_voxel, self.boost);
+        y -= MVector::from(x) * y.mip(&x);
+        let y = y.normalized_direction();
+        let result = MIsometry::from_columns_unchecked(&[x, y, z], w);
+        println!("{:?}", result.inverse() * result);
+        result
+    }
+
     fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
-        if index != 0 {
-            unimplemented!();
-        }
+        // TODO: Other indexes
         BltChunk {
             inner_neighbor: None,
-            inner_neighbor_index: 0,
+            inner_neighbor_index: index,
             outer_neighbors: [None; 4],
+            klein_coords: na::Vector2::zeros(),
             voxel_coords_conversion: na::Matrix3::identity(),
             boost: self.boost + layout.voxel_height * layout.outer_vertical_size as f32,
         }
@@ -348,5 +410,6 @@ mod tests {
                 / 0.0002
         );
         println!("{:?}", voxel_to_mvector_boosted_partial_z(example, boost));
+        BltChunk::new_central().isometry_from_chunk(example);
     }
 }

@@ -1,0 +1,1222 @@
+//! This module defines the a vector and matrix type for use in Minkowski space,
+//! allowing natural operations to be performed in hyperbolic space. To better
+//! understand the math involved, it is recommended to read "Visualizing
+//! Hyperbolic Space: Unusual Uses of 4x4 Matrices." Phillips, Gunn.
+//!
+//! This module also defines a few other free helper functions that do not
+//! directly relate to hyperbolic space.
+
+use na::{RealField, Scalar};
+use serde::{Deserialize, Serialize};
+use simba::scalar::SupersetOf;
+
+/// A stack-allocated 4-dimensional column-vector in Minkowski space. Such
+/// vectors are useful for computations in the hyperboloid model of hyperbolic
+/// space. Note that the last coordinate, not the first coordinate, is treated
+/// as the special "time" coordinate.
+///
+/// This vector type is versatile, being able to represent multiple things in
+/// Hyperbolic space. What it can represent is generally determined by the
+/// Minkowski inner product between the vector and itself.
+/// - If it's negative, it represents a point in hyperbolic space. The origin is
+///   represented with the unit w-vector.
+/// - If it's zero, it represents an _ideal_ point in hyperbolic space. Such a
+///   point can be associated with horospheres
+/// - If it's positive, it represents an _ultraideal_ point in hyperbolic space.
+///   Such points can be treated as oriented planes.
+///
+/// If the absolute value of this Minkowski inner product is 1, it is
+/// normalized, and equations involving such a vector tend to be simpler, much
+/// like with unit vectors. Two types, `MPoint21` and `MDirection21`, are available
+/// to facilitate the use of such vectors (for Minkowski inner product -1 and 1,
+/// respectively).
+///
+/// Note that the simplest way to represent directions/velocities/normals at a
+/// point in hyperbolic space is with a vector whose Minkowski inner product
+/// with that point is 0. Such a vector will be tangent to the hyperboloid model
+/// at that associated point, so it can naturally represent movement along the
+/// hyperboloid in that direction.
+///
+/// As a general rule, when working with such vectors, it is highly recommended
+/// to avoid dot products and related operations such as vector magnitude, as
+/// these operations are meaningless in Minkowski space and are not preserved by
+/// isometries.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[repr(transparent)]
+pub struct MVector21<N: Scalar>(na::Vector3<N>);
+
+impl<N: RealField + Copy> MVector21<N> {
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself is -1. It should be called on vectors with a negative
+    /// self-mip, generally representing points.
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// points far from the origin, so it is recommended to avoid this function
+    /// for such vectors.
+    pub fn normalized_point(&self) -> MPoint21<N> {
+        let scale_factor_squared = -self.mip(self);
+        if scale_factor_squared <= na::zero() {
+            debug_assert!(
+                false,
+                "Tried to normalize a non-point-like vector as a point."
+            );
+            return MPoint21::origin();
+        }
+        let scale_factor = scale_factor_squared.sqrt();
+        MPoint21(*self / scale_factor)
+    }
+
+    pub fn to_point_unchecked(&self) -> MPoint21<N> {
+        MPoint21(*self)
+    }
+
+    /// Normalizes the vector so that the Minkowski inner product between the
+    /// vector and itself is 1. It should be called on vectors with a positive
+    /// self-mip, generally representing directions.
+    ///
+    /// Note that this function is numerically unstable for vectors representing
+    /// directions from points far from the origin, so it is recommended to
+    /// avoid this function for such vectors.
+    pub fn normalized_direction(&self) -> MDirection21<N> {
+        let scale_factor_squared = self.mip(self);
+        if scale_factor_squared <= na::zero() {
+            debug_assert!(
+                false,
+                "Tried to normalize a non-direction-like vector as a direction."
+            );
+            return MDirection21::x();
+        }
+        let scale_factor = scale_factor_squared.sqrt();
+        MDirection21(*self / scale_factor)
+    }
+
+    pub fn to_direction_unchecked(&self) -> MDirection21<N> {
+        MDirection21(*self)
+    }
+
+    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
+    /// product, but the product of the w-components is negated. This is the
+    /// main operation that distinguishes Minkowski space from Euclidean
+    /// 4-space.
+    pub fn mip(&self, other: &impl AsRef<MVector21<N>>) -> N {
+        let other = other.as_ref();
+        self.x * other.x + self.y * other.y - self.z * other.z
+    }
+
+    /// The Minkowski-space equivalent of the outer product of two vectors. This
+    /// produces a rank-one matrix that is a useful intermediate result when
+    /// computing other matrices, such as reflection or translation matrices.
+    fn minkowski_outer_product(self, other: &Self) -> na::Matrix3<N> {
+        self.0 * na::RowVector3::new(other.x, other.y, -other.z)
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MVector21<N2> {
+        MVector21(self.0.cast())
+    }
+
+    /// The column vector with components `[0, 0, 0]`.
+    #[inline]
+    pub fn zero() -> Self {
+        Self(na::zero())
+    }
+
+    /// The vector representing the origin in hyperbolic space. Alias for `MVector21::z()`.
+    #[inline]
+    pub fn origin() -> Self {
+        Self::z()
+    }
+
+    /// The column vector with components `[1, 0, 0]`.
+    #[inline]
+    pub fn x() -> Self {
+        Self(na::Vector3::x())
+    }
+
+    /// The column vector with components `[0, 1, 0]`.
+    #[inline]
+    pub fn y() -> Self {
+        Self(na::Vector3::y())
+    }
+
+    /// The column vector with components `[0, 0, 1]`.
+    #[inline]
+    pub fn z() -> Self {
+        Self(na::Vector3::z())
+    }
+
+    /// Creates an `MVector21` with the given components.
+    #[inline]
+    pub fn new(x: N, y: N, z: N) -> Self {
+        MVector21(na::Vector3::new(x, y, z))
+    }
+
+    /// The first two coordinates of the vector. When working with an
+    /// `MVector21` representing a velocity/direction from the origin, the
+    /// w-coordinate should always be 0, so using this function to extract a 3D
+    /// vector can help make that assumption more explicit.
+    #[inline]
+    pub fn xy(self) -> na::Vector2<N> {
+        self.0.xy()
+    }
+}
+
+impl<N: Scalar> std::ops::Index<usize> for MVector21<N> {
+    type Output = N;
+    #[inline]
+    fn index(&self, i: usize) -> &Self::Output {
+        &self.0[i]
+    }
+}
+
+impl<N: Scalar> std::ops::IndexMut<usize> for MVector21<N> {
+    #[inline]
+    fn index_mut(&mut self, i: usize) -> &mut Self::Output {
+        &mut self.0[i]
+    }
+}
+
+impl<N: Scalar> From<na::Vector3<N>> for MVector21<N> {
+    /// Reinterprets the input as a vector in Minkowski space.
+    fn from(value: na::Vector3<N>) -> Self {
+        Self(value)
+    }
+}
+
+impl<N: Scalar> From<MVector21<N>> for na::Vector3<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 3-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit disk).
+    fn from(value: MVector21<N>) -> na::Vector3<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> std::ops::Deref for MVector21<N> {
+    type Target = na::coordinates::XYZ<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: Scalar> std::ops::DerefMut for MVector21<N> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
+    }
+}
+
+impl<N: Scalar> AsRef<MVector21<N>> for MVector21<N> {
+    #[inline]
+    fn as_ref(&self) -> &MVector21<N> {
+        self
+    }
+}
+
+impl<N: RealField> std::ops::Add<MVector21<N>> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn add(self, other: MVector21<N>) -> Self::Output {
+        MVector21(self.0 + other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Add<&MVector21<N>> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn add(self, other: &MVector21<N>) -> Self::Output {
+        MVector21(self.0 + &other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Add<MVector21<N>> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn add(self, other: MVector21<N>) -> Self::Output {
+        MVector21(&self.0 + other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Add<&MVector21<N>> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn add(self, other: &MVector21<N>) -> Self::Output {
+        MVector21(&self.0 + &other.0)
+    }
+}
+
+impl<N: RealField> std::ops::AddAssign<MVector21<N>> for MVector21<N> {
+    #[inline]
+    fn add_assign(&mut self, other: MVector21<N>) {
+        self.0 += other.0;
+    }
+}
+
+impl<N: RealField> std::ops::AddAssign<&MVector21<N>> for MVector21<N> {
+    #[inline]
+    fn add_assign(&mut self, other: &MVector21<N>) {
+        self.0 += &other.0;
+    }
+}
+
+impl<N: RealField> std::ops::Sub<MVector21<N>> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn sub(self, other: MVector21<N>) -> Self::Output {
+        MVector21(self.0 - other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Sub<&MVector21<N>> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn sub(self, other: &MVector21<N>) -> Self::Output {
+        MVector21(self.0 - &other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Sub<MVector21<N>> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn sub(self, other: MVector21<N>) -> Self::Output {
+        MVector21(&self.0 - other.0)
+    }
+}
+
+impl<N: RealField> std::ops::Sub<&MVector21<N>> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn sub(self, other: &MVector21<N>) -> Self::Output {
+        MVector21(&self.0 - &other.0)
+    }
+}
+
+impl<N: RealField> std::ops::SubAssign<MVector21<N>> for MVector21<N> {
+    #[inline]
+    fn sub_assign(&mut self, other: MVector21<N>) {
+        self.0 -= other.0;
+    }
+}
+
+impl<N: RealField> std::ops::SubAssign<&MVector21<N>> for MVector21<N> {
+    #[inline]
+    fn sub_assign(&mut self, other: &MVector21<N>) {
+        self.0 -= &other.0;
+    }
+}
+
+impl<N: RealField> std::ops::Neg for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn neg(self) -> Self::Output {
+        MVector21(-self.0)
+    }
+}
+
+impl<N: RealField> std::ops::Neg for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn neg(self) -> Self::Output {
+        MVector21(-&self.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<N> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: N) -> Self::Output {
+        MVector21(self.0 * rhs)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<N> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: N) -> Self::Output {
+        MVector21(&self.0 * rhs)
+    }
+}
+
+impl<N: RealField> std::ops::MulAssign<N> for MVector21<N> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: N) {
+        self.0 *= rhs;
+    }
+}
+
+impl<N: RealField> std::ops::Div<N> for MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn div(self, rhs: N) -> Self::Output {
+        MVector21(self.0 / rhs)
+    }
+}
+
+impl<N: RealField> std::ops::Div<N> for &MVector21<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn div(self, rhs: N) -> Self::Output {
+        MVector21(&self.0 / rhs)
+    }
+}
+
+impl<N: RealField> std::ops::DivAssign<N> for MVector21<N> {
+    #[inline]
+    fn div_assign(&mut self, rhs: N) {
+        self.0 /= rhs;
+    }
+}
+
+/// An `MVector21` with the constraint that the Minkowski inner product between
+/// the vector and itself is -1. Such a vector can be used to represent a point
+/// in hyperbolic space.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[repr(transparent)]
+pub struct MPoint21<N: Scalar>(MVector21<N>);
+
+impl<N: RealField + Copy> MPoint21<N> {
+    /// Returns the midpoint between this vector and the given vector.
+    pub fn midpoint(&self, other: &Self) -> MPoint21<N> {
+        // The midpoint in the hyperboloid model is simply the midpoint in the
+        // underlying Euclidean 4-space normalized to land on the hyperboloid.
+        (self.as_ref() + other.as_ref()).normalized_point()
+    }
+
+    /// Returns the distance between the this vector and the given vector.
+    pub fn distance(&self, other: &Self) -> N {
+        // The absolute value of the mip between two normalized point-like is
+        // the cosh of their distance in hyperbolic space. This is analogous to
+        // the fact that the dot product between two unit vectors is the cos of
+        // their angle (or distance in spherical geometry).
+        (-self.mip(other)).acosh()
+    }
+
+    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
+    /// product, but the product of the w-components is negated. This is the
+    /// main operation that distinguishes Minkowski space from Euclidean
+    /// 4-space.
+    #[inline]
+    pub fn mip(&self, other: &impl AsRef<MVector21<N>>) -> N {
+        self.as_ref().mip(other)
+    }
+
+    /// The vector representing the origin in hyperbolic space. Alias for `MVector21::w()`.
+    #[inline]
+    pub fn origin() -> Self {
+        Self::z()
+    }
+
+    /// The column vector with components `[0, 0, 1]`.
+    #[inline]
+    pub fn z() -> Self {
+        Self(MVector21::z())
+    }
+
+    /// Creates an `MPoint21` with the given components. It is the caller's
+    /// responsibility to ensure that the `MPoint21` invariant holds.
+    #[inline]
+    pub fn new_unchecked(x: N, y: N, z: N) -> Self {
+        Self(MVector21::new(x, y, z))
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MPoint21<N2> {
+        MPoint21(self.0.cast())
+    }
+}
+
+impl<N: Scalar> From<MPoint21<N>> for MVector21<N> {
+    /// Removes the constraint that makes the argument an `MPoint21`
+    fn from(value: MPoint21<N>) -> MVector21<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> From<MPoint21<N>> for na::Vector3<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
+    fn from(value: MPoint21<N>) -> na::Vector3<N> {
+        value.0.0
+    }
+}
+
+impl<N: Scalar> std::ops::Deref for MPoint21<N> {
+    type Target = na::coordinates::XYZ<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: Scalar> AsRef<MVector21<N>> for MPoint21<N> {
+    /// Unwraps the `MPoint21` into its underlying `MVector21`
+    #[inline]
+    fn as_ref(&self) -> &MVector21<N> {
+        &self.0
+    }
+}
+
+/// An `MVector21` with the constraint that the Minkowski inner product between
+/// the vector and itself is 1. Such a vector can be used to represent a
+/// direction in hyperbolic space.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[repr(transparent)]
+pub struct MDirection21<N: Scalar>(MVector21<N>);
+
+impl<N: RealField + Copy> MDirection21<N> {
+    /// The column vector with components `[1, 0, 0, 0]`.
+    #[inline]
+    pub fn x() -> Self {
+        Self(MVector21::x())
+    }
+
+    /// The column vector with components `[0, 1, 0, 0]`.
+    #[inline]
+    pub fn y() -> Self {
+        Self(MVector21::y())
+    }
+
+    /// The column vector with components `[0, 0, 1, 0]`.
+    #[inline]
+    pub fn z() -> Self {
+        Self(MVector21::z())
+    }
+
+    /// Minkowski inner product, aka `<a, b>_h`. This is much like the dot
+    /// product, but the product of the w-components is negated. This is the
+    /// main operation that distinguishes Minkowski space from Euclidean
+    /// 4-space.
+    #[inline]
+    pub fn mip(&self, other: &impl AsRef<MVector21<N>>) -> N {
+        self.as_ref().mip(other)
+    }
+
+    /// Creates an `MDirection21 with the given components. It is the caller's
+    /// responsibility to ensure that the `MDirection21` invariant holds.
+    #[inline]
+    pub fn new_unchecked(x: N, y: N, z: N) -> Self {
+        Self(MVector21::new(x, y, z))
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MDirection21<N2> {
+        MDirection21(self.0.cast())
+    }
+}
+
+impl<N: Scalar> From<MDirection21<N>> for na::Vector3<N> {
+    /// Unwraps the underlying vector. This effectively reinterprets the vector
+    /// as a vector in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a point within the 3D Beltrami-Klein model (as long as it's
+    /// inside the unit ball).
+    fn from(value: MDirection21<N>) -> na::Vector3<N> {
+        value.0.0
+    }
+}
+
+impl<N: Scalar> From<MDirection21<N>> for MVector21<N> {
+    /// Removes the constraint that makes the argument an `MDirection21`
+    fn from(value: MDirection21<N>) -> MVector21<N> {
+        value.0
+    }
+}
+
+impl<N: RealField + Copy> From<na::UnitVector2<N>> for MDirection21<N> {
+    /// Reinterprets the input as a vector in Minkowski space.
+    fn from(value: na::UnitVector2<N>) -> Self {
+        MDirection21(MVector21(value.to_homogeneous()))
+    }
+}
+
+impl<N: Scalar> std::ops::Deref for MDirection21<N> {
+    type Target = na::coordinates::XYZ<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: Scalar> AsRef<MVector21<N>> for MDirection21<N> {
+    /// Unwraps the `MPoint21` into its underlying `MVector21`
+    #[inline]
+    fn as_ref(&self) -> &MVector21<N> {
+        &self.0
+    }
+}
+
+impl<N: RealField> std::ops::Neg for MDirection21<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn neg(self) -> Self::Output {
+        MDirection21(-self.0)
+    }
+}
+
+impl<N: RealField> std::ops::Neg for &MDirection21<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn neg(self) -> Self::Output {
+        MDirection21(-&self.0)
+    }
+}
+
+/// A stack-allocated, column-major, 4x4 square matrix in Minkowski space that
+/// preserves the Minkowski inner product. Such matrices are useful for
+/// computations in the hyperboloid model of hyperbolic space. Note that the
+/// last coordinate, not the first coordinate, is treated as the special "time"
+/// coordinate.
+///
+/// To ensure that this matrix indeed represents an isometry in Minkowski space,
+/// a few invariants are preserved:
+/// - The Minkowski inner product between any two distinct columns is 0.
+/// - The Minkowski inner product of a column with itself is 1 for the first
+///   three columns, and -1 for the last column.
+#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[repr(transparent)]
+pub struct MIsometry<N: Scalar>(na::Matrix3<N>);
+
+impl<N: RealField + Copy> MIsometry<N> {
+    /// Returns a view containing the i-th row of this matrix.
+    #[inline]
+    pub fn row(&self, i: usize) -> na::MatrixView1x3<'_, N, na::U1, na::U3> {
+        self.0.row(i)
+    }
+
+    /// Creates an identity matrix.
+    #[inline]
+    pub fn identity() -> Self {
+        Self(na::Matrix3::identity())
+    }
+
+    /// The reflection about the hyperbolic plane represented by the given
+    /// vector.
+    pub fn reflection(normal: &MDirection21<N>) -> Self {
+        // The formula below is the equivalent of the formula for the
+        // Householder matrix, but the minkowski outer product instead of the
+        // standard outer product to ensure that the reflection is done in
+        // Minkowski space. The resulting formula is
+        // `I - 2vv*`
+        Self(
+            na::Matrix3::<N>::identity()
+                - normal.as_ref().minkowski_outer_product(normal.as_ref())
+                    * na::convert::<_, N>(2.0),
+        )
+    }
+
+    /// The matrix that translates `a` to `b`.
+    pub fn translation(a: &MPoint21<N>, b: &MPoint21<N>) -> MIsometry<N> {
+        // A translation in hyperbolic space can be split into two
+        // point-reflections (reflections about a point, where the midpoint of
+        // the start and end points is that point)
+        // - A reflection about the point `a`
+        // - A reflection about the midpoint between `a` and `b`
+        // One can convince oneself of this by seeing where `a` goes and noting
+        // that no points will leave the line between `a` and `b`.
+
+        // The following notes below will use "*" as the adjoint operator,
+        // working in Minkowski space. All multiplication will be implied
+        // multiplication to avoid ambiguity with this operator. The matrix for
+        // a point-reflection can be derived in a similar manner to a
+        // Householder matrix and ends up being the same with a negated term:
+        // `-I - 2vv*`
+        // The midpoint of `a` and `b` is `a+b` normalized:
+        // `(a+b) / sqrt(-(a+b)*(a+b))`
+        // which simplifies to
+        // `(a+b) / sqrt(-(a*a + a*b + b*a + b*b))`
+        // `(a+b) / sqrt(-(a*a + 2a*b + b*b))`
+        // `(a+b) / sqrt(-(-1 + 2a*b + -1))`
+        // `(a+b) / sqrt(2-2a*b)`
+
+        // Therefore, the derivation of the translation formula is as follows:
+        // `reflect_about((a+b) / -(a*b)) * reflect_about(a)`
+        // `(-I - 2((a+b) / sqrt(2-2a*b))((a+b) / sqrt(2-2a*b))*) (-I - 2aa*)`
+        // `(-I - 2(a+b)(a+b)*/(2-2a*b)) (-I - 2aa*)`
+        // `(-I - (a+b)(a+b)*/(1-a*b)) (-I - 2aa*)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2aa* + 2(a+b)(a+b)*aa*/(1-a*b)`
+        // Using `(1-a*b) = (-a*a-a*b) = -a*(a+b) = -(a+b)*a`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2aa* - 2(a+b)((a+b)*a)a*/((a+b)*a)`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2aa* - 2(a+b)a*`
+        // `I + (a+b)(a+b)*/(1-a*b) + 2aa* - 2aa* - 2ba*`
+        // `I - 2ba* + (a+b)(a+b)*/(1-a*b)`
+        let a_plus_b = a.as_ref() + b.as_ref();
+        Self(
+            na::Matrix3::<N>::identity()
+                - b.as_ref().minkowski_outer_product(a.as_ref()) * na::convert::<_, N>(2.0)
+                + a_plus_b.minkowski_outer_product(&a_plus_b) / (N::one() - a.mip(b)),
+        )
+    }
+
+    /// The matrix that translates the origin in the direction of the given
+    /// vector with distance equal to its magnitude
+    pub fn translation_along(v: &na::Vector2<N>) -> MIsometry<N> {
+        // Translating x units along the x-axis takes the origin to `[sinh(x), 0, 0, cosh(x)]`.
+        // This is analogous to a rotation of `[0, 0, 1, 1]` along the xw-plane being `[sin(theta), 0, 0, cos(theta)]`.
+
+        // To find a general translation given this principle, we know that the
+        // origin moves to a location fitting the following constraints:
+        // - The first three coordinates must be in the same direction as `v`
+        // - The magnitude of the vector representing the first three coordinates is `sinh(||v||)`
+        // - The fourth component is `cosh(||v||)`
+
+        // Once we know where the origin goes, we use the `MIsometry::translation` function.
+        let norm = v.norm();
+        if norm == na::zero() {
+            return MIsometry::identity();
+        }
+        // `sinhc(x)` simply means `sinh(x)/x` but defined when `x` is 0. Using sinhc combines
+        // the normalization of `v` with its multiplication by `sinh(||v||)`.
+        MIsometry::translation(
+            &MPoint21::origin(),
+            &MPoint21(MVector21((v * norm.sinhc()).insert_row(2, norm.cosh()))),
+        )
+    }
+
+    /// Creates an `MIsometry` with the given columns. It is the caller's
+    /// responsibility to ensure that the resulting matrix is a valid isometry
+    /// by ensuring that columns are mutually orthogonal.
+    #[inline]
+    pub fn from_columns_unchecked(
+        direction_columns: &[MDirection21<N>; 2],
+        point_column: MPoint21<N>,
+    ) -> Self {
+        Self(na::Matrix3::from_columns(&[
+            direction_columns[0].0.0,
+            direction_columns[1].0.0,
+            point_column.0.0,
+        ]))
+    }
+
+    /// Creates an `MIsometry` with its elements filled with the components
+    /// provided by a slice in column-major order. It is the caller's
+    /// responsibility to ensure that the resulting matrix is a valid isometry.
+    #[inline]
+    pub fn from_column_slice_unchecked(data: &[N]) -> Self {
+        Self(na::Matrix3::from_column_slice(data))
+    }
+
+    /// Inverts the matrix. Note that this is an efficient operation because the
+    /// matrix is an isometry in Minkowski space. The operation actually
+    /// performed resembles a matrix transpose, but with some terms negated.
+    ///
+    /// Mathematically, this operation performed is the Hermitian adjoint, where
+    /// the inner product used is the Minkowski inner product.
+    #[rustfmt::skip]
+    pub fn inverse(&self) -> Self {
+        MIsometry(
+            na::Matrix3::new(
+                self.0.m11,  self.0.m21,  -self.0.m31,
+                self.0.m12,  self.0.m22,  -self.0.m32,
+                -self.0.m13, -self.0.m23,  self.0.m33,
+            )
+        )
+    }
+
+    /// Whether an isometry reverses winding with respect to the norm
+    pub fn parity(&self) -> bool {
+        self.0.fixed_view::<3, 3>(0, 0).determinant() < na::zero::<N>()
+    }
+
+    /// Corrects for any drift that may have occurred in the matrix entries due
+    /// to rounding that would violate the isometry constraints of the matrix.
+    /// If many operations are performed on a single matrix, it is represented
+    /// to call this function to correct for this drift.
+    ///
+    /// Note that this function is numerically unstable for transformations that
+    /// have a large translation component, so it is recommended to avoid this
+    /// function for such matrices.
+    pub fn renormalized(&self) -> MIsometry<N> {
+        // There are multiple ways this matrix can be renormalized. This
+        // approach splits the translation and orientation components of the
+        // hyperbolic isometry, renormalized them both, and recombines them.
+
+        // Since the last column of the matrix is where the origin gets
+        // translated, we extract the normalized translation component by
+        // recreating a hyperbolic translation matrix using that column.
+        let normalized_translation_component = MIsometry::translation(
+            &MPoint21::origin(),
+            &MVector21(self.0.column(3).into()).normalized_point(),
+        );
+
+        // Once we have the translation component, we use that component's
+        // inverse to remove the translation from the original matrix to extract
+        // the orientation component.
+        let orientation_component = normalized_translation_component.inverse() * self;
+
+        // Then, we use the QR decomposition to convert the orientation
+        // component into an orthogonal matrix, which renormalizes it.
+        let normalized_orientation_component = MIsometry(
+            na::QR::new(
+                (orientation_component.0)
+                    .fixed_view::<2, 2>(0, 0)
+                    .clone_owned(),
+            )
+            .q()
+            .to_homogeneous(),
+        );
+
+        // Finally, we recombine the newly-renormalized translation and
+        // orientation components.
+        normalized_translation_component * normalized_orientation_component
+    }
+
+    /// Cast the components of `self` to another type.
+    #[inline]
+    pub fn cast<N2: RealField + Copy + SupersetOf<N>>(self) -> MIsometry<N2> {
+        MIsometry(self.0.cast())
+    }
+}
+
+impl<N: Scalar> std::ops::Index<(usize, usize)> for MIsometry<N> {
+    type Output = N;
+    #[inline]
+    fn index(&self, ij: (usize, usize)) -> &Self::Output {
+        &self.0[ij]
+    }
+}
+
+impl<N: RealField + Copy> From<na::Rotation2<N>> for MIsometry<N> {
+    /// Converts a rotation into the matrix representing that rotation.
+    fn from(value: na::Rotation2<N>) -> Self {
+        MIsometry(value.to_homogeneous())
+    }
+}
+
+impl<N: Scalar> From<MIsometry<N>> for na::Matrix3<N> {
+    /// Unwraps the underlying matrix. This effectively reinterprets the matrix
+    /// as a matrix in Euclidean 4-space, or, if interpreted as homogeneous
+    /// coordinates, a transformation within the 3D Beltrami-Klein model.
+    fn from(value: MIsometry<N>) -> na::Matrix3<N> {
+        value.0
+    }
+}
+
+impl<N: Scalar> std::ops::Deref for MIsometry<N> {
+    type Target = na::coordinates::M3x3<N>;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<N: RealField> AsRef<[[N; 3]; 3]> for MIsometry<N> {
+    #[inline]
+    fn as_ref(&self) -> &[[N; 3]; 3] {
+        self.0.as_ref()
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MIsometry<N>> for MIsometry<N> {
+    type Output = MIsometry<N>;
+    #[inline]
+    fn mul(self, rhs: MIsometry<N>) -> Self::Output {
+        MIsometry(self.0 * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MIsometry<N>> for MIsometry<N> {
+    type Output = MIsometry<N>;
+    #[inline]
+    fn mul(self, rhs: &MIsometry<N>) -> Self::Output {
+        MIsometry(self.0 * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MIsometry<N>> for &MIsometry<N> {
+    type Output = MIsometry<N>;
+    #[inline]
+    fn mul(self, rhs: MIsometry<N>) -> Self::Output {
+        MIsometry(&self.0 * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MIsometry<N>> for &MIsometry<N> {
+    type Output = MIsometry<N>;
+    #[inline]
+    fn mul(self, rhs: &MIsometry<N>) -> Self::Output {
+        MIsometry(&self.0 * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::MulAssign<MIsometry<N>> for MIsometry<N> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: MIsometry<N>) {
+        self.0 *= rhs.0;
+    }
+}
+
+impl<N: RealField> std::ops::MulAssign<&MIsometry<N>> for MIsometry<N> {
+    #[inline]
+    fn mul_assign(&mut self, rhs: &MIsometry<N>) {
+        self.0 *= &rhs.0;
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MVector21<N>> for MIsometry<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: MVector21<N>) -> Self::Output {
+        MVector21(self.0 * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MVector21<N>> for MIsometry<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: &MVector21<N>) -> Self::Output {
+        MVector21(self.0 * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MVector21<N>> for &MIsometry<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: MVector21<N>) -> Self::Output {
+        MVector21(&self.0 * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MVector21<N>> for &MIsometry<N> {
+    type Output = MVector21<N>;
+    #[inline]
+    fn mul(self, rhs: &MVector21<N>) -> Self::Output {
+        MVector21(&self.0 * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MPoint21<N>> for MIsometry<N> {
+    type Output = MPoint21<N>;
+    #[inline]
+    fn mul(self, rhs: MPoint21<N>) -> Self::Output {
+        MPoint21(self * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MPoint21<N>> for MIsometry<N> {
+    type Output = MPoint21<N>;
+    #[inline]
+    fn mul(self, rhs: &MPoint21<N>) -> Self::Output {
+        MPoint21(self * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MPoint21<N>> for &MIsometry<N> {
+    type Output = MPoint21<N>;
+    #[inline]
+    fn mul(self, rhs: MPoint21<N>) -> Self::Output {
+        MPoint21(self * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MPoint21<N>> for &MIsometry<N> {
+    type Output = MPoint21<N>;
+    #[inline]
+    fn mul(self, rhs: &MPoint21<N>) -> Self::Output {
+        MPoint21(self * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MDirection21<N>> for MIsometry<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn mul(self, rhs: MDirection21<N>) -> Self::Output {
+        MDirection21(self * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MDirection21<N>> for MIsometry<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn mul(self, rhs: &MDirection21<N>) -> Self::Output {
+        MDirection21(self * &rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<MDirection21<N>> for &MIsometry<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn mul(self, rhs: MDirection21<N>) -> Self::Output {
+        MDirection21(self * rhs.0)
+    }
+}
+
+impl<N: RealField> std::ops::Mul<&MDirection21<N>> for &MIsometry<N> {
+    type Output = MDirection21<N>;
+    #[inline]
+    fn mul(self, rhs: &MDirection21<N>) -> Self::Output {
+        MDirection21(self * &rhs.0)
+    }
+}
+
+/// Multiplies the argument by itself.
+#[inline]
+pub fn sqr<N: RealField + Copy>(x: N) -> N {
+    x * x
+}
+
+/// Updates `subject` by moving it along the line determined by `projection_direction` so that
+/// its dot product with `normal` is `distance`. This effectively projects vectors onto the plane
+/// `distance` units away from the origin with normal `normal`. The projection is non-orthogonal in
+/// general, only orthogonal when `normal` is equal to `projection_direction`.
+///
+/// Precondition: For this to be possible, `projection_direction` cannot be orthogonal to `normal`.
+pub fn project_to_plane<N: RealField + Copy>(
+    subject: &mut na::Vector3<N>,
+    normal: &na::UnitVector3<N>,
+    projection_direction: &na::UnitVector3<N>,
+    distance: N,
+) {
+    *subject += projection_direction.as_ref()
+        * ((distance - subject.dot(normal)) / projection_direction.dot(normal));
+}
+
+/// Returns the UnitQuaternion that rotates the `from` vector to the `to` vector, or `None` if
+/// `from` and `to` face opposite directions such that their sum has norm less than `epsilon`.
+/// This version is more numerically stable than nalgebra's equivalent function.
+pub fn rotation_between_axis<N: RealField + Copy>(
+    from: &na::UnitVector3<N>,
+    to: &na::UnitVector3<N>,
+    epsilon: N,
+) -> Option<na::UnitQuaternion<N>> {
+    let angle_bisector = na::UnitVector3::try_new(from.into_inner() + to.into_inner(), epsilon)?;
+    Some(na::UnitQuaternion::new_unchecked(
+        na::Quaternion::from_parts(from.dot(&angle_bisector), from.cross(&angle_bisector)),
+    ))
+}
+
+pub trait PermuteXYZ {
+    /// Converts from t-u-v coordinates to x-y-z coordinates. t-u-v coordinates
+    /// are a permuted version of x-y-z coordinates. `t_axis` determines which
+    /// of the three x-y-z coordinates corresponds to the t-coordinate. This
+    /// function works with any indexable entity with at least three entries.
+    /// Any entry after the third entry is ignored. As an extra guarantee, this
+    /// function only performs even permutations.
+    ///
+    /// Examples:
+    /// ```
+    /// # use common::math::PermuteXYZ;
+    /// assert_eq!([2, 4, 6].tuv_to_xyz(0), [2, 4, 6]);
+    /// assert_eq!([2, 4, 6].tuv_to_xyz(1), [6, 2, 4]);
+    /// assert_eq!([2, 4, 6].tuv_to_xyz(2), [4, 6, 2]);
+    /// assert_eq!([2, 4, 6, 8].tuv_to_xyz(1), [6, 2, 4, 8]);
+    /// ```
+    fn tuv_to_xyz(self, t_axis: usize) -> Self;
+}
+
+impl<T: std::ops::IndexMut<usize, Output = N>, N: Copy> PermuteXYZ for T {
+    fn tuv_to_xyz(mut self, t_axis: usize) -> Self {
+        (self[t_axis], self[(t_axis + 1) % 3], self[(t_axis + 2) % 3]) =
+            (self[0], self[1], self[2]);
+        self
+    }
+}
+
+impl<N: Scalar + Copy> PermuteXYZ for MPoint21<N> {
+    fn tuv_to_xyz(self, t_axis: usize) -> Self {
+        MPoint21(self.0.tuv_to_xyz(t_axis))
+    }
+}
+
+impl<N: Scalar + Copy> PermuteXYZ for MDirection21<N> {
+    fn tuv_to_xyz(self, t_axis: usize) -> Self {
+        MDirection21(self.0.tuv_to_xyz(t_axis))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::*;
+
+    impl<N: RealField> AbsDiffEq<MIsometry<N>> for MIsometry<N> {
+        type Epsilon = N;
+
+        #[inline]
+        fn default_epsilon() -> Self::Epsilon {
+            na::Matrix4::<N>::default_epsilon()
+        }
+
+        #[inline]
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            self.0.abs_diff_eq(&other.0, epsilon)
+        }
+    }
+
+    impl<N: RealField> AbsDiffEq<MVector21<N>> for MVector21<N> {
+        type Epsilon = N;
+
+        #[inline]
+        fn default_epsilon() -> Self::Epsilon {
+            na::Vector4::<N>::default_epsilon()
+        }
+
+        #[inline]
+        fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
+            self.0.abs_diff_eq(&other.0, epsilon)
+        }
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn reflect_example() {
+        assert_abs_diff_eq!(
+            MIsometry::reflection(&MVector21::new(1.0, 0.0, 0.5).normalized_direction()),
+            MIsometry(
+                na::Matrix3::new(
+                    -1.666, 0.0, 1.333,
+                     0.0  , 1.0, 0.0,
+                    -1.333, 0.0, 1.666
+                )
+            ),
+            epsilon = 1e-3
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn translate_example() {
+        assert_abs_diff_eq!(
+            MIsometry::translation(
+                &MVector21::new(-0.5, -0.5, 1.0).normalized_point(),
+                &MVector21::new(0.3, -0.7, 1.0).normalized_point()
+            ),
+            MIsometry(
+                na::Matrix3::new(
+                    1.676, 0.814, 1.572,
+                    -1.369, 0.636, -1.130,
+                    1.919, 0.257, 2.179,
+                )
+            ),
+            epsilon = 1e-3
+        );
+    }
+
+    #[test]
+    fn translate_identity() {
+        let a = MVector21::new(-0.5, -0.5, 1.0).normalized_point();
+        let b = MVector21::new(0.3, -0.7, 1.0).normalized_point();
+        let o = MVector21::new(0.0, 0.0, 1.0).normalized_point();
+        assert_abs_diff_eq!(
+            MIsometry::translation(&a, &b),
+            MIsometry::translation(&o, &a)
+                * MIsometry::translation(&o, &(MIsometry::translation(&a, &o) * b))
+                * MIsometry::translation(&a, &o),
+            epsilon = 1e-5
+        );
+    }
+
+    #[test]
+    fn translate_equivalence() {
+        let a = MVector21::new(-0.5, -0.5, 1.0).normalized_point();
+        let o = MVector21::new(0.0, 0.0, 1.0).normalized_point();
+        let direction = a.0.xy().normalize();
+        let distance = dbg!(o.distance(&a));
+        assert_abs_diff_eq!(
+            MIsometry::translation(&o, &a),
+            MIsometry::translation_along(&(direction * distance)),
+            epsilon = 1e-5
+        );
+    }
+
+    #[test]
+    fn translate_distance() {
+        let dx = 2.3;
+        let xf = MIsometry::translation_along(&(na::Vector2::x() * dx));
+        assert_abs_diff_eq!(dx, MPoint21::origin().distance(&(xf * MPoint21::origin())));
+    }
+
+    #[test]
+    fn distance_example() {
+        let a = MVector21::new(0.2, 0.0, 1.0).normalized_point();
+        let b = MVector21::new(-0.5, -0.5, 1.0).normalized_point();
+        // Paper doubles distances for reasons unknown
+        assert_abs_diff_eq!(a.distance(&b), 2.074 / 2.0, epsilon = 1e-3);
+    }
+
+    #[test]
+    fn distance_commutative() {
+        let p = MPoint21::new_unchecked(-1.0, -1.0, 3.0f32.sqrt());
+        let q = MPoint21::new_unchecked(1.0, -1.0, 3.0f32.sqrt());
+        assert_abs_diff_eq!(p.distance(&q), q.distance(&p));
+    }
+
+    #[test]
+    fn midpoint_distance() {
+        let p = MPoint21::new_unchecked(-1.0, -1.0, 3.0f32.sqrt());
+        let q = MPoint21::new_unchecked(1.0, -1.0, 3.0f32.sqrt());
+        let m = p.midpoint(&q);
+        assert_abs_diff_eq!(p.distance(&m), m.distance(&q), epsilon = 1e-5);
+        assert_abs_diff_eq!(p.distance(&m) * 2.0, p.distance(&q), epsilon = 1e-5);
+    }
+
+    #[test]
+    fn renormalize_translation() {
+        let mat = MIsometry::translation(
+            &MVector21::new(-0.5, -0.5, 1.0).normalized_point(),
+            &MVector21::new(0.3, -0.7, 1.0).normalized_point(),
+        );
+        assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn renormalize_reflection() {
+        let mat = MIsometry(na::Matrix3::new(
+            -1.0, 0.0, 0.0,
+             0.0, 1.0, 0.0,
+             0.0, 0.0, 1.0));
+        assert_abs_diff_eq!(mat.renormalized(), mat, epsilon = 1e-5);
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn renormalize_normalizes_matrix() {
+        // Matrix chosen with random entries between -1 and 1
+        let error = MIsometry(na::Matrix3::new(
+            -0.77, -0.21, -0.59,
+             0.49, -0.68,  0.68,
+            -0.57, -0.80, -0.53));
+
+        // translation with some error
+        let mat = MIsometry(MIsometry::translation(
+            &MVector21::new(-0.5, -0.5, 1.0).normalized_point(),
+            &MVector21::new(0.3, -0.7, 1.0).normalized_point(),
+        ).0 + error.0 * 0.05);
+
+        let normalized_mat = mat.renormalized();
+
+        // Check that the matrix is actually normalized
+        assert_abs_diff_eq!(
+            normalized_mat.inverse() * normalized_mat,
+            MIsometry::identity(),
+            epsilon = 1e-5
+        );
+    }
+
+    #[test]
+    fn project_to_plane_example() {
+        let distance = 4.0;
+        let projection_direction: na::UnitVector3<f32> =
+            na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+        let normal: na::UnitVector3<f32> =
+            na::UnitVector3::new_normalize(na::Vector3::new(3.0, -2.0, 7.0));
+        let mut subject = na::Vector3::new(-6.0, -3.0, 4.0);
+        project_to_plane(&mut subject, &normal, &projection_direction, distance);
+        assert_abs_diff_eq!(normal.dot(&subject), distance, epsilon = 1.0e-5);
+    }
+
+    #[test]
+    fn rotation_between_axis_example() {
+        let from = na::UnitVector3::new_normalize(na::Vector3::new(1.0, 1.0, 3.0));
+        let to = na::UnitVector3::new_normalize(na::Vector3::new(2.0, 3.0, 2.0));
+        let expected = na::UnitQuaternion::rotation_between_axis(&from, &to).unwrap();
+        let actual = rotation_between_axis(&from, &to, 1e-5).unwrap();
+        assert_abs_diff_eq!(expected, actual, epsilon = 1.0e-5);
+    }
+}
