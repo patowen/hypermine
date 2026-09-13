@@ -277,11 +277,11 @@ struct BltLayout {
 impl Default for BltLayout {
     fn default() -> Self {
         Self {
-            horizontal_size: 12,
-            central_vertical_size: 12,
-            outer_vertical_size: 12,
-            central_voxel_width: 0.7 / 12.0,
-            voxel_height: logf(2.0) / 12.0,
+            horizontal_size: 11,
+            central_vertical_size: 11,
+            outer_vertical_size: 11,
+            central_voxel_width: 0.7 / 11.0,
+            voxel_height: logf(2.0) / 11.0,
         }
     }
 }
@@ -362,13 +362,16 @@ impl BltChunk {
 
     fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
         // TODO: Support non-zero `index`
+        let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
+        let scale_factor = coshf(new_boost) / coshf(self.boost);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
             outer_neighbors: [None; 4],
             klein_coords: na::Vector2::zeros(),
-            voxel_coords_conversion: na::Matrix3::identity(),
-            boost: self.boost + layout.voxel_height * layout.outer_vertical_size as f32,
+            voxel_coords_conversion: self.voxel_coords_conversion
+                * na::Matrix3::new_scaling(scale_factor * 0.5),
+            boost: new_boost,
         }
     }
 }
