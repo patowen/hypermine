@@ -110,20 +110,10 @@ fn voxel_to_mvector_boosted_partial_z(pseudo_chunk: na::Vector3<f32>, boost: f32
     )
 }
 
-fn coords_to_mvector(coords: na::Vector3<i32>, width_factor: f32) -> MVector<f32> {
-    voxel_to_mvector_boosted(
-        na::Vector3::new(
-            coords[0] as f32 * 0.04 * width_factor,
-            coords[1] as f32 * 0.04 * width_factor,
-            coords[2] as f32 * logf(2.0) / 20.0,
-        ),
-        0.0,
-    )
-}
-
 fn add_quad(
     chunk: &BltChunk,
     layout: &BltLayout,
+    transform: &MIsometry<f32>,
     geometry: &mut MeshGeometryDefinition,
     points: [na::Vector3<i32>; 4],
     texture: usize,
@@ -136,7 +126,7 @@ fn add_quad(
             geometry.vertices.push(Vertex {
                 position: common::dodeca::Side::A.reflection()
                     * common::dodeca::Vertex::A.dual_to_node()
-                    * chunk.point_from_voxel(layout, point.cast()).tuv_to_xyz(1),
+                    * (transform * chunk.point_from_voxel(layout, point.cast())).tuv_to_xyz(1),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
                 normal: common::math::MDirection::x(),
             });
@@ -156,6 +146,7 @@ fn add_quad(
 fn add_voxel(
     chunk: &BltChunk,
     layout: &BltLayout,
+    transform: &MIsometry<f32>,
     geometry: &mut MeshGeometryDefinition,
     coords: na::Vector3<i32>,
 ) {
@@ -166,6 +157,7 @@ fn add_voxel(
         add_quad(
             chunk,
             layout,
+            transform,
             geometry,
             [coords, coords + t, coords + u, coords + t + u],
             x_axis,
@@ -173,6 +165,7 @@ fn add_voxel(
         add_quad(
             chunk,
             layout,
+            transform,
             geometry,
             [
                 coords + v,
@@ -199,21 +192,25 @@ impl SampleSurface {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for k in 0..1 {
+        for k in 0..2 {
             for x in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                 for y in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                     for z in (0..(graph.layout.outer_vertical_size as i32)).step_by(2) {
                         add_voxel(
                             graph.chunk(current_chunk),
                             &graph.layout,
+                            &current_transform,
                             &mut geometry,
                             na::Vector3::new(x, y, z),
                         );
                     }
                 }
             }
-            current_transform *= graph.chunk(current_chunk).outer_isometry(&graph.layout, 3);
-            current_chunk = graph.add_outer(current_chunk, 3);
+            let index = 0;
+            current_transform *= graph
+                .chunk(current_chunk)
+                .outer_isometry(&graph.layout, index);
+            current_chunk = graph.add_outer(current_chunk, index);
         }
         SampleSurface { geometry }
     }
@@ -333,38 +330,38 @@ impl BltChunk {
 
     fn outer_isometry(&self, layout: &BltLayout, index: u8) -> MIsometry<f32> {
         let scale = layout.central_voxel_width * layout.horizontal_size as f32 * 0.5;
-        let voxel_pos = na::Vector3::new(
+        let chunk_pos = na::Vector3::new(
             scale * (index & 1) as f32,
             scale * (index >> 1) as f32,
             layout.voxel_height * layout.outer_vertical_size as f32,
         );
-        self.isometry_from_chunk(voxel_pos)
+        self.isometry_from_chunk(chunk_pos)
     }
 
-    fn isometry_from_chunk(&self, voxel: na::Vector3<f32>) -> MIsometry<f32> {
-        let horizontal_coords = self.voxel_coords_conversion * voxel.xy().push(1.0);
-        let adjusted_voxel = na::Vector3::new(
+    fn isometry_from_chunk(&self, chunk: na::Vector3<f32>) -> MIsometry<f32> {
+        let horizontal_coords = self.voxel_coords_conversion * chunk.xy().push(1.0);
+        let pseudo_chunk = na::Vector3::new(
             horizontal_coords[0] / horizontal_coords[2],
             horizontal_coords[1] / horizontal_coords[2],
-            voxel.z,
+            chunk.z,
         );
-        let w = voxel_to_mvector_boosted(adjusted_voxel, self.boost).to_point_unchecked();
-        let x =
-            voxel_to_mvector_boosted_partial_x(adjusted_voxel, self.boost).normalized_direction();
+        let w = voxel_to_mvector_boosted(pseudo_chunk, self.boost).to_point_unchecked();
+        let x = voxel_to_mvector_boosted_partial_x(pseudo_chunk, self.boost).normalized_direction();
         let z =
-            voxel_to_mvector_boosted_partial_z(adjusted_voxel, self.boost).to_direction_unchecked();
+            voxel_to_mvector_boosted_partial_z(pseudo_chunk, self.boost).to_direction_unchecked();
         // TODO: There might be a better way to get `y`, especially since voxel_to_mvector_boosted_partial_y will be
         // in the wrong direction.
-        let mut y = voxel_to_mvector_boosted_partial_y(adjusted_voxel, self.boost);
+        let mut y = voxel_to_mvector_boosted_partial_y(pseudo_chunk, self.boost);
         y -= MVector::from(x) * y.mip(&x);
         let y = y.normalized_direction();
         let result = MIsometry::from_columns_unchecked(&[x, y, z], w);
-        println!("{:?}", result.inverse() * result);
+        println!("sanity check: {:?}", result.inverse() * result);
+        println!("result: {:?}", result);
         result
     }
 
     fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
-        // TODO: Other indexes
+        // TODO: Support non-zero `index`
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
