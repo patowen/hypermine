@@ -73,14 +73,16 @@ fn chunk_to_pseudo_chunk(
     let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
     conversion *= na::Matrix3::new_translation(&klein_coords); // Applying skew
 
+    // This is equivalent (but numerically more stable) to `new_scale(coshf(boost)) * conversion * new_scale(1.0/coshf(boost))`
+    conversion[(2, 0)] /= coshf(boost);
+    conversion[(2, 1)] /= coshf(boost);
+
     let horizontal_coords = conversion * chunk.xy().push(1.0);
     na::Vector3::new(
         horizontal_coords[0] / horizontal_coords[2],
         horizontal_coords[1] / horizontal_coords[2],
         chunk.z,
     )
-
-    // TODO: Apply boost
 }
 
 /// Computes
@@ -497,10 +499,10 @@ mod tests {
     }
 
     #[test]
-    fn test_chunk_to_mvector_simple() {
+    fn test_chunk_to_mvector() {
         let klein_coords = na::Vector2::new(0.2, 0.3);
         let chunk = na::Vector3::new(0.25, 0.35, 0.0);
-        let boost = 0.0;
+        let boost = 1.1;
         println!("{:?}", chunk_to_mvector_simple(klein_coords, chunk, boost));
         println!(
             "{:?}",
