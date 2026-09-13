@@ -20,6 +20,69 @@ fn voxel_to_mvector_simple(voxel: na::Vector3<f32>) -> MVector<f32> {
     )
 }
 
+fn pseudo_chunk_to_isometry(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MIsometry<f32> {
+    let w = voxel_to_mvector_boosted(pseudo_chunk, boost).to_point_unchecked();
+    let x = voxel_to_mvector_boosted_partial_x(pseudo_chunk, boost).normalized_direction();
+    let z = voxel_to_mvector_boosted_partial_z(pseudo_chunk, boost).to_direction_unchecked();
+    // TODO: There might be a better way to get `y`, especially since voxel_to_mvector_boosted_partial_y will be
+    // in the wrong direction.
+    let mut y = voxel_to_mvector_boosted_partial_y(pseudo_chunk, boost);
+    y -= MVector::from(x) * y.mip(&x);
+    let y = y.normalized_direction();
+    MIsometry::from_columns_unchecked(&[x, y, z], w)
+}
+
+fn chunk_to_mvector_simple(
+    klein_coords: na::Vector2<f32>,
+    chunk: na::Vector3<f32>,
+    boost: f32,
+) -> MVector<f32> {
+    pseudo_chunk_to_isometry(
+        na::Vector3::new(
+            klein_coords.x * coshf(boost),
+            klein_coords.y * coshf(boost),
+            0.0,
+        ),
+        boost,
+    )
+    .inverse()
+        * voxel_to_mvector_boosted(
+            na::Vector3::new(
+                klein_coords.x * coshf(boost) + chunk.x,
+                klein_coords.y * coshf(boost) + chunk.y,
+                chunk.z,
+            ),
+            boost,
+        )
+}
+
+fn chunk_to_pseudo_chunk(
+    klein_coords: na::Vector2<f32>,
+    chunk: na::Vector3<f32>,
+    boost: f32,
+) -> na::Vector3<f32> {
+    let origin = na::Vector3::new(klein_coords[0], klein_coords[1], 1.0);
+    let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
+    let normalized_origin = origin / origin_norm;
+    let z = normalized_origin;
+    let mut y = z.cross(&na::Vector3::x());
+    y.z *= -1.0;
+    y /= sqrtf(sqr(y.x) + sqr(y.y) - sqr(y.z));
+    let mut x = y.cross(&z);
+    x.z *= -1.0;
+    let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
+    conversion *= na::Matrix3::new_translation(&klein_coords); // Applying skew
+
+    let horizontal_coords = conversion * chunk.xy().push(1.0);
+    na::Vector3::new(
+        horizontal_coords[0] / horizontal_coords[2],
+        horizontal_coords[1] / horizontal_coords[2],
+        chunk.z,
+    )
+
+    // TODO: Apply boost
+}
+
 /// Computes
 /// `translation_along([0, 0, -boost]) * voxel_to_mvector_simple([x / cosh(boost), y / cosh(boost), boost + z])`
 fn voxel_to_mvector_boosted(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MVector<f32> {
@@ -431,5 +494,17 @@ mod tests {
         );
         println!("{:?}", voxel_to_mvector_boosted_partial_z(example, boost));
         BltChunk::new_central().isometry_from_chunk(example);
+    }
+
+    #[test]
+    fn test_chunk_to_mvector_simple() {
+        let klein_coords = na::Vector2::new(0.2, 0.3);
+        let chunk = na::Vector3::new(0.25, 0.35, 0.0);
+        let boost = 0.0;
+        println!("{:?}", chunk_to_mvector_simple(klein_coords, chunk, boost));
+        println!(
+            "{:?}",
+            voxel_to_mvector_boosted(chunk_to_pseudo_chunk(klein_coords, chunk, boost), boost)
+        );
     }
 }
