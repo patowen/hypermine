@@ -32,6 +32,24 @@ fn pseudo_chunk_to_isometry(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MIsom
     MIsometry::from_columns_unchecked(&[x, y, z], w)
 }
 
+fn chunk_to_isometry(
+    klein_coords: na::Vector2<f32>,
+    chunk: na::Vector3<f32>,
+    boost: f32,
+) -> MIsometry<f32> {
+    let pseudo_chunk = chunk_to_pseudo_chunk(klein_coords, chunk, boost);
+    let pseudo_chunk_partial_x = chunk_to_pseudo_chunk_partial_x(klein_coords, chunk, boost);
+    let w = voxel_to_mvector_boosted(pseudo_chunk, boost).to_point_unchecked();
+    let x = (voxel_to_mvector_boosted_partial_x(pseudo_chunk, boost) * pseudo_chunk_partial_x.x
+        + voxel_to_mvector_boosted_partial_y(pseudo_chunk, boost) * pseudo_chunk_partial_x.y)
+        .normalized_direction();
+    let z = voxel_to_mvector_boosted_partial_z(pseudo_chunk, boost).to_direction_unchecked();
+    let mut y = voxel_to_mvector_boosted_partial_y(pseudo_chunk, boost);
+    y -= MVector::from(x) * y.mip(&x);
+    let y = y.normalized_direction();
+    MIsometry::from_columns_unchecked(&[x, y, z], w)
+}
+
 fn chunk_to_mvector_simple(
     klein_coords: na::Vector2<f32>,
     chunk: na::Vector3<f32>,
@@ -79,9 +97,43 @@ fn chunk_to_pseudo_chunk(
 
     let horizontal_coords = conversion * chunk.xy().push(1.0);
     na::Vector3::new(
-        horizontal_coords[0] / horizontal_coords[2],
-        horizontal_coords[1] / horizontal_coords[2],
+        horizontal_coords.x / horizontal_coords.z,
+        horizontal_coords.y / horizontal_coords.z,
         chunk.z,
+    )
+}
+
+fn chunk_to_pseudo_chunk_partial_x(
+    klein_coords: na::Vector2<f32>,
+    chunk: na::Vector3<f32>,
+    boost: f32,
+) -> na::Vector3<f32> {
+    let origin = na::Vector3::new(klein_coords[0], klein_coords[1], 1.0);
+    let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
+    let normalized_origin = origin / origin_norm;
+    let z = normalized_origin;
+    let mut y = z.cross(&na::Vector3::x());
+    y.z *= -1.0;
+    y /= sqrtf(sqr(y.x) + sqr(y.y) - sqr(y.z));
+    let mut x = y.cross(&z);
+    x.z *= -1.0;
+    let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
+    conversion *= na::Matrix3::new_translation(&klein_coords); // Applying skew
+
+    // This is equivalent (but numerically more stable) to `new_scale(coshf(boost)) * conversion * new_scale(1.0/coshf(boost))`
+    conversion[(2, 0)] /= coshf(boost);
+    conversion[(2, 1)] /= coshf(boost);
+
+    let horizontal_coords = conversion * chunk.xy().push(1.0);
+    let horizontal_coords_partial_x = conversion * na::Vector3::x();
+    na::Vector3::new(
+        (horizontal_coords_partial_x.x * horizontal_coords.z
+            - horizontal_coords.x * horizontal_coords_partial_x.z)
+            / sqr(horizontal_coords.z),
+        (horizontal_coords_partial_x.y * horizontal_coords.z
+            - horizontal_coords.y * horizontal_coords_partial_x.z)
+            / sqr(horizontal_coords.z),
+        0.0,
     )
 }
 
@@ -257,7 +309,7 @@ impl SampleSurface {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for k in 0..4 {
+        for k in 0..3 {
             for x in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                 for y in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                     for z in (0..(graph.layout.outer_vertical_size as i32)).step_by(2) {
@@ -272,19 +324,10 @@ impl SampleSurface {
                 }
             }
             let index = 3;
-            if k == 2 {
-                current_chunk = graph.chunk(current_chunk).inner_neighbor.unwrap();
-                current_transform = graph
-                    .chunk(graph.root_chunk)
-                    .outer_isometry(&graph.layout, index);
-            }
             current_transform *= graph
                 .chunk(current_chunk)
                 .outer_isometry(&graph.layout, index);
             current_chunk = graph.add_outer(current_chunk, index);
-            if k == 2 {
-                current_transform = graph.chunk(graph.root_chunk).debug_isometry(&graph.layout);
-            }
         }
         SampleSurface { geometry }
     }
@@ -412,17 +455,7 @@ impl BltChunk {
     }
 
     fn isometry_from_chunk(&self, chunk: na::Vector3<f32>) -> MIsometry<f32> {
-        let pseudo_chunk = chunk_to_pseudo_chunk(self.klein_coords, chunk, self.boost);
-        let w = voxel_to_mvector_boosted(pseudo_chunk, self.boost).to_point_unchecked();
-        let x = voxel_to_mvector_boosted_partial_x(pseudo_chunk, self.boost).normalized_direction();
-        let z =
-            voxel_to_mvector_boosted_partial_z(pseudo_chunk, self.boost).to_direction_unchecked();
-        // TODO: There might be a better way to get `y`, especially since voxel_to_mvector_boosted_partial_y will be
-        // in the wrong direction.
-        let mut y = voxel_to_mvector_boosted_partial_y(pseudo_chunk, self.boost);
-        y -= MVector::from(x) * y.mip(&x);
-        let y = y.normalized_direction();
-        let result = MIsometry::from_columns_unchecked(&[x, y, z], w);
+        let result = chunk_to_isometry(self.klein_coords, chunk, self.boost);
         println!("sanity check: {:?}", result.inverse() * result);
         println!("result: {:?}", result);
         result
@@ -496,7 +529,7 @@ mod tests {
         let example = na::vector![0.1, 0.2, 2.0];
         let boost = 1.0;
         println!(
-            "{:?}",
+            "simple: {:?}",
             MIsometry::translation_along(&(na::Vector3::z() * -boost))
                 * voxel_to_mvector_simple(na::Vector3::new(
                     example.x / coshf(boost),
@@ -504,21 +537,24 @@ mod tests {
                     boost + example.z
                 ))
         );
-        println!("{:?}", voxel_to_mvector_boosted(example, boost));
+        println!("boosted: {:?}", voxel_to_mvector_boosted(example, boost));
 
         println!(
-            "{:?}",
-            (voxel_to_mvector_boosted(example + na::Vector3::z() * 0.001, boost)
-                - voxel_to_mvector_boosted(example + na::Vector3::z() * -0.001, boost))
+            "derivative approx 1: {:?}",
+            (voxel_to_mvector_boosted(example + na::Vector3::x() * 0.01, boost)
+                - voxel_to_mvector_boosted(example + na::Vector3::x() * -0.01, boost))
+                / 0.02
+        );
+        println!(
+            "derivative approx 2: {:?}",
+            (voxel_to_mvector_boosted(example + na::Vector3::x() * 0.001, boost)
+                - voxel_to_mvector_boosted(example + na::Vector3::x() * -0.001, boost))
                 / 0.002
         );
         println!(
-            "{:?}",
-            (voxel_to_mvector_boosted(example + na::Vector3::z() * 0.0001, boost)
-                - voxel_to_mvector_boosted(example + na::Vector3::z() * -0.0001, boost))
-                / 0.0002
+            "derivative: {:?}",
+            voxel_to_mvector_boosted_partial_x(example, boost)
         );
-        println!("{:?}", voxel_to_mvector_boosted_partial_z(example, boost));
         BltChunk::new_central().isometry_from_chunk(example);
     }
 
