@@ -206,7 +206,7 @@ impl SampleSurface {
                     }
                 }
             }
-            let index = 0;
+            let index = 3;
             current_transform *= graph
                 .chunk(current_chunk)
                 .outer_isometry(&graph.layout, index);
@@ -364,12 +364,32 @@ impl BltChunk {
         // TODO: Support non-zero `index`
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
         let scale_factor = coshf(new_boost) / coshf(self.boost);
+        let scale = layout.central_voxel_width * layout.horizontal_size as f32 * 0.5;
+        let chunk_pos = na::Vector3::new(
+            scale * (index & 1) as f32,
+            scale * (index >> 1) as f32,
+            layout.voxel_height * layout.outer_vertical_size as f32,
+        );
+        let origin = na::Vector3::new(chunk_pos[0], chunk_pos[1], 1.0);
+        let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
+        let normalized_origin = origin / origin_norm;
+        let z = na::Vector3::new(0.0, 0.0, origin_norm);
+        let x = na::Vector3::new(
+            sqrtf(1.0 + sqr(normalized_origin[0])),
+            0.0,
+            normalized_origin[0],
+        );
+        let mut y = z.cross(&x);
+        y.z = -y.z;
+        y /= sqrtf((sqr(y[0]) + sqr(y[1]) - sqr(y[2])));
+        let conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
             outer_neighbors: [None; 4],
             klein_coords: na::Vector2::zeros(),
             voxel_coords_conversion: self.voxel_coords_conversion
+                * conversion
                 * na::Matrix3::new_scaling(scale_factor * 0.5),
             boost: new_boost,
         }
