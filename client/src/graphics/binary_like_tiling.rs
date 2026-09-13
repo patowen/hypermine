@@ -381,7 +381,7 @@ impl BltChunk {
         let mut x = y.cross(&z);
         x.z *= -1.0;
         let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
-        conversion.set_column(2, &na::Vector3::new(0.0, 0.0, origin_norm)); // Applying skew
+        conversion.set_column(2, &na::Vector3::new(0.0, 0.0, 0.9395)); // Applying skew
         println!("conversion: {:?}", conversion);
         BltChunk {
             inner_neighbor: None,
