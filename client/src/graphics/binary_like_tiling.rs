@@ -370,19 +370,19 @@ impl BltChunk {
             scale * (index >> 1) as f32,
             layout.voxel_height * layout.outer_vertical_size as f32,
         );
+        // Find a set of m-orthogonal coordinates that moves (0,0,1) to (chunk_pos.x,chunk_pos.y,1), with the x-coordinate aligned
         let origin = na::Vector3::new(chunk_pos[0], chunk_pos[1], 1.0);
         let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
         let normalized_origin = origin / origin_norm;
-        let z = na::Vector3::new(0.0, 0.0, origin_norm);
-        let x = na::Vector3::new(
-            sqrtf(1.0 + sqr(normalized_origin[0])),
-            0.0,
-            normalized_origin[0],
-        );
-        let mut y = z.cross(&x);
-        y.z = -y.z;
-        y /= sqrtf((sqr(y[0]) + sqr(y[1]) - sqr(y[2])));
-        let conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
+        let z = normalized_origin;
+        let mut y = z.cross(&na::Vector3::x());
+        y.z *= -1.0;
+        y /= sqrtf(sqr(y.x) + sqr(y.y) - sqr(y.z));
+        let mut x = y.cross(&z);
+        x.z *= -1.0;
+        let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
+        conversion.set_column(2, &na::Vector3::new(0.0, 0.0, origin_norm)); // Applying skew
+        println!("conversion: {:?}", conversion);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
