@@ -356,7 +356,7 @@ struct BltChunk {
     inner_neighbor_index: u8,
     outer_neighbors: [Option<u32>; 4],
     klein_coords: na::Vector2<f32>,
-    voxel_coords_conversion: na::Matrix3<f32>,
+    voxel_width_factor: f32,
     boost: f32,
 }
 
@@ -367,34 +367,32 @@ impl BltChunk {
             inner_neighbor_index: 0,
             outer_neighbors: [None; 4],
             klein_coords: na::Vector2::zeros(),
-            voxel_coords_conversion: na::Matrix3::identity(),
+            voxel_width_factor: 1.0,
             boost: 0.0,
         }
     }
 
     fn point_from_voxel(&self, layout: &BltLayout, voxel_coords: na::Vector3<f32>) -> MPoint<f32> {
         self.point_from_chunk(na::Vector3::new(
-            voxel_coords[0] * layout.central_voxel_width,
-            voxel_coords[1] * layout.central_voxel_width,
+            voxel_coords[0] * layout.central_voxel_width * self.voxel_width_factor,
+            voxel_coords[1] * layout.central_voxel_width * self.voxel_width_factor,
             voxel_coords[2] * layout.voxel_height,
         ))
     }
 
     fn point_from_chunk(&self, chunk_coords: na::Vector3<f32>) -> MPoint<f32> {
-        let horizontal_coords = self.voxel_coords_conversion * chunk_coords.xy().push(1.0);
         voxel_to_mvector_boosted(
-            na::Vector3::new(
-                horizontal_coords[0] / horizontal_coords[2],
-                horizontal_coords[1] / horizontal_coords[2],
-                chunk_coords.z,
-            ),
+            chunk_to_pseudo_chunk(self.klein_coords, chunk_coords, self.boost),
             self.boost,
         )
         .to_point_unchecked()
     }
 
     fn outer_isometry(&self, layout: &BltLayout, index: u8) -> MIsometry<f32> {
-        let scale = layout.central_voxel_width * layout.horizontal_size as f32 * 0.5;
+        let scale = layout.central_voxel_width
+            * layout.horizontal_size as f32
+            * self.voxel_width_factor
+            * 0.5;
         let chunk_pos = na::Vector3::new(
             scale * (index & 1) as f32,
             scale * (index >> 1) as f32,
@@ -404,12 +402,7 @@ impl BltChunk {
     }
 
     fn isometry_from_chunk(&self, chunk: na::Vector3<f32>) -> MIsometry<f32> {
-        let horizontal_coords = self.voxel_coords_conversion * chunk.xy().push(1.0);
-        let pseudo_chunk = na::Vector3::new(
-            horizontal_coords[0] / horizontal_coords[2],
-            horizontal_coords[1] / horizontal_coords[2],
-            chunk.z,
-        );
+        let pseudo_chunk = chunk_to_pseudo_chunk(self.klein_coords, chunk, self.boost);
         let w = voxel_to_mvector_boosted(pseudo_chunk, self.boost).to_point_unchecked();
         let x = voxel_to_mvector_boosted_partial_x(pseudo_chunk, self.boost).normalized_direction();
         let z =
@@ -428,34 +421,21 @@ impl BltChunk {
     fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
         // TODO: Support non-zero `index`
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
-        let scale_factor = coshf(new_boost) / coshf(self.boost);
-        let scale = layout.central_voxel_width * layout.horizontal_size as f32 * 0.5;
-        let chunk_pos = na::Vector3::new(
-            scale * (index & 1) as f32,
-            scale * (index >> 1) as f32,
-            layout.voxel_height * layout.outer_vertical_size as f32,
+        let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
+        let displacement_scale = layout.central_voxel_width
+            * layout.horizontal_size as f32
+            * self.voxel_width_factor
+            * 0.5;
+        let displacement = na::Vector2::new(
+            displacement_scale * (index & 1) as f32,
+            displacement_scale * (index >> 1) as f32,
         );
-        // Find a set of m-orthogonal coordinates that moves (0,0,1) to (chunk_pos.x,chunk_pos.y,1), with the x-coordinate aligned
-        let origin = na::Vector3::new(chunk_pos[0], chunk_pos[1], 1.0);
-        let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
-        let normalized_origin = origin / origin_norm;
-        let z = normalized_origin;
-        let mut y = z.cross(&na::Vector3::x());
-        y.z *= -1.0;
-        y /= sqrtf(sqr(y.x) + sqr(y.y) - sqr(y.z));
-        let mut x = y.cross(&z);
-        x.z *= -1.0;
-        let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
-        conversion.set_column(2, &na::Vector3::new(0.0, 0.0, 0.9395)); // Applying skew
-        println!("conversion: {:?}", conversion);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
             outer_neighbors: [None; 4],
-            klein_coords: na::Vector2::zeros(),
-            voxel_coords_conversion: self.voxel_coords_conversion
-                * conversion
-                * na::Matrix3::new_scaling(scale_factor * 0.5),
+            klein_coords: self.klein_coords + displacement,
+            voxel_width_factor: scale_factor * 0.5,
             boost: new_boost,
         }
     }
