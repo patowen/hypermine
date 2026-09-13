@@ -257,7 +257,7 @@ impl SampleSurface {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for k in 0..2 {
+        for k in 0..4 {
             for x in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                 for y in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
                     for z in (0..(graph.layout.outer_vertical_size as i32)).step_by(2) {
@@ -272,10 +272,21 @@ impl SampleSurface {
                 }
             }
             let index = 3;
+            if k == 2 {
+                current_chunk = graph.chunk(current_chunk).inner_neighbor.unwrap();
+                current_transform = graph
+                    .chunk(graph.root_chunk)
+                    .outer_isometry(&graph.layout, index);
+            }
             current_transform *= graph
                 .chunk(current_chunk)
                 .outer_isometry(&graph.layout, index);
             current_chunk = graph.add_outer(current_chunk, index);
+            if k == 2 {
+                let new_chunk = graph.chunk(graph.root_chunk).new_debug(&graph.layout);
+                graph.chunks[current_chunk as usize] = new_chunk;
+                current_transform = graph.chunk(graph.root_chunk).debug_isometry(&graph.layout);
+            }
         }
         SampleSurface { geometry }
     }
@@ -351,6 +362,7 @@ impl Default for BltLayout {
     }
 }
 
+#[derive(Debug)]
 struct BltChunk {
     inner_neighbor: Option<u32>,
     inner_neighbor_index: u8,
@@ -419,23 +431,57 @@ impl BltChunk {
     }
 
     fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
-        // TODO: Support non-zero `index`
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
         let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
         let displacement_scale = layout.central_voxel_width
             * layout.horizontal_size as f32
             * self.voxel_width_factor
-            * 0.5;
+            * 0.5
+            / coshf(self.boost);
         let displacement = na::Vector2::new(
             displacement_scale * (index & 1) as f32,
             displacement_scale * (index >> 1) as f32,
         );
+        println!("{:?}", self.klein_coords + displacement);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
             outer_neighbors: [None; 4],
             klein_coords: self.klein_coords + displacement,
-            voxel_width_factor: scale_factor * 0.5,
+            voxel_width_factor: self.voxel_width_factor * scale_factor * 0.5,
+            boost: new_boost,
+        }
+    }
+
+    fn debug_isometry(&self, layout: &BltLayout) -> MIsometry<f32> {
+        let scale = layout.central_voxel_width
+            * layout.horizontal_size as f32
+            * self.voxel_width_factor
+            * 0.75;
+        let chunk_pos = na::Vector3::new(
+            scale,
+            scale,
+            layout.voxel_height * layout.outer_vertical_size as f32 * 2.0,
+        );
+        self.isometry_from_chunk(chunk_pos)
+    }
+
+    fn new_debug(&self, layout: &BltLayout) -> Self {
+        let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32 * 2.0;
+        let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
+        let displacement_scale = layout.central_voxel_width
+            * layout.horizontal_size as f32
+            * self.voxel_width_factor
+            * 0.75
+            / coshf(self.boost);
+        let displacement = na::Vector2::new(displacement_scale, displacement_scale);
+        println!("{:?}", self.klein_coords + displacement);
+        BltChunk {
+            inner_neighbor: None,
+            inner_neighbor_index: 3,
+            outer_neighbors: [None; 4],
+            klein_coords: self.klein_coords + displacement,
+            voxel_width_factor: self.voxel_width_factor * scale_factor * 0.25,
             boost: new_boost,
         }
     }
