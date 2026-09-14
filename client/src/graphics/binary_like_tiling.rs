@@ -467,16 +467,28 @@ impl BltGraph {
         let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index));
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
+        // TODO: Join sides
         outer
     }
 
-    fn ensure_side(&mut self, current: BltChunkId, index: SideIndex) -> Option<BltChunkId> {
-        if let Some(side) = self.chunk(current).side_neighbors[index] {
+    fn ensure_side(&mut self, current: BltChunkId, side_index: SideIndex) -> Option<BltChunkId> {
+        if let Some(side) = self.chunk(current).side_neighbors[side_index] {
             return Some(side);
         }
         if self.chunk(current).boost == 0.0 {
             return None;
         }
+        let neighbor = self
+            .chunk(current)
+            .inner_neighbor_index
+            .neighbor(side_index);
+        let parent = self.chunk(current).inner_neighbor.unwrap();
+        let side_parent = if neighbor.different_inner_chunk {
+            self.ensure_side(parent, side_index)?
+        } else {
+            parent
+        };
+        self.ensure_outer(side_parent, neighbor.index);
         unimplemented!();
     }
 
