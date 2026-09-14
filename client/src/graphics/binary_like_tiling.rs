@@ -334,7 +334,7 @@ impl SampleSurface {
                     }
                 }
             }
-            let index = 3;
+            let index = QuadIndex(3);
             current_transform *= graph
                 .chunk(current_chunk)
                 .outer_isometry(&graph.layout, index);
@@ -367,6 +367,78 @@ impl skid_steer::Source for SampleSurface {
 #[derive(Clone, Copy, Debug)]
 struct BltChunkId(u32);
 
+#[derive(Clone, Copy, Debug)]
+struct QuadIndex(u8);
+
+impl QuadIndex {
+    fn x(self) -> u8 {
+        self.0 & 1
+    }
+
+    fn y(self) -> u8 {
+        (self.0 >> 1) & 1
+    }
+
+    fn neighbor(self, side_index: SideIndex) -> QuadIndexNeighbor {
+        QuadIndexNeighbor {
+            index: QuadIndex(self.0 ^ (1 << side_index.coordinate())),
+            different_inner_chunk: (self.0 >> side_index.coordinate()) & 1 == side_index.extreme(),
+        }
+    }
+}
+
+struct QuadIndexNeighbor {
+    index: QuadIndex,
+    different_inner_chunk: bool,
+}
+
+#[derive(Default, Debug)]
+struct QuadIndexMap<T>([T; 4]);
+
+impl<T> std::ops::Index<QuadIndex> for QuadIndexMap<T> {
+    type Output = T;
+
+    fn index(&self, index: QuadIndex) -> &Self::Output {
+        &self.0[index.0 as usize]
+    }
+}
+
+impl<T> std::ops::IndexMut<QuadIndex> for QuadIndexMap<T> {
+    fn index_mut(&mut self, index: QuadIndex) -> &mut Self::Output {
+        &mut self.0[index.0 as usize]
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SideIndex(u8);
+
+impl SideIndex {
+    fn coordinate(self) -> u8 {
+        self.0 & 1
+    }
+
+    fn extreme(self) -> u8 {
+        (self.0 >> 1) & 1
+    }
+}
+
+#[derive(Default, Debug)]
+struct SideIndexMap<T>([T; 4]);
+
+impl<T> std::ops::Index<SideIndex> for SideIndexMap<T> {
+    type Output = T;
+
+    fn index(&self, index: SideIndex) -> &Self::Output {
+        &self.0[index.0 as usize]
+    }
+}
+
+impl<T> std::ops::IndexMut<SideIndex> for SideIndexMap<T> {
+    fn index_mut(&mut self, index: SideIndex) -> &mut Self::Output {
+        &mut self.0[index.0 as usize]
+    }
+}
+
 struct BltGraph {
     chunks: Vec<BltChunk>,
     root_chunk: BltChunkId,
@@ -388,14 +460,24 @@ impl BltGraph {
         id
     }
 
-    fn ensure_outer(&mut self, inner: BltChunkId, index: u8) -> BltChunkId {
-        if let Some(outer) = self.chunk(inner).outer_neighbors[index as usize] {
+    fn ensure_outer(&mut self, inner: BltChunkId, index: QuadIndex) -> BltChunkId {
+        if let Some(outer) = self.chunk(inner).outer_neighbors[index] {
             return outer;
         }
         let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index));
-        self.chunk_mut(inner).outer_neighbors[index as usize] = Some(outer);
+        self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
         outer
+    }
+
+    fn ensure_side(&mut self, current: BltChunkId, index: SideIndex) -> Option<BltChunkId> {
+        if let Some(side) = self.chunk(current).side_neighbors[index] {
+            return Some(side);
+        }
+        if self.chunk(current).boost == 0.0 {
+            return None;
+        }
+        unimplemented!();
     }
 
     fn chunk(&self, chunk: BltChunkId) -> &BltChunk {
@@ -430,8 +512,9 @@ impl Default for BltLayout {
 #[derive(Debug)]
 struct BltChunk {
     inner_neighbor: Option<BltChunkId>,
-    inner_neighbor_index: u8,
-    outer_neighbors: [Option<BltChunkId>; 4],
+    inner_neighbor_index: QuadIndex,
+    outer_neighbors: QuadIndexMap<Option<BltChunkId>>,
+    side_neighbors: SideIndexMap<Option<BltChunkId>>, // Most significant bit: extreme. Least significant bit: axis
     klein_coords: na::Vector2<f32>,
     voxel_width_factor: f32,
     boost: f32,
@@ -441,8 +524,9 @@ impl BltChunk {
     fn new_central() -> Self {
         BltChunk {
             inner_neighbor: None,
-            inner_neighbor_index: 0,
-            outer_neighbors: [None; 4],
+            inner_neighbor_index: QuadIndex(0),
+            outer_neighbors: QuadIndexMap::default(),
+            side_neighbors: SideIndexMap::default(),
             klein_coords: na::Vector2::zeros(),
             voxel_width_factor: 1.0,
             boost: 0.0,
@@ -465,14 +549,14 @@ impl BltChunk {
         .to_point_unchecked()
     }
 
-    fn outer_isometry(&self, layout: &BltLayout, index: u8) -> MIsometry<f32> {
+    fn outer_isometry(&self, layout: &BltLayout, index: QuadIndex) -> MIsometry<f32> {
         let scale = layout.central_voxel_width
             * layout.horizontal_size as f32
             * self.voxel_width_factor
             * 0.5;
         let chunk_pos = na::Vector3::new(
-            scale * (index & 1) as f32,
-            scale * (index >> 1) as f32,
+            scale * index.x() as f32,
+            scale * index.y() as f32,
             layout.voxel_height * layout.outer_vertical_size as f32,
         );
         self.isometry_from_chunk(chunk_pos)
@@ -485,7 +569,7 @@ impl BltChunk {
         result
     }
 
-    fn new_outer(&self, layout: &BltLayout, index: u8) -> Self {
+    fn new_outer(&self, layout: &BltLayout, index: QuadIndex) -> Self {
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
         let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
         let displacement_scale = layout.central_voxel_width
@@ -494,49 +578,17 @@ impl BltChunk {
             * 0.5
             / coshf(self.boost);
         let displacement = na::Vector2::new(
-            displacement_scale * (index & 1) as f32,
-            displacement_scale * (index >> 1) as f32,
+            displacement_scale * index.x() as f32,
+            displacement_scale * index.y() as f32,
         );
         println!("{:?}", self.klein_coords + displacement);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
-            outer_neighbors: [None; 4],
+            outer_neighbors: QuadIndexMap::default(),
+            side_neighbors: SideIndexMap::default(),
             klein_coords: self.klein_coords + displacement,
             voxel_width_factor: self.voxel_width_factor * scale_factor * 0.5,
-            boost: new_boost,
-        }
-    }
-
-    fn debug_isometry(&self, layout: &BltLayout) -> MIsometry<f32> {
-        let scale = layout.central_voxel_width
-            * layout.horizontal_size as f32
-            * self.voxel_width_factor
-            * 0.75;
-        let chunk_pos = na::Vector3::new(
-            scale,
-            scale,
-            layout.voxel_height * layout.outer_vertical_size as f32 * 2.0,
-        );
-        self.isometry_from_chunk(chunk_pos)
-    }
-
-    fn new_debug(&self, layout: &BltLayout) -> Self {
-        let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32 * 2.0;
-        let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
-        let displacement_scale = layout.central_voxel_width
-            * layout.horizontal_size as f32
-            * self.voxel_width_factor
-            * 0.75
-            / coshf(self.boost);
-        let displacement = na::Vector2::new(displacement_scale, displacement_scale);
-        println!("{:?}", self.klein_coords + displacement);
-        BltChunk {
-            inner_neighbor: None,
-            inner_neighbor_index: 3,
-            outer_neighbors: [None; 4],
-            klein_coords: self.klein_coords + displacement,
-            voxel_width_factor: self.voxel_width_factor * scale_factor * 0.25,
             boost: new_boost,
         }
     }
