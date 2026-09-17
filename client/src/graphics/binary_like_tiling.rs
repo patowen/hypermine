@@ -364,10 +364,16 @@ impl skid_steer::Source for SampleSurface {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 struct BltChunkId(u32);
 
-#[derive(Clone, Copy, Debug)]
+impl std::fmt::Debug for BltChunkId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+#[derive(Clone, Copy)]
 struct QuadIndex(u8);
 
 impl QuadIndex {
@@ -379,20 +385,30 @@ impl QuadIndex {
         (self.0 >> 1) & 1
     }
 
+    pub const VALUES: [Self; 4] = [QuadIndex(0), QuadIndex(1), QuadIndex(2), QuadIndex(3)];
+
     fn neighbor(self, side_index: SideIndex) -> QuadIndexNeighbor {
         QuadIndexNeighbor {
             index: QuadIndex(self.0 ^ (1 << side_index.coordinate())),
             different_inner_chunk: (self.0 >> side_index.coordinate()) & 1 == side_index.extreme(),
+            return_side: side_index.opposite(),
         }
+    }
+}
+
+impl std::fmt::Debug for QuadIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
     }
 }
 
 struct QuadIndexNeighbor {
     index: QuadIndex,
     different_inner_chunk: bool,
+    return_side: SideIndex,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct QuadIndexMap<T>([T; 4]);
 
 impl<T> std::ops::Index<QuadIndex> for QuadIndexMap<T> {
@@ -409,7 +425,13 @@ impl<T> std::ops::IndexMut<QuadIndex> for QuadIndexMap<T> {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+impl<T: std::fmt::Debug> std::fmt::Debug for QuadIndexMap<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+#[derive(Clone, Copy)]
 struct SideIndex(u8);
 
 impl SideIndex {
@@ -420,9 +442,21 @@ impl SideIndex {
     fn extreme(self) -> u8 {
         (self.0 >> 1) & 1
     }
+
+    fn opposite(self) -> Self {
+        SideIndex(self.0 ^ 2)
+    }
+
+    pub const VALUES: [Self; 4] = [SideIndex(0), SideIndex(1), SideIndex(2), SideIndex(3)];
 }
 
-#[derive(Default, Debug)]
+impl std::fmt::Debug for SideIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+#[derive(Default)]
 struct SideIndexMap<T>([T; 4]);
 
 impl<T> std::ops::Index<SideIndex> for SideIndexMap<T> {
@@ -439,6 +473,13 @@ impl<T> std::ops::IndexMut<SideIndex> for SideIndexMap<T> {
     }
 }
 
+impl<T: std::fmt::Debug> std::fmt::Debug for SideIndexMap<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(&self.0, f)
+    }
+}
+
+#[derive(Debug)]
 struct BltGraph {
     chunks: Vec<BltChunk>,
     root_chunk: BltChunkId,
@@ -467,7 +508,25 @@ impl BltGraph {
         let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index));
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
-        // TODO: Join sides
+        for side_index in SideIndex::VALUES {
+            let neighbor = index.neighbor(side_index);
+            if neighbor.different_inner_chunk {
+                if let Some(side_of_inner) = self.chunk(inner).side_neighbors[side_index]
+                    && let Some(side_of_outer) =
+                        self.chunk(side_of_inner).outer_neighbors[neighbor.index]
+                {
+                    self.chunk_mut(outer).side_neighbors[side_index] = Some(side_of_outer);
+                    self.chunk_mut(side_of_outer).side_neighbors[neighbor.return_side] =
+                        Some(outer);
+                }
+            } else {
+                if let Some(side_of_outer) = self.chunk(inner).outer_neighbors[neighbor.index] {
+                    self.chunk_mut(outer).side_neighbors[side_index] = Some(side_of_outer);
+                    self.chunk_mut(side_of_outer).side_neighbors[neighbor.return_side] =
+                        Some(outer);
+                }
+            }
+        }
         outer
     }
 
@@ -488,8 +547,7 @@ impl BltGraph {
         } else {
             parent
         };
-        self.ensure_outer(side_parent, neighbor.index);
-        unimplemented!();
+        Some(self.ensure_outer(side_parent, neighbor.index))
     }
 
     fn chunk(&self, chunk: BltChunkId) -> &BltChunk {
@@ -501,6 +559,7 @@ impl BltGraph {
     }
 }
 
+#[derive(Debug)]
 struct BltLayout {
     horizontal_size: u8,
     central_vertical_size: u8,
@@ -662,5 +721,23 @@ mod tests {
                 boost
             )
         );
+    }
+
+    #[test]
+    fn test_graph_structure() {
+        let mut graph = BltGraph::new();
+        let a = graph.ensure_outer(graph.root_chunk, QuadIndex(3));
+        let b = graph.ensure_outer(a, QuadIndex(0));
+        let c = graph.ensure_side(b, SideIndex(0));
+        for i in 0..graph.chunks.len() {
+            println!(
+                "{}: {{ inner_neighbor: {:?}, inner_neighbor_index: {:?}, outer_neighbors: {:?}, side_neighbors: {:?} }}",
+                i,
+                graph.chunks[i].inner_neighbor,
+                graph.chunks[i].inner_neighbor_index,
+                graph.chunks[i].outer_neighbors,
+                graph.chunks[i].side_neighbors
+            );
+        }
     }
 }
