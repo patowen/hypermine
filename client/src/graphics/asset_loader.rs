@@ -199,6 +199,10 @@ impl AssetLoader {
         }
     }
 
+    pub fn inner_loader(&self) -> &skid_steer::Loader {
+        &self.loader
+    }
+
     pub fn load<S: skid_steer::Source>(
         &self,
         source: S,

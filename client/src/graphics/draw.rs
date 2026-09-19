@@ -2,17 +2,13 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::vk;
-use common::graph::NodeId;
-use common::math::MVector;
 use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
-use crate::graphics::Mesh;
 use crate::graphics::asset_loader::AssetLoader;
-use crate::graphics::binary_like_tiling::SampleSurface;
-use crate::graphics::meshes::Vertex;
+use crate::graphics::binary_like_tiling::BltGraph;
 use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
@@ -56,7 +52,7 @@ pub struct Draw {
 
     /// Miscellany
     character_model: skid_steer::Asset<GltfScene>,
-    sample_surface: skid_steer::Asset<Mesh>,
+    blt_graph: BltGraph,
 
     /// Drives async asset loading
     asset_loader: AssetLoader, // TODO: Make code more robust by not requiring this to be defined last (due to Drop order)
@@ -210,7 +206,8 @@ impl Draw {
                 path: "character.glb".into(),
             });
 
-            let sample_surface = asset_loader.load(SampleSurface::new());
+            let mut blt_graph = BltGraph::new(asset_loader.inner_loader().clone());
+            blt_graph.initialize_for_test();
 
             Self {
                 gfx,
@@ -233,7 +230,7 @@ impl Draw {
                 yakui_vulkan,
 
                 character_model,
-                sample_surface,
+                blt_graph,
 
                 asset_loader,
             }
@@ -509,14 +506,15 @@ impl Draw {
                             }
                         }
                     }
-                    if node == NodeId::ROOT
-                        && let Some(sample_surface) = self.sample_surface.try_get()
-                    {
+                    for mesh in self.blt_graph.get_meshes(node) {
+                        let Some(mesh) = mesh.try_get() else {
+                            continue;
+                        };
                         self.meshes.draw(
                             device,
                             state.common_ds,
                             cmd,
-                            sample_surface,
+                            mesh,
                             &na::Matrix4::from(transform),
                         );
                     }

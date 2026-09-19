@@ -1,8 +1,15 @@
-use common::math::{MIsometry, MPoint, MVector, PermuteXYZ, sqr};
+use ash::vk;
+use common::{
+    graph::{Graph, NodeId},
+    math::{MIsometry, MPoint, MVector, PermuteXYZ, sqr},
+    proto::Position,
+    worldgen,
+};
+use fxhash::FxHashMap;
 use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
-    Mesh,
+    Mesh, Meshes,
     asset_loader::AssetLoadContext,
     meshes::{MeshGeometryDefinition, Vertex},
 };
@@ -306,45 +313,11 @@ fn add_voxel(
     }
 }
 
-pub struct SampleSurface {
+pub struct BltChunkSurface {
     pub geometry: MeshGeometryDefinition,
 }
 
-impl SampleSurface {
-    pub fn new() -> Self {
-        let mut graph = BltGraph::new();
-        let mut current_chunk = graph.root_chunk;
-        let mut current_transform = MIsometry::<f32>::identity();
-
-        let mut geometry = MeshGeometryDefinition {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-        };
-        for k in 0..3 {
-            for x in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
-                for y in (0..(graph.layout.horizontal_size as i32)).step_by(2) {
-                    for z in (0..(graph.layout.outer_vertical_size as i32)).step_by(2) {
-                        add_voxel(
-                            graph.chunk(current_chunk),
-                            &graph.layout,
-                            &current_transform,
-                            &mut geometry,
-                            na::Vector3::new(x, y, z),
-                        );
-                    }
-                }
-            }
-            let index = QuadIndex(3);
-            current_transform *= graph
-                .chunk(current_chunk)
-                .outer_isometry(&graph.layout, index);
-            current_chunk = graph.ensure_outer(current_chunk, index);
-        }
-        SampleSurface { geometry }
-    }
-}
-
-impl skid_steer::Source for SampleSurface {
+impl skid_steer::Source for BltChunkSurface {
     type Output = Mesh;
 
     async fn load<'a>(self, context: &'a skid_steer::Context<'a>) -> Option<Mesh> {
@@ -479,19 +452,37 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SideIndexMap<T> {
     }
 }
 
-#[derive(Debug)]
-struct BltGraph {
+pub struct BltGraph {
     chunks: Vec<BltChunk>,
     root_chunk: BltChunkId,
     layout: BltLayout,
+    meshes: FxHashMap<NodeId, Vec<skid_steer::Asset<Mesh>>>,
+    shadow_graph: Graph,
+    loader: skid_steer::Loader,
 }
 
 impl BltGraph {
-    fn new() -> Self {
-        BltGraph {
+    pub fn new(loader: skid_steer::Loader) -> Self {
+        let mut result = BltGraph {
             chunks: vec![BltChunk::new_central()],
             root_chunk: BltChunkId(0),
             layout: BltLayout::default(),
+            meshes: FxHashMap::default(),
+            shadow_graph: Graph::new(12),
+            loader,
+        };
+        result.init_chunk_mesh(result.root_chunk);
+        result
+    }
+
+    pub fn get_meshes(&self, node: NodeId) -> &[skid_steer::Asset<Mesh>] {
+        self.meshes.get(&node).map_or_default(|x| x.as_slice())
+    }
+
+    pub fn initialize_for_test(&mut self) {
+        let mut current = self.root_chunk;
+        for _ in 0..3 {
+            current = self.ensure_outer(current, QuadIndex(0));
         }
     }
 
@@ -501,11 +492,38 @@ impl BltGraph {
         id
     }
 
+    fn init_chunk_mesh(&mut self, chunk: BltChunkId) {
+        let mut geometry = MeshGeometryDefinition {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+        };
+        for x in (0..(self.layout.horizontal_size as i32)).step_by(2) {
+            for y in (0..(self.layout.horizontal_size as i32)).step_by(2) {
+                for z in (0..(self.layout.outer_vertical_size as i32)).step_by(2) {
+                    add_voxel(
+                        self.chunk(chunk),
+                        &self.layout,
+                        &self.chunk(chunk).position.local,
+                        &mut geometry,
+                        na::Vector3::new(x, y, z),
+                    );
+                }
+            }
+        }
+        self.meshes
+            .entry(self.chunk(chunk).position.node)
+            .or_default()
+            .push(self.loader.load(BltChunkSurface { geometry }));
+    }
+
     fn ensure_outer(&mut self, inner: BltChunkId, index: QuadIndex) -> BltChunkId {
         if let Some(outer) = self.chunk(inner).outer_neighbors[index] {
             return outer;
         }
-        let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index));
+        let mut position = self.chunk(inner).position;
+        // TODO: Need to change position's node, as well as expanding the graph. Also need additional parents for numerical stability
+        position.local *= self.chunk(inner).outer_isometry(&self.layout, index);
+        let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index, position));
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
         for side_index in SideIndex::VALUES {
@@ -527,6 +545,7 @@ impl BltGraph {
                 }
             }
         }
+        self.init_chunk_mesh(outer);
         outer
     }
 
@@ -589,6 +608,7 @@ struct BltChunk {
     klein_coords: na::Vector2<f32>,
     voxel_width_factor: f32,
     boost: f32,
+    position: Position,
 }
 
 impl BltChunk {
@@ -601,6 +621,7 @@ impl BltChunk {
             klein_coords: na::Vector2::zeros(),
             voxel_width_factor: 1.0,
             boost: 0.0,
+            position: Position::origin(),
         }
     }
 
@@ -640,7 +661,7 @@ impl BltChunk {
         result
     }
 
-    fn new_outer(&self, layout: &BltLayout, index: QuadIndex) -> Self {
+    fn new_outer(&self, layout: &BltLayout, index: QuadIndex, position: Position) -> Self {
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
         let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
         let displacement_scale = layout.central_voxel_width
@@ -661,6 +682,7 @@ impl BltChunk {
             klein_coords: self.klein_coords + displacement,
             voxel_width_factor: self.voxel_width_factor * scale_factor * 0.5,
             boost: new_boost,
+            position,
         }
     }
 }
@@ -725,7 +747,7 @@ mod tests {
 
     #[test]
     fn test_graph_structure() {
-        let mut graph = BltGraph::new();
+        let mut graph = BltGraph::new(skid_steer::Loader::new());
         let a = graph.ensure_outer(graph.root_chunk, QuadIndex(3));
         let b = graph.ensure_outer(a, QuadIndex(0));
         let c = graph.ensure_side(b, SideIndex(0));
