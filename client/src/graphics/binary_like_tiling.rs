@@ -117,6 +117,35 @@ fn chunk_to_pseudo_chunk(
     )
 }
 
+fn pseudo_chunk_to_chunk(
+    klein_coords: na::Vector2<f32>,
+    pseudo_chunk: na::Vector3<f32>,
+    boost: f32,
+) -> na::Vector3<f32> {
+    let origin = na::Vector3::new(klein_coords[0], klein_coords[1], 1.0);
+    let origin_norm = sqrtf(-(sqr(origin[0]) + sqr(origin[1]) - sqr(origin[2])));
+    let normalized_origin = origin / origin_norm;
+    let z = normalized_origin;
+    let mut y = z.cross(&na::Vector3::x());
+    y.z *= -1.0;
+    y /= sqrtf(sqr(y.x) + sqr(y.y) - sqr(y.z));
+    let mut x = y.cross(&z);
+    x.z *= -1.0;
+    let mut conversion = na::Matrix3::from_columns(&[x, y, z]).try_inverse().unwrap();
+    conversion *= na::Matrix3::new_translation(&klein_coords); // Applying skew
+
+    // This is equivalent (but numerically more stable) to `new_scale(coshf(boost)) * conversion * new_scale(1.0/coshf(boost))`
+    conversion[(2, 0)] /= coshf(boost);
+    conversion[(2, 1)] /= coshf(boost);
+
+    let horizontal_coords = conversion.try_inverse().unwrap() * pseudo_chunk.xy().push(1.0);
+    na::Vector3::new(
+        horizontal_coords.x / horizontal_coords.z,
+        horizontal_coords.y / horizontal_coords.z,
+        pseudo_chunk.z,
+    )
+}
+
 fn chunk_to_pseudo_chunk_partial_x(
     klein_coords: na::Vector2<f32>,
     chunk: na::Vector3<f32>,
@@ -895,6 +924,14 @@ mod tests {
         println!(
             "{:?}",
             pseudo_chunk_to_mvector_boosted(
+                chunk_to_pseudo_chunk(klein_coords, chunk, boost),
+                boost
+            )
+        );
+        println!(
+            "{:?}",
+            pseudo_chunk_to_chunk(
+                klein_coords,
                 chunk_to_pseudo_chunk(klein_coords, chunk, boost),
                 boost
             )
