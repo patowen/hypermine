@@ -1,7 +1,7 @@
-use ash::vk;
 use common::{
+    dodeca::Side,
     graph::{Graph, NodeId},
-    math::{MIsometry, MPoint, MVector, PermuteXYZ, sqr},
+    math::{MDirection, MIsometry, MPoint, MVector, PermuteXYZ, sqr},
     proto::Position,
     worldgen,
 };
@@ -9,7 +9,7 @@ use fxhash::FxHashMap;
 use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
-    Mesh, Meshes,
+    Mesh,
     asset_loader::AssetLoadContext,
     meshes::{MeshGeometryDefinition, Vertex},
 };
@@ -259,9 +259,7 @@ fn add_quad(
         .map(|(i, point)| {
             let len = geometry.vertices.len();
             geometry.vertices.push(Vertex {
-                position: common::dodeca::Side::A.reflection()
-                    * common::dodeca::Vertex::A.dual_to_node()
-                    * (transform * chunk.point_from_voxel(layout, point.cast())).tuv_to_xyz(1),
+                position: transform * chunk.point_from_voxel(layout, point.cast()),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
                 normal: common::math::MDirection::x(),
             });
@@ -480,9 +478,13 @@ impl BltGraph {
     }
 
     pub fn initialize_for_test(&mut self) {
-        let mut current = self.root_chunk;
+        let mut current = vec![self.root_chunk];
         for _ in 0..3 {
-            current = self.ensure_outer(current, QuadIndex(0));
+            for chunk in std::mem::take(&mut current) {
+                for i in 0..4 {
+                    current.push(self.ensure_outer(chunk, QuadIndex(i)));
+                }
+            }
         }
     }
 
@@ -521,8 +523,18 @@ impl BltGraph {
             return outer;
         }
         let mut position = self.chunk(inner).position;
-        // TODO: Need to change position's node, as well as expanding the graph. Also need additional parents for numerical stability
+        // TODO: Need additional parents for numerical stability
         position.local *= self.chunk(inner).outer_isometry(&self.layout, index);
+        'outer: loop {
+            for side in Side::iter() {
+                if side.is_facing(&(position.local * MPoint::origin())) {
+                    position.local = side.reflection() * position.local;
+                    position.node = self.shadow_graph.ensure_neighbor(position.node, side);
+                    continue 'outer;
+                }
+            }
+            break;
+        }
         let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index, position));
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
@@ -613,6 +625,12 @@ struct BltChunk {
 
 impl BltChunk {
     fn new_central() -> Self {
+        let initial_transform = common::dodeca::Side::A.reflection()
+            * common::dodeca::Vertex::A.dual_to_node()
+            * MIsometry::from_columns_unchecked(
+                &[MDirection::y(), MDirection::z(), MDirection::x()],
+                MPoint::w(),
+            );
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: QuadIndex(0),
@@ -621,7 +639,10 @@ impl BltChunk {
             klein_coords: na::Vector2::zeros(),
             voxel_width_factor: 1.0,
             boost: 0.0,
-            position: Position::origin(),
+            position: Position {
+                node: NodeId::ROOT,
+                local: initial_transform,
+            },
         }
     }
 
@@ -656,8 +677,8 @@ impl BltChunk {
 
     fn isometry_from_chunk(&self, chunk: na::Vector3<f32>) -> MIsometry<f32> {
         let result = chunk_to_isometry(self.klein_coords, chunk, self.boost);
-        println!("sanity check: {:?}", result.inverse() * result);
-        println!("result: {:?}", result);
+        // println!("sanity check: {:?}", result.inverse() * result);
+        // println!("result: {:?}", result);
         result
     }
 
@@ -673,7 +694,7 @@ impl BltChunk {
             displacement_scale * index.x() as f32,
             displacement_scale * index.y() as f32,
         );
-        println!("{:?}", self.klein_coords + displacement);
+        // println!("{:?}", self.klein_coords + displacement);
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: index,
