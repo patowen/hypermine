@@ -484,6 +484,7 @@ impl Draw {
             }
 
             if let Some(sim) = sim.as_deref() {
+                self.blt_graph.fill_radius(&sim.graph, view, 1.0);
                 for (node, transform) in nearby_nodes {
                     for &entity in sim.graph_entities.get(node) {
                         if sim.local_character == Some(entity) {

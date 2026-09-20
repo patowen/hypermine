@@ -1,10 +1,13 @@
+use std::collections::VecDeque;
+
 use common::{
     dodeca::Side,
     graph::{Graph, NodeId},
     math::{MDirection, MIsometry, MPoint, MVector, PermuteXYZ, sqr},
     proto::Position,
+    traversal,
 };
-use fxhash::FxHashMap;
+use fxhash::{FxHashMap, FxHashSet};
 use libm::{coshf, logf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
@@ -337,7 +340,7 @@ impl skid_steer::Source for BltChunkSurface {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct BltChunkId(u32);
 
 impl std::fmt::Debug for BltChunkId {
@@ -460,6 +463,7 @@ pub struct BltGraph {
     meshes: FxHashMap<NodeId, Vec<skid_steer::Asset<Mesh>>>,
     shadow_graph: Graph,
     loader: skid_steer::Loader,
+    current_chunk: BltChunkId,
 }
 
 impl BltGraph {
@@ -477,6 +481,7 @@ impl BltGraph {
             meshes: FxHashMap::default(),
             shadow_graph: Graph::new(12),
             loader,
+            current_chunk: BltChunkId(0),
         };
         result.root_chunk = result.new_chunk(
             BltChunk::new_central(),
@@ -485,12 +490,65 @@ impl BltGraph {
                 local: initial_transform,
             },
         );
+        result.current_chunk = result.root_chunk;
         result.init_chunk_mesh(result.root_chunk);
         result
     }
 
     pub fn get_meshes(&self, node: NodeId) -> &[skid_steer::Asset<Mesh>] {
         self.meshes.get(&node).map_or_default(|x| x.as_slice())
+    }
+
+    pub fn fill_radius(&mut self, external_graph: &Graph, mut position: Position, radius: f32) {
+        // Note: For simplicity, we fill up to one chunk past the radius, since the logic can be that
+        // if we're still within the radius, we continue to expand.
+        let mut best_chunk = self.current_chunk;
+        let mut best_chunk_cosh_distance = f32::INFINITY;
+
+        while !self.shadow_graph.contains(position.node) {
+            let side = external_graph.primary_parent_side(position.node).expect("not root");
+            position.node = external_graph.neighbor(position.node, side).expect("parent");
+            position.local = side.reflection() * position.local;
+        }
+
+        traversal::ensure_nearby(&mut self.shadow_graph, &position, radius);
+        let valid_shadow_nodes: FxHashMap<NodeId, MIsometry<f32>> =
+            traversal::nearby_nodes(&self.shadow_graph, &position, radius)
+                .into_iter()
+                .collect();
+
+        let mut pending = VecDeque::<BltChunkId>::new();
+        let mut visited: FxHashSet<BltChunkId> = FxHashSet::default();
+
+        pending.push_back(self.current_chunk);
+        visited.insert(self.current_chunk);
+
+        while let Some(blt_chunk_id) = pending.pop_front() {
+            let Some(transform) = valid_shadow_nodes.get(&self.chunk_position(blt_chunk_id).node)
+            else {
+                continue;
+            };
+            if transform.m44 < best_chunk_cosh_distance {
+                best_chunk_cosh_distance = transform.m44;
+                best_chunk = blt_chunk_id;
+            }
+            for i in QuadIndex::VALUES {
+                let neighbor = self.ensure_outer(blt_chunk_id, i);
+                if visited.insert(neighbor) {
+                    pending.push_back(neighbor);
+                }
+            }
+            for i in SideIndex::VALUES {
+                let Some(neighbor) = self.ensure_side(blt_chunk_id, i) else {
+                    continue;
+                };
+                if visited.insert(neighbor) {
+                    pending.push_back(neighbor);
+                }
+            }
+        }
+
+        self.current_chunk = best_chunk
     }
 
     pub fn initialize_for_test(&mut self) {
