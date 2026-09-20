@@ -169,6 +169,27 @@ fn pseudo_chunk_to_mvector_boosted(pseudo_chunk: na::Vector3<f32>, boost: f32) -
     )
 }
 
+fn point_to_pseudo_chunk_boosted(point: MPoint<f32>, boost: f32) -> na::Vector3<f32> {
+    /*
+    In simple mode:
+        sinh(Z) = point.mip([0, 0, 1, 0])
+    In full mode:
+        sinh(Z+boost) = point.mip([0, 0, cosh(boost), -sinh(boost)])
+        cosh(Z)sinh(boost) + sinh(Z)cosh(boost) = point.z * cosh(boost) + point.w * sinh(boost)
+        cosh(Z)tanh(boost) + sinh(Z) = point.z + point.w * tanh(boost)
+    */
+    let tanhf_boost = tanhf(boost);
+    let point_mip_up = point.z + point.w * tanhf(boost);
+    let z = logf(
+        (point_mip_up + sqrtf(sqr(point_mip_up) - sqr(tanhf_boost) + 1.0)) / (tanhf_boost + 1.0),
+    );
+    let squared_xy_dist_times_factor =
+        (sqr(point.x) + sqr(point.y)) / sqr(coshf(z) + sinhf(z) * tanhf(boost));
+    let squared_xy_dist = 1.0 / (1.0 / squared_xy_dist_times_factor + 1.0 / sqr(coshf(boost)));
+    let restoring_factor = sqrtf(squared_xy_dist / (sqr(point.x) + sqr(point.y)));
+    na::Vector3::new(point.x * restoring_factor, point.y * restoring_factor, z)
+}
+
 fn pseudo_chunk_to_mvector_boosted_partial_x(
     pseudo_chunk: na::Vector3<f32>,
     boost: f32,
@@ -506,8 +527,12 @@ impl BltGraph {
         let mut best_chunk_cosh_distance = f32::INFINITY;
 
         while !self.shadow_graph.contains(position.node) {
-            let side = external_graph.primary_parent_side(position.node).expect("not root");
-            position.node = external_graph.neighbor(position.node, side).expect("parent");
+            let side = external_graph
+                .primary_parent_side(position.node)
+                .expect("not root");
+            position.node = external_graph
+                .neighbor(position.node, side)
+                .expect("parent");
             position.local = side.reflection() * position.local;
         }
 
@@ -835,9 +860,11 @@ mod tests {
                     boost + example.z
                 ))
         );
+        let boosted_result = pseudo_chunk_to_mvector_boosted(example, boost);
+        println!("boosted: {:?}", boosted_result);
         println!(
-            "boosted: {:?}",
-            pseudo_chunk_to_mvector_boosted(example, boost)
+            "Getting back original coordinates: {:?}",
+            point_to_pseudo_chunk_boosted(boosted_result.to_point_unchecked(), boost)
         );
 
         println!(
