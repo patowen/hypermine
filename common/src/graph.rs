@@ -44,6 +44,16 @@ impl Graph {
         self.nodes.contains_key(&node)
     }
 
+    pub fn debug_node_path(&self, mut node: NodeId) -> Vec<Side> {
+        let mut path = vec![];
+        while let Some(side) = self.primary_parent_side(node) {
+            path.push(side);
+            node = self.neighbor(node, side).unwrap();
+        }
+        path.reverse();
+        path
+    }
+
     /// Node and vertex that the cube around a certain vertex is canonically assigned to.
     ///
     /// Each cube is said to be canonically assigned to node it touches that is closest to the root.

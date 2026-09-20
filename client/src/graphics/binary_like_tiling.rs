@@ -605,6 +605,108 @@ impl BltGraph {
         self.current_chunk = best_chunk
     }
 
+    pub fn ensure_position(&mut self, mut position: Position, external_graph: &Graph) {
+        println!(
+            "initial: {:?}: {:?}",
+            external_graph.debug_node_path(position.node),
+            position.local * MPoint::origin()
+        );
+        while !self.shadow_graph.contains(position.node) {
+            let side = external_graph
+                .primary_parent_side(position.node)
+                .expect("not root");
+            position.node = external_graph
+                .neighbor(position.node, side)
+                .expect("parent");
+            position.local = side.reflection() * position.local;
+        }
+        println!(
+            "shadow: {:?}: {:?}",
+            self.shadow_graph.debug_node_path(position.node),
+            position.local * MPoint::origin()
+        );
+        let radius = 4.0;
+        for (node, transform) in traversal::nearby_nodes(&self.shadow_graph, &position, radius) {
+            if node == self.chunk_position(self.current_chunk).node {
+                position.node = node;
+                position.local = transform.inverse() * position.local;
+            }
+        }
+        if position.node != self.chunk_position(self.current_chunk).node {
+            tracing::warn!("Could not find where position is relative to current_chunk");
+            return;
+        }
+        println!(
+            "matching: {:?}: {:?}",
+            self.shadow_graph.debug_node_path(position.node),
+            position.local * MPoint::origin()
+        );
+        let mut point = self.chunk_position(self.current_chunk).local.inverse()
+            * position.local
+            * MPoint::origin();
+        for i in 0..10 {
+            let voxel = self
+                .chunk(self.current_chunk)
+                .voxel_from_point(&self.layout, point);
+            println!("{:?} -> {:?}", point, voxel);
+            if voxel.x < -0.5
+                && let Some(new_chunk) = self.ensure_side(self.current_chunk, SideIndex(0))
+            {
+                point = self
+                    .chunk(self.current_chunk)
+                    .side_isometry(&self.layout, SideIndex(0))
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
+            } else if voxel.y < -0.5
+                && let Some(new_chunk) = self.ensure_side(self.current_chunk, SideIndex(1))
+            {
+                point = self
+                    .chunk(self.current_chunk)
+                    .side_isometry(&self.layout, SideIndex(1))
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
+            } else if voxel.x > self.layout.horizontal_size as f32 + 0.5
+                && let Some(new_chunk) = self.ensure_side(self.current_chunk, SideIndex(2))
+            {
+                point = self
+                    .chunk(self.current_chunk)
+                    .side_isometry(&self.layout, SideIndex(2))
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
+            } else if voxel.y > self.layout.horizontal_size as f32 + 0.5
+                && let Some(new_chunk) = self.ensure_side(self.current_chunk, SideIndex(3))
+            {
+                point = self
+                    .chunk(self.current_chunk)
+                    .side_isometry(&self.layout, SideIndex(3))
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
+            } else if voxel.z > self.layout.outer_vertical_size as f32 + 0.5 {
+                let x_beyond = voxel.x > self.layout.horizontal_size as f32 * 0.5;
+                let y_beyond = voxel.y > self.layout.horizontal_size as f32 * 0.5;
+                let quad_index =
+                    QuadIndex((if x_beyond { 1 } else { 0 }) | (if y_beyond { 2 } else { 0 }));
+                let new_chunk = self.ensure_outer(self.current_chunk, quad_index);
+                point = self
+                    .chunk(self.current_chunk)
+                    .outer_isometry(&self.layout, quad_index)
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
+            } else {
+                println!("Done ensuring position");
+                break;
+            }
+            if i == 9 {
+                tracing::warn!("Taking longer than expected to reach position");
+            }
+        }
+    }
+
     pub fn initialize_for_test(&mut self) {
         let mut current = vec![self.root_chunk];
         for _ in 0..3 {
@@ -803,6 +905,15 @@ impl BltChunk {
         ))
     }
 
+    fn voxel_from_point(&self, layout: &BltLayout, point: MPoint<f32>) -> na::Vector3<f32> {
+        let chunk = self.chunk_from_point(layout, point);
+        na::Vector3::new(
+            chunk[0] / (layout.central_voxel_width * self.voxel_width_factor),
+            chunk[1] / (layout.central_voxel_width * self.voxel_width_factor),
+            chunk[2] / layout.voxel_height,
+        )
+    }
+
     fn center_point(&self, layout: &BltLayout) -> MPoint<f32> {
         self.point_from_chunk(na::Vector3::new(
             layout.horizontal_size as f32
@@ -825,6 +936,14 @@ impl BltChunk {
         .to_point_unchecked()
     }
 
+    fn chunk_from_point(&self, layout: &BltLayout, point: MPoint<f32>) -> na::Vector3<f32> {
+        pseudo_chunk_to_chunk(
+            self.klein_coords,
+            point_to_pseudo_chunk_boosted(point, self.boost),
+            self.boost,
+        )
+    }
+
     fn outer_isometry(&self, layout: &BltLayout, index: QuadIndex) -> MIsometry<f32> {
         let scale = layout.central_voxel_width
             * layout.horizontal_size as f32
@@ -836,6 +955,20 @@ impl BltChunk {
             layout.voxel_height * layout.outer_vertical_size as f32,
         );
         self.isometry_from_chunk(chunk_pos)
+    }
+
+    fn side_isometry(&self, layout: &BltLayout, index: SideIndex) -> MIsometry<f32> {
+        let chunk_coord = (if index.extreme() == 0 { -1.0 } else { 1.0 })
+            * layout.central_voxel_width
+            * layout.horizontal_size as f32
+            * self.voxel_width_factor;
+        self.isometry_from_chunk(
+            (if index.coordinate() == 0 {
+                na::Vector3::x()
+            } else {
+                na::Vector3::y()
+            }) * chunk_coord,
+        )
     }
 
     fn isometry_from_chunk(&self, chunk: na::Vector3<f32>) -> MIsometry<f32> {
