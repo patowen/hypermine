@@ -451,7 +451,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SideIndexMap<T> {
 }
 
 pub struct BltGraph {
-    chunks: Vec<BltChunk>,
+    chunks: Vec<BltChunkWithPosition>,
     root_chunk: BltChunkId,
     layout: BltLayout,
     meshes: FxHashMap<NodeId, Vec<skid_steer::Asset<Mesh>>>,
@@ -461,14 +461,27 @@ pub struct BltGraph {
 
 impl BltGraph {
     pub fn new(loader: skid_steer::Loader) -> Self {
+        let initial_transform = common::dodeca::Side::A.reflection()
+            * common::dodeca::Vertex::A.dual_to_node()
+            * MIsometry::from_columns_unchecked(
+                &[MDirection::y(), MDirection::z(), MDirection::x()],
+                MPoint::w(),
+            );
         let mut result = BltGraph {
-            chunks: vec![BltChunk::new_central()],
+            chunks: Vec::new(),
             root_chunk: BltChunkId(0),
             layout: BltLayout::default(),
             meshes: FxHashMap::default(),
             shadow_graph: Graph::new(12),
             loader,
         };
+        result.root_chunk = result.new_chunk(
+            BltChunk::new_central(),
+            Position {
+                node: NodeId::ROOT,
+                local: initial_transform,
+            },
+        );
         result.init_chunk_mesh(result.root_chunk);
         result
     }
@@ -488,9 +501,14 @@ impl BltGraph {
         }
     }
 
-    fn new_chunk(&mut self, chunk: BltChunk) -> BltChunkId {
+    fn new_chunk(&mut self, chunk: BltChunk, input_position: Position) -> BltChunkId {
         let id = BltChunkId(self.chunks.len() as u32);
-        self.chunks.push(chunk);
+        self.chunks.push(BltChunkWithPosition::from_chunk(
+            chunk,
+            &self.layout,
+            input_position,
+            &mut self.shadow_graph,
+        ));
         id
     }
 
@@ -505,7 +523,7 @@ impl BltGraph {
                     add_voxel(
                         self.chunk(chunk),
                         &self.layout,
-                        &self.chunk(chunk).position.local,
+                        &self.chunk_position(chunk).local,
                         &mut geometry,
                         na::Vector3::new(x, y, z),
                     );
@@ -513,7 +531,7 @@ impl BltGraph {
             }
         }
         self.meshes
-            .entry(self.chunk(chunk).position.node)
+            .entry(self.chunk_position(chunk).node)
             .or_default()
             .push(self.loader.load(BltChunkSurface { geometry }));
     }
@@ -522,20 +540,10 @@ impl BltGraph {
         if let Some(outer) = self.chunk(inner).outer_neighbors[index] {
             return outer;
         }
-        let mut position = self.chunk(inner).position;
+        let mut position = *self.chunk_position(inner);
         // TODO: Need additional parents for numerical stability
         position.local *= self.chunk(inner).outer_isometry(&self.layout, index);
-        'outer: loop {
-            for side in Side::iter() {
-                if side.is_facing(&(position.local * MPoint::origin())) {
-                    position.local = side.reflection() * position.local;
-                    position.node = self.shadow_graph.ensure_neighbor(position.node, side);
-                    continue 'outer;
-                }
-            }
-            break;
-        }
-        let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index, position));
+        let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index), position);
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
         for side_index in SideIndex::VALUES {
@@ -582,11 +590,15 @@ impl BltGraph {
     }
 
     fn chunk(&self, chunk: BltChunkId) -> &BltChunk {
-        &self.chunks[chunk.0 as usize]
+        &self.chunks[chunk.0 as usize].chunk
+    }
+
+    fn chunk_position(&self, chunk: BltChunkId) -> &Position {
+        &self.chunks[chunk.0 as usize].position
     }
 
     fn chunk_mut(&mut self, chunk: BltChunkId) -> &mut BltChunk {
-        &mut self.chunks[chunk.0 as usize]
+        &mut self.chunks[chunk.0 as usize].chunk
     }
 }
 
@@ -612,6 +624,36 @@ impl Default for BltLayout {
 }
 
 #[derive(Debug)]
+struct BltChunkWithPosition {
+    chunk: BltChunk,
+    position: Position,
+}
+
+impl BltChunkWithPosition {
+    pub fn from_chunk(
+        chunk: BltChunk,
+        layout: &BltLayout,
+        input_position: Position,
+        shadow_graph: &mut Graph,
+    ) -> Self {
+        let mut position = input_position;
+        let center_point = chunk.center_point(layout);
+        // TODO: Need additional parents for numerical stability
+        'outer: loop {
+            for side in Side::iter() {
+                if side.is_facing(&(position.local * center_point)) {
+                    position.local = side.reflection() * position.local;
+                    position.node = shadow_graph.ensure_neighbor(position.node, side);
+                    continue 'outer;
+                }
+            }
+            break;
+        }
+        BltChunkWithPosition { chunk, position }
+    }
+}
+
+#[derive(Debug)]
 struct BltChunk {
     inner_neighbor: Option<BltChunkId>,
     inner_neighbor_index: QuadIndex,
@@ -620,17 +662,10 @@ struct BltChunk {
     klein_coords: na::Vector2<f32>,
     voxel_width_factor: f32,
     boost: f32,
-    position: Position,
 }
 
 impl BltChunk {
     fn new_central() -> Self {
-        let initial_transform = common::dodeca::Side::A.reflection()
-            * common::dodeca::Vertex::A.dual_to_node()
-            * MIsometry::from_columns_unchecked(
-                &[MDirection::y(), MDirection::z(), MDirection::x()],
-                MPoint::w(),
-            );
         BltChunk {
             inner_neighbor: None,
             inner_neighbor_index: QuadIndex(0),
@@ -639,10 +674,6 @@ impl BltChunk {
             klein_coords: na::Vector2::zeros(),
             voxel_width_factor: 1.0,
             boost: 0.0,
-            position: Position {
-                node: NodeId::ROOT,
-                local: initial_transform,
-            },
         }
     }
 
@@ -651,6 +682,20 @@ impl BltChunk {
             voxel_coords[0] * layout.central_voxel_width * self.voxel_width_factor,
             voxel_coords[1] * layout.central_voxel_width * self.voxel_width_factor,
             voxel_coords[2] * layout.voxel_height,
+        ))
+    }
+
+    fn center_point(&self, layout: &BltLayout) -> MPoint<f32> {
+        self.point_from_chunk(na::Vector3::new(
+            layout.horizontal_size as f32
+                * 0.5
+                * layout.central_voxel_width
+                * self.voxel_width_factor,
+            layout.horizontal_size as f32
+                * 0.5
+                * layout.central_voxel_width
+                * self.voxel_width_factor,
+            layout.outer_vertical_size as f32 * 0.5 * layout.voxel_height,
         ))
     }
 
@@ -682,7 +727,7 @@ impl BltChunk {
         result
     }
 
-    fn new_outer(&self, layout: &BltLayout, index: QuadIndex, position: Position) -> Self {
+    fn new_outer(&self, layout: &BltLayout, index: QuadIndex) -> Self {
         let new_boost = self.boost + layout.voxel_height * layout.outer_vertical_size as f32;
         let scale_factor = coshf(new_boost) / coshf(self.boost); // Make computation numerically table
         let displacement_scale = layout.central_voxel_width
@@ -703,7 +748,6 @@ impl BltChunk {
             klein_coords: self.klein_coords + displacement,
             voxel_width_factor: self.voxel_width_factor * scale_factor * 0.5,
             boost: new_boost,
-            position,
         }
     }
 }
@@ -772,14 +816,14 @@ mod tests {
         let a = graph.ensure_outer(graph.root_chunk, QuadIndex(3));
         let b = graph.ensure_outer(a, QuadIndex(0));
         let c = graph.ensure_side(b, SideIndex(0));
-        for i in 0..graph.chunks.len() {
+        for i in 0..(graph.chunks.len() as u32) {
             println!(
                 "{}: {{ inner_neighbor: {:?}, inner_neighbor_index: {:?}, outer_neighbors: {:?}, side_neighbors: {:?} }}",
                 i,
-                graph.chunks[i].inner_neighbor,
-                graph.chunks[i].inner_neighbor_index,
-                graph.chunks[i].outer_neighbors,
-                graph.chunks[i].side_neighbors
+                graph.chunk(BltChunkId(i)).inner_neighbor,
+                graph.chunk(BltChunkId(i)).inner_neighbor_index,
+                graph.chunk(BltChunkId(i)).outer_neighbors,
+                graph.chunk(BltChunkId(i)).side_neighbors
             );
         }
     }
