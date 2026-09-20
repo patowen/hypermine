@@ -3,10 +3,9 @@ use common::{
     graph::{Graph, NodeId},
     math::{MDirection, MIsometry, MPoint, MVector, PermuteXYZ, sqr},
     proto::Position,
-    worldgen,
 };
 use fxhash::FxHashMap;
-use libm::{coshf, logf, powf, sinhf, sqrtf, tanhf};
+use libm::{coshf, logf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
     Mesh,
@@ -14,6 +13,7 @@ use crate::graphics::{
     meshes::{MeshGeometryDefinition, Vertex},
 };
 
+#[cfg(test)]
 fn pseudo_chunk_to_mvector_simple(pseudo_chunk: na::Vector3<f32>) -> MVector<f32> {
     let factor = 1.0 / sqrtf(1.0 - sqr(pseudo_chunk.x) - sqr(pseudo_chunk.y));
     //MVector::new(voxel.x, voxel.y, factor * tanhf(voxel.z), 1.0)
@@ -27,6 +27,7 @@ fn pseudo_chunk_to_mvector_simple(pseudo_chunk: na::Vector3<f32>) -> MVector<f32
     )
 }
 
+#[cfg(test)]
 fn pseudo_chunk_to_isometry(pseudo_chunk: na::Vector3<f32>, boost: f32) -> MIsometry<f32> {
     let w = pseudo_chunk_to_mvector_boosted(pseudo_chunk, boost).to_point_unchecked();
     let x = pseudo_chunk_to_mvector_boosted_partial_x(pseudo_chunk, boost).normalized_direction();
@@ -59,6 +60,7 @@ fn chunk_to_isometry(
     MIsometry::from_columns_unchecked(&[x, y, z], w)
 }
 
+#[cfg(test)]
 fn chunk_to_mvector_simple(
     klein_coords: na::Vector2<f32>,
     chunk: na::Vector3<f32>,
@@ -175,7 +177,7 @@ fn pseudo_chunk_to_mvector_boosted_partial_x(
     let factor_radicand_partial_x = -dist_squared_partial_x / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
     let factor_partial_x = -0.5 * factor_radicand_partial_x * factor / factor_radicand;
-    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
+    //let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     let scaled_factor_delta_partial_x = (dist_squared_partial_x
         * (factor_radicand + sqrtf(factor_radicand))
         - dist_squared
@@ -206,7 +208,7 @@ fn pseudo_chunk_to_mvector_boosted_partial_y(
     let factor_radicand_partial_y = -dist_squared_partial_y / sqr(coshf(boost));
     let factor = 1.0 / sqrtf(factor_radicand);
     let factor_partial_y = -0.5 * factor_radicand_partial_y * factor / factor_radicand;
-    let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
+    //let scaled_factor_delta = dist_squared / (factor_radicand + sqrtf(factor_radicand));
     let scaled_factor_delta_partial_y = (dist_squared_partial_y
         * (factor_radicand + sqrtf(factor_radicand))
         - dist_squared
@@ -356,6 +358,7 @@ impl QuadIndex {
         (self.0 >> 1) & 1
     }
 
+    #[allow(unused)]
     pub const VALUES: [Self; 4] = [QuadIndex(0), QuadIndex(1), QuadIndex(2), QuadIndex(3)];
 
     fn neighbor(self, side_index: SideIndex) -> QuadIndexNeighbor {
@@ -569,6 +572,7 @@ impl BltGraph {
         outer
     }
 
+    #[allow(unused)]
     fn ensure_side(&mut self, current: BltChunkId, side_index: SideIndex) -> Option<BltChunkId> {
         if let Some(side) = self.chunk(current).side_neighbors[side_index] {
             return Some(side);
@@ -605,6 +609,7 @@ impl BltGraph {
 #[derive(Debug)]
 struct BltLayout {
     horizontal_size: u8,
+    #[allow(unused)]
     central_vertical_size: u8,
     outer_vertical_size: u8,
     central_voxel_width: f32,
@@ -656,6 +661,7 @@ impl BltChunkWithPosition {
 #[derive(Debug)]
 struct BltChunk {
     inner_neighbor: Option<BltChunkId>,
+    #[allow(unused)]
     inner_neighbor_index: QuadIndex,
     outer_neighbors: QuadIndexMap<Option<BltChunkId>>,
     side_neighbors: SideIndexMap<Option<BltChunkId>>, // Most significant bit: extreme. Least significant bit: axis
@@ -815,7 +821,7 @@ mod tests {
         let mut graph = BltGraph::new(skid_steer::Loader::new());
         let a = graph.ensure_outer(graph.root_chunk, QuadIndex(3));
         let b = graph.ensure_outer(a, QuadIndex(0));
-        let c = graph.ensure_side(b, SideIndex(0));
+        let _c = graph.ensure_side(b, SideIndex(0));
         for i in 0..(graph.chunks.len() as u32) {
             println!(
                 "{}: {{ inner_neighbor: {:?}, inner_neighbor_index: {:?}, outer_neighbors: {:?}, side_neighbors: {:?} }}",
