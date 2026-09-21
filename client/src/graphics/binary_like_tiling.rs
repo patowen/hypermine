@@ -606,11 +606,11 @@ impl BltGraph {
     }
 
     pub fn ensure_position(&mut self, mut position: Position, external_graph: &Graph) {
-        println!(
+        /*println!(
             "initial: {:?}: {:?}",
             external_graph.debug_node_path(position.node),
             position.local * MPoint::origin()
-        );
+        );*/
         while !self.shadow_graph.contains(position.node) {
             let side = external_graph
                 .primary_parent_side(position.node)
@@ -620,11 +620,11 @@ impl BltGraph {
                 .expect("parent");
             position.local = side.reflection() * position.local;
         }
-        println!(
+        /*println!(
             "shadow: {:?}: {:?}",
             self.shadow_graph.debug_node_path(position.node),
             position.local * MPoint::origin()
-        );
+        );*/
         let radius = 4.0;
         for (node, transform) in traversal::nearby_nodes(&self.shadow_graph, &position, radius) {
             if node == self.chunk_position(self.current_chunk).node {
@@ -636,11 +636,11 @@ impl BltGraph {
             tracing::warn!("Could not find where position is relative to current_chunk");
             return;
         }
-        println!(
+        /*println!(
             "matching: {:?}: {:?}",
             self.shadow_graph.debug_node_path(position.node),
             position.local * MPoint::origin()
-        );
+        );*/
         let mut point = self.chunk_position(self.current_chunk).local.inverse()
             * position.local
             * MPoint::origin();
@@ -648,7 +648,7 @@ impl BltGraph {
             let voxel = self
                 .chunk(self.current_chunk)
                 .voxel_from_point(&self.layout, point);
-            println!("{:?} -> {:?}", point, voxel);
+            //println!("{:?} -> {:?}", point, voxel);
             if voxel.x < -0.5
                 && let Some(new_chunk) = self.ensure_side(self.current_chunk, SideIndex(0))
             {
@@ -698,7 +698,6 @@ impl BltGraph {
                     * point;
                 self.current_chunk = new_chunk;
             } else {
-                println!("Done ensuring position");
                 break;
             }
             if i == 9 {
