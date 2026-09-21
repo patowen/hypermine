@@ -352,7 +352,10 @@ impl QueueDriver {
                     .get_semaphore_counter_value(self.queue_unpark_semaphore)
                     .unwrap()
             };
-            unsafe { self.queue.drive(&self.gfx.device) };
+            {
+                let _queue_lock = self.gfx.queue_lock.lock().unwrap();
+                unsafe { self.queue.drive(&self.gfx.device) };
+            }
             if self.queue_shutdown_token.is_cancelled() {
                 break;
             }

@@ -4,7 +4,7 @@ use ash::ext::debug_utils;
 use common::Anonymize;
 use std::ffi::{CStr, c_char};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::{fs, io};
 use tracing::{error, info, trace, warn};
 
@@ -25,6 +25,7 @@ pub struct Base {
     pub queue_family: u32,
     /// The queue used for graphics and presentation
     pub queue: vk::Queue,
+    pub queue_lock: Mutex<()>,
     /// Information about the types of device-visible memory that can be allocated
     pub memory_properties: vk::PhysicalDeviceMemoryProperties,
     /// Cache used to speed up graphics pipeline construction
@@ -245,6 +246,7 @@ impl Base {
                 device,
                 queue_family: queue_family_index,
                 queue,
+                queue_lock: Mutex::new(()),
                 memory_properties,
                 pipeline_cache,
                 render_pass,

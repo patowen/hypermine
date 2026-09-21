@@ -496,6 +496,7 @@ impl SwapchainMgr {
     /// Present a frame on the window
     unsafe fn queue_present(&self, index: u32) -> Result<bool, vk::Result> {
         unsafe {
+            let _queue_lock = self.state.gfx.queue_lock.lock().unwrap();
             self.state.swapchain_fn.queue_present(
                 self.state.gfx.queue,
                 &vk::PresentInfoKHR::default()

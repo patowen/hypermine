@@ -557,20 +557,25 @@ impl Draw {
             });
 
             // Submit the commands to the GPU
-            device
-                .queue_submit(
-                    self.gfx.queue,
-                    &[
-                        vk::SubmitInfo::default()
-                            .command_buffers(&[cmd])
-                            .wait_semaphores(&[state.image_acquired])
-                            .wait_dst_stage_mask(&[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT])
-                            .signal_semaphores(&[present]),
-                        vk::SubmitInfo::default().command_buffers(&[state.post_cmd]),
-                    ],
-                    state.fence,
-                )
-                .unwrap();
+            {
+                let _queue_lock = self.gfx.queue_lock.lock().unwrap();
+                device
+                    .queue_submit(
+                        self.gfx.queue,
+                        &[
+                            vk::SubmitInfo::default()
+                                .command_buffers(&[cmd])
+                                .wait_semaphores(&[state.image_acquired])
+                                .wait_dst_stage_mask(&[
+                                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                                ])
+                                .signal_semaphores(&[present]),
+                            vk::SubmitInfo::default().command_buffers(&[state.post_cmd]),
+                        ],
+                        state.fence,
+                    )
+                    .unwrap();
+            }
             self.yakui_vulkan.transfers_submitted();
             state.used = true;
             state.in_flight = true;
