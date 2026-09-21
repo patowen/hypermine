@@ -697,22 +697,20 @@ impl BltGraph {
                     .inverse()
                     * point;
                 self.current_chunk = new_chunk;
+            } else if voxel.z < -0.5
+                && let Some(new_chunk) = self.chunk(self.current_chunk).inner_neighbor
+            {
+                point = self
+                    .chunk(self.current_chunk)
+                    .inner_isometry(&self.layout)
+                    .inverse()
+                    * point;
+                self.current_chunk = new_chunk;
             } else {
                 break;
             }
             if i == 9 {
                 tracing::warn!("Taking longer than expected to reach position");
-            }
-        }
-    }
-
-    pub fn initialize_for_test(&mut self) {
-        let mut current = vec![self.root_chunk];
-        for _ in 0..3 {
-            for chunk in std::mem::take(&mut current) {
-                for i in 0..4 {
-                    current.push(self.ensure_outer(chunk, QuadIndex(i)));
-                }
             }
         }
     }
@@ -759,6 +757,7 @@ impl BltGraph {
         let mut position = *self.chunk_position(inner);
         // TODO: Need additional parents for numerical stability
         position.local *= self.chunk(inner).outer_isometry(&self.layout, index);
+        position.local = position.local.renormalized();
         let outer = self.new_chunk(self.chunk(inner).new_outer(&self.layout, index), position);
         self.chunk_mut(inner).outer_neighbors[index] = Some(outer);
         self.chunk_mut(outer).inner_neighbor = Some(inner);
@@ -941,6 +940,18 @@ impl BltChunk {
             point_to_pseudo_chunk_boosted(point, self.boost),
             self.boost,
         )
+    }
+
+    fn inner_isometry(&self, layout: &BltLayout) -> MIsometry<f32> {
+        let scale =
+            -layout.central_voxel_width * layout.horizontal_size as f32 * self.voxel_width_factor;
+        let index = self.inner_neighbor_index;
+        let chunk_pos = na::Vector3::new(
+            scale * index.x() as f32,
+            scale * index.y() as f32,
+            -layout.voxel_height * layout.outer_vertical_size as f32,
+        );
+        self.isometry_from_chunk(chunk_pos)
     }
 
     fn outer_isometry(&self, layout: &BltLayout, index: QuadIndex) -> MIsometry<f32> {

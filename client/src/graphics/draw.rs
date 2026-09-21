@@ -206,8 +206,7 @@ impl Draw {
                 path: "character.glb".into(),
             });
 
-            let mut blt_graph = BltGraph::new(asset_loader.inner_loader().clone());
-            blt_graph.initialize_for_test();
+            let blt_graph = BltGraph::new(asset_loader.inner_loader().clone());
 
             Self {
                 gfx,
