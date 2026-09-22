@@ -206,6 +206,11 @@ impl Window {
                     },
                 ..
             } => match key {
+                KeyCode::KeyT if state == ElementState::Pressed => {
+                    if let Some(sim) = self.sim.as_mut() {
+                        sim.toggle_show_terrain();
+                    }
+                }
                 KeyCode::KeyW => {
                     self.input.forward = state == ElementState::Pressed;
                 }

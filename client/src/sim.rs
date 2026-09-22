@@ -79,6 +79,7 @@ pub struct Sim {
 
     prediction: PredictedMotion,
     local_character_controller: LocalCharacterController,
+    pub show_terrain: bool,
 }
 
 impl Sim {
@@ -116,7 +117,12 @@ impl Sim {
                 local: MIsometry::identity(),
             }),
             local_character_controller: LocalCharacterController::new(),
+            show_terrain: true,
         }
+    }
+
+    pub fn toggle_show_terrain(&mut self) {
+        self.show_terrain = !self.show_terrain;
     }
 
     /// Rotates the camera's view in a context-dependent manner based on the desired yaw and pitch angles.

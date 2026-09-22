@@ -478,7 +478,10 @@ impl Draw {
             device.cmd_set_scissor(cmd, 0, &scissors);
 
             // Record the actual rendering commands
-            if let Some(ref mut voxels) = self.voxels {
+            if let Some(ref mut voxels) = self.voxels
+                && let Some(sim) = sim.as_deref()
+                && sim.show_terrain
+            {
                 voxels.draw(device, state.common_ds, state.voxels.as_ref().unwrap(), cmd);
             }
 
