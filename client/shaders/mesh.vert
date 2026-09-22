@@ -16,5 +16,5 @@ layout(push_constant) uniform PushConstants {
 void main() {
     gl_Position = view_projection * transform * position;
     texcoords_out = texcoords;
-    normal_out = transform * normal;
+    normal_out = normal; // As a hack, let's just leave normal unchanged and use it for brightness
 }

@@ -307,6 +307,7 @@ fn add_quad(
     geometry: &mut MeshGeometryDefinition,
     points: [na::Vector3<i32>; 4],
     texture: usize,
+    brightness: f32,
 ) {
     let vertices: Vec<_> = points
         .into_iter()
@@ -316,7 +317,7 @@ fn add_quad(
             geometry.vertices.push(Vertex {
                 position: transform * chunk.point_from_voxel(layout, point.cast()),
                 texcoords: na::Vector3::new((i & 1) as f32, ((i >> 1) & 1) as f32, texture as f32),
-                normal: common::math::MDirection::x(),
+                normal: (common::math::MVector::x() * brightness).to_direction_unchecked(), // Hack: This is an invalid MDirection
             });
             len as u32
         })
@@ -342,13 +343,21 @@ fn add_voxel(
         let t = na::Vector3::x().tuv_to_xyz(x_axis);
         let u = na::Vector3::y().tuv_to_xyz(x_axis);
         let v = na::Vector3::z().tuv_to_xyz(x_axis);
+        let shading_intensity = 0.1;
+        let brightness1 = 1.0 - shading_intensity * x_axis as f32;
+        let brightness0 = if x_axis == 0 {
+            1.0 - shading_intensity * 3.0
+        } else {
+            brightness1
+        };
         add_quad(
             chunk,
             layout,
             transform,
             geometry,
             [coords, coords + t, coords + u, coords + t + u],
-            x_axis,
+            0,
+            brightness0,
         );
         add_quad(
             chunk,
@@ -361,7 +370,8 @@ fn add_voxel(
                 coords + t + v,
                 coords + t + u + v,
             ],
-            x_axis,
+            0,
+            brightness1,
         );
     }
 }
