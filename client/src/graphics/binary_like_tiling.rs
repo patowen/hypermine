@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 
 use common::{
-    dodeca::Side,
+    dodeca::{self, Side},
     graph::{Graph, NodeId},
     math::{MDirection, MIsometry, MPoint, MVector, PermuteXYZ, sqr},
     node::{Chunk, ChunkId},
@@ -313,6 +313,7 @@ fn add_quad(
     points: [na::Vector3<i32>; 4],
     texture: usize,
     brightness: f32,
+    flipped: bool,
 ) {
     let vertices: Vec<_> = points
         .into_iter()
@@ -327,14 +328,25 @@ fn add_quad(
             len as u32
         })
         .collect();
-    geometry.indices.extend(&[
-        vertices[0],
-        vertices[1],
-        vertices[2],
-        vertices[1],
-        vertices[3],
-        vertices[2],
-    ]);
+    if flipped {
+        geometry.indices.extend(&[
+            vertices[0],
+            vertices[2],
+            vertices[1],
+            vertices[1],
+            vertices[2],
+            vertices[3],
+        ]);
+    } else {
+        geometry.indices.extend(&[
+            vertices[0],
+            vertices[1],
+            vertices[2],
+            vertices[1],
+            vertices[3],
+            vertices[2],
+        ]);
+    }
 }
 
 fn add_voxel(
@@ -344,6 +356,7 @@ fn add_voxel(
     geometry: &mut MeshGeometryDefinition,
     coords: na::Vector3<i32>,
     material: world::Material,
+    flipped: bool,
 ) {
     if material == world::Material::Void {
         return;
@@ -355,7 +368,8 @@ fn add_voxel(
         let shading_intensity = 0.1;
         let brightness1 = 1.0 - shading_intensity * x_axis as f32;
         let brightness0 = if x_axis == 0 {
-            1.0 - shading_intensity * 3.0
+            //1.0 - shading_intensity * 3.0
+            brightness1 // TODO: Having the bottom be darker than the top is tricky with how things are often flipped
         } else {
             brightness1
         };
@@ -367,6 +381,7 @@ fn add_voxel(
             [coords, coords + t, coords + u, coords + t + u],
             material as usize - 1,
             brightness0,
+            flipped,
         );
         add_quad(
             chunk,
@@ -381,6 +396,7 @@ fn add_voxel(
             ],
             material as usize - 1,
             brightness1,
+            flipped,
         );
     }
 }
@@ -541,7 +557,7 @@ impl BltGraphCollection {
         let mut reference_graph = Graph::new(12);
         reference_graph.ensure_node_state(NodeId::ROOT);
         result.extend_from_graph(&reference_graph);
-        let next_node = reference_graph.ensure_neighbor(NodeId::ROOT, Side::B);
+        let next_node = reference_graph.ensure_neighbor(NodeId::ROOT, Side::A);
         reference_graph.ensure_node_state(next_node);
         result.extend_from_graph(&reference_graph);
         result
@@ -586,6 +602,7 @@ pub struct BltGraph {
     shadow_graph: Graph,
     loader: skid_steer::Loader,
     current_chunk: BltChunkId,
+    flipped: bool,
 }
 
 impl BltGraph {
@@ -600,13 +617,18 @@ impl BltGraph {
             * MIsometry::from_columns_unchecked(
                 &match external_chunk {
                     0 => [MDirection::y(), MDirection::z(), MDirection::x()],
-                    1 => [-MDirection::z(), MDirection::y(), MDirection::x()],
-                    2 => [-MDirection::y(), -MDirection::z(), MDirection::x()],
-                    3 => [MDirection::z(), -MDirection::y(), MDirection::x()],
+                    1 => [-MDirection::y(), MDirection::z(), MDirection::x()],
+                    2 => [MDirection::y(), -MDirection::z(), MDirection::x()],
+                    3 => [-MDirection::y(), -MDirection::z(), MDirection::x()],
                     _ => panic!("Must be in 0..4"),
                 },
                 MPoint::w(),
             );
+        let chunk_flip = if [1, 2].contains(&external_chunk) {
+            1
+        } else {
+            0
+        };
         let mut result = BltGraph {
             chunks: Vec::new(),
             root_chunk: BltChunkId(0),
@@ -615,6 +637,7 @@ impl BltGraph {
             shadow_graph: Graph::new(12),
             loader,
             current_chunk: BltChunkId(0),
+            flipped: (reference_graph.depth(start_node) + chunk_flip) % 2 == 1,
         };
         let mut current_node = NodeId::ROOT;
         for side in reference_graph.debug_node_path(start_node) {
@@ -850,6 +873,7 @@ impl BltGraph {
                         &mut geometry,
                         na::Vector3::new(x as i32, y as i32, z as i32),
                         material,
+                        self.flipped,
                     );
                 }
             }
@@ -992,11 +1016,11 @@ struct BltLayout {
 impl Default for BltLayout {
     fn default() -> Self {
         Self {
-            horizontal_size: 11,
-            central_vertical_size: 11,
-            outer_vertical_size: 11,
-            central_voxel_width: 0.7 / 11.0,
-            voxel_height: logf(2.0) / 11.0,
+            horizontal_size: 12,
+            central_vertical_size: 12,
+            outer_vertical_size: 12,
+            central_voxel_width: dodeca::Vertex::chunk_to_dual_factor() / 12.0,
+            voxel_height: logf(2.0) / 12.0,
         }
     }
 }
