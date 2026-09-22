@@ -796,7 +796,7 @@ impl BltGraph {
             .push(self.loader.load(BltChunkSurface { geometry }));
     }
 
-    fn get_shadow_graph_material(
+    pub fn get_shadow_graph_material(
         &mut self,
         mut node: NodeId,
         mut local: MPoint<f32>,
@@ -821,20 +821,23 @@ impl BltGraph {
             }
         }
         let chunk_vertex = closest_vertex;
-        let chunk_position = chunk_vertex.node_to_chunk() * na::Vector4::from(local);
+        let chunk_position = chunk_vertex.node_to_chunk()
+            * self.shadow_graph.layout().dimension() as f32
+            * na::Vector4::from(local);
         let chunk = ChunkId::new(node, chunk_vertex);
         if matches!(self.shadow_graph[chunk], Chunk::Fresh) {
             let params = ChunkParams::new(&mut self.shadow_graph, chunk);
             self.shadow_graph
                 .populate_chunk(chunk, params.generate_voxels());
         }
+        let max_coord = self.shadow_graph.layout().dimension() as f32 - 1.0;
         self.shadow_graph
             .get_material(
                 ChunkId::new(node, chunk_vertex),
                 Coords([
-                    chunk_position.x as u8,
-                    chunk_position.y as u8,
-                    chunk_position.z as u8,
+                    chunk_position.x.clamp(0.0, max_coord) as u8,
+                    chunk_position.y.clamp(0.0, max_coord) as u8,
+                    chunk_position.z.clamp(0.0, max_coord) as u8,
                 ]),
             )
             .expect("Chunk must be generated")
@@ -1189,3 +1192,20 @@ mod tests {
         }
     }
 }
+
+/* Things that would make this easier in the future:
+Every tiling must have these features:
+* Every chunk has its its own specialized (but continuous) coordinate system.
+    * There can be multiple specialized coordinate systems, but that will result in confusion. If it's that important,
+      consider newtyping them.
+* Every chunk also has a reference frame in the Hyperboloid coordinates.
+* There is a function to convert in either direction for these coordinates.
+* There is an easy way to find relevant specialized coordinates of all neighboring chunks.
+* It is easy to convert to the reference frame of neighboring chunks.
+* Chunks are connected to each other in a graph data structure.
+* This graph is a DAG that leads to a root chunk. Nearby chunks should have a nearby common ancestor.
+* All parents of a chunk should be able to be generated before the chunk itself.
+* Given a position in Hyperboloid coordinates, it should be possible to find the chunk containing such a position.
+    * One possible approach for this is to allow the specialied coordinate system to extend beyond its intended bounds. Then,
+      based on which bound is exceeded, choose the corresponding neighbor chunk during the walk.
+*/
