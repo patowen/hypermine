@@ -572,14 +572,11 @@ impl BltGraphCollection {
             if !self.visited.insert(node) {
                 continue;
             }
-            self.graphs
-                .push(BltGraph::new(self.loader.clone(), 0, node, graph));
-            self.graphs
-                .push(BltGraph::new(self.loader.clone(), 1, node, graph));
-            self.graphs
-                .push(BltGraph::new(self.loader.clone(), 2, node, graph));
-            self.graphs
-                .push(BltGraph::new(self.loader.clone(), 3, node, graph));
+            for i in 0..5 {
+                let mut blt_graph = BltGraph::new(self.loader.clone(), i, node, graph);
+                blt_graph.fill_layers(2);
+                self.graphs.push(blt_graph);
+            }
         }
     }
 
@@ -595,6 +592,14 @@ impl BltGraphCollection {
             .flat_map(|g: &mut BltGraph| g.meshes.get(&node).map_or_default(|x| x.as_slice()))
             .cloned()
             .collect()
+    }
+
+    pub fn get_shadow_graph_material(
+        &mut self,
+        mut node: NodeId,
+        mut local: MPoint<f32>,
+    ) -> world::Material {
+        self.graphs[0].get_shadow_graph_material(node, local)
     }
 }
 
@@ -616,23 +621,14 @@ impl BltGraph {
         start_node: NodeId,
         reference_graph: &Graph,
     ) -> Self {
+        let v = dodeca::Vertex::iter().nth(external_chunk as usize).unwrap();
         let initial_transform = common::dodeca::Side::A.reflection()
-            * common::dodeca::Vertex::A.dual_to_node()
+            * v.dual_to_node()
             * MIsometry::from_columns_unchecked(
-                &match external_chunk {
-                    0 => [MDirection::y(), MDirection::z(), MDirection::x()],
-                    1 => [-MDirection::y(), MDirection::z(), MDirection::x()],
-                    2 => [MDirection::y(), -MDirection::z(), MDirection::x()],
-                    3 => [-MDirection::y(), -MDirection::z(), MDirection::x()],
-                    _ => panic!("Must be in 0..4"),
-                },
+                &[MDirection::y(), MDirection::z(), MDirection::x()],
                 MPoint::w(),
             );
-        let chunk_flip = if [1, 2].contains(&external_chunk) {
-            1
-        } else {
-            0
-        };
+        let chunk_flip = if v.parity() { 1 } else { 0 };
         let mut result = BltGraph {
             chunks: Vec::new(),
             root_chunk: BltChunkId(0),
@@ -661,6 +657,17 @@ impl BltGraph {
 
     pub fn get_meshes(&self, node: NodeId) -> &[skid_steer::Asset<Mesh>] {
         self.meshes.get(&node).map_or_default(|x| x.as_slice())
+    }
+
+    fn fill_layers(&mut self, num_layers: u32) {
+        let mut current = vec![self.root_chunk];
+        for _ in 0..num_layers {
+            for chunk in std::mem::take(&mut current) {
+                for i in 0..4 {
+                    current.push(self.ensure_outer(chunk, QuadIndex(i)));
+                }
+            }
+        }
     }
 
     pub fn fill_radius(&mut self, external_graph: &Graph, mut position: Position, radius: f32) {

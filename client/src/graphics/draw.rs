@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use ash::vk;
+use common::math::MPoint;
 use common::traversal;
 use lahar::Staged;
 use metrics::histogram;
@@ -487,6 +488,11 @@ impl Draw {
 
             if let Some(sim) = sim.as_deref() {
                 self.blt_graph.ensure_position(view, &sim.graph);
+                println!(
+                    "{:?}",
+                    self.blt_graph
+                        .get_shadow_graph_material(view.node, view.local * MPoint::origin())
+                );
                 for (node, transform) in nearby_nodes {
                     for &entity in sim.graph_entities.get(node) {
                         if sim.local_character == Some(entity) {
