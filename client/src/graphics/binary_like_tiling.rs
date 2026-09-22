@@ -924,9 +924,10 @@ impl BltGraph {
             }
         }
         let chunk_vertex = closest_vertex;
-        let chunk_position = chunk_vertex.node_to_chunk()
-            * self.shadow_graph.layout().dimension() as f32
+        let mut chunk_position = chunk_vertex.node_to_chunk()
             * na::Vector4::from(local);
+        chunk_position /= chunk_position.w;
+        chunk_position *= self.shadow_graph.layout().dimension() as f32;
         let chunk = ChunkId::new(node, chunk_vertex);
         if matches!(self.shadow_graph[chunk], Chunk::Fresh) {
             let params = ChunkParams::new(&mut self.shadow_graph, chunk);
@@ -934,6 +935,7 @@ impl BltGraph {
                 .populate_chunk(chunk, params.generate_voxels());
         }
         let max_coord = self.shadow_graph.layout().dimension() as f32 - 1.0;
+        //println!("{:?}", chunk_position);
         self.shadow_graph
             .get_material(
                 ChunkId::new(node, chunk_vertex),

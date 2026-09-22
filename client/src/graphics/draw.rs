@@ -487,7 +487,7 @@ impl Draw {
             }
 
             if let Some(sim) = sim.as_deref() {
-                self.blt_graph.ensure_position(view, &sim.graph);
+                // self.blt_graph.ensure_position(view, &sim.graph); TODO: This is broken
                 println!(
                     "{:?}",
                     self.blt_graph
