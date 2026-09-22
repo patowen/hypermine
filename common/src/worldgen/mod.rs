@@ -18,7 +18,7 @@ mod plane;
 mod terraingen;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-enum NodeStateKind {
+pub enum NodeStateKind {
     Sky,
     DeepSky,
     Land,
@@ -88,7 +88,7 @@ impl PartialNodeState {
 /// from the `NodeState` of the node's parents, along with the `PartialNodeState` of the node
 /// itself and its "peer" nodes (See `peer_traverser`).
 pub struct NodeState {
-    kind: NodeStateKind,
+    pub kind: NodeStateKind,
     surface: Plane,
     road_state: NodeStateRoad,
     enviro: EnviroFactors,

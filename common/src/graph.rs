@@ -10,6 +10,7 @@ use crate::{
     dodeca::{SIDE_COUNT, Side},
     math::{MIsometry, MPoint},
     node::{ChunkId, ChunkLayout, Node},
+    worldgen::NodeStateKind,
 };
 
 /// Graph of the right dodecahedral tiling of H^3
@@ -26,6 +27,15 @@ impl Graph {
             nodes,
             layout: ChunkLayout::new(dimension),
         }
+    }
+
+    pub fn surface_plane_nodes(&self) -> impl Iterator<Item = NodeId> {
+        self.nodes.iter().flat_map(|(k, v)| {
+            v.value.state.iter().flat_map(|s| match s.kind {
+                NodeStateKind::Land | NodeStateKind::Sky => Some(*k),
+                _ => None,
+            })
+        })
     }
 
     #[inline]

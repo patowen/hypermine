@@ -525,6 +525,59 @@ impl<T: std::fmt::Debug> std::fmt::Debug for SideIndexMap<T> {
     }
 }
 
+pub struct BltGraphCollection {
+    loader: skid_steer::Loader,
+    graphs: Vec<BltGraph>,
+    visited: FxHashSet<NodeId>,
+}
+
+impl BltGraphCollection {
+    pub fn new(loader: skid_steer::Loader) -> Self {
+        let mut result = BltGraphCollection {
+            loader: loader.clone(),
+            graphs: vec![],
+            visited: FxHashSet::default(),
+        };
+        let mut reference_graph = Graph::new(12);
+        reference_graph.ensure_node_state(NodeId::ROOT);
+        result.extend_from_graph(&reference_graph);
+        let next_node = reference_graph.ensure_neighbor(NodeId::ROOT, Side::B);
+        reference_graph.ensure_node_state(next_node);
+        result.extend_from_graph(&reference_graph);
+        result
+    }
+
+    pub fn extend_from_graph(&mut self, graph: &Graph) {
+        for node in graph.surface_plane_nodes() {
+            if !self.visited.insert(node) {
+                continue;
+            }
+            self.graphs
+                .push(BltGraph::new(self.loader.clone(), 0, node, graph));
+            self.graphs
+                .push(BltGraph::new(self.loader.clone(), 1, node, graph));
+            self.graphs
+                .push(BltGraph::new(self.loader.clone(), 2, node, graph));
+            self.graphs
+                .push(BltGraph::new(self.loader.clone(), 3, node, graph));
+        }
+    }
+
+    pub fn ensure_position(&mut self, position: Position, external_graph: &Graph) {
+        for graph in &mut self.graphs {
+            graph.ensure_position(position, external_graph);
+        }
+    }
+
+    pub fn get_meshes(&mut self, node: NodeId) -> Vec<skid_steer::Asset<Mesh>> {
+        self.graphs
+            .iter_mut()
+            .flat_map(|g: &mut BltGraph| g.meshes.get(&node).map_or_default(|x| x.as_slice()))
+            .cloned()
+            .collect()
+    }
+}
+
 pub struct BltGraph {
     chunks: Vec<BltChunkWithPosition>,
     root_chunk: BltChunkId,
@@ -536,11 +589,22 @@ pub struct BltGraph {
 }
 
 impl BltGraph {
-    pub fn new(loader: skid_steer::Loader) -> Self {
+    pub fn new(
+        loader: skid_steer::Loader,
+        external_chunk: u8,
+        start_node: NodeId,
+        reference_graph: &Graph,
+    ) -> Self {
         let initial_transform = common::dodeca::Side::A.reflection()
             * common::dodeca::Vertex::A.dual_to_node()
             * MIsometry::from_columns_unchecked(
-                &[MDirection::y(), MDirection::z(), MDirection::x()],
+                &match external_chunk {
+                    0 => [MDirection::y(), MDirection::z(), MDirection::x()],
+                    1 => [-MDirection::z(), MDirection::y(), MDirection::x()],
+                    2 => [-MDirection::y(), -MDirection::z(), MDirection::x()],
+                    3 => [MDirection::z(), -MDirection::y(), MDirection::x()],
+                    _ => panic!("Must be in 0..4"),
+                },
                 MPoint::w(),
             );
         let mut result = BltGraph {
@@ -552,10 +616,14 @@ impl BltGraph {
             loader,
             current_chunk: BltChunkId(0),
         };
+        let mut current_node = NodeId::ROOT;
+        for side in reference_graph.debug_node_path(start_node) {
+            current_node = result.shadow_graph.ensure_neighbor(current_node, side);
+        }
         result.root_chunk = result.new_chunk(
             BltChunk::new_central(),
             Position {
-                node: NodeId::ROOT,
+                node: start_node,
                 local: initial_transform,
             },
         );
@@ -1176,7 +1244,7 @@ mod tests {
 
     #[test]
     fn test_graph_structure() {
-        let mut graph = BltGraph::new(skid_steer::Loader::new());
+        let mut graph = BltGraph::new(skid_steer::Loader::new(), 0, NodeId::ROOT, &Graph::new(12));
         let a = graph.ensure_outer(graph.root_chunk, QuadIndex(3));
         let b = graph.ensure_outer(a, QuadIndex(0));
         let _c = graph.ensure_side(b, SideIndex(0));

@@ -8,7 +8,7 @@ use metrics::histogram;
 
 use super::{Base, Fog, Frustum, GltfScene, Meshes, Voxels, fog, voxels};
 use crate::graphics::asset_loader::AssetLoader;
-use crate::graphics::binary_like_tiling::BltGraph;
+use crate::graphics::binary_like_tiling::{BltGraph, BltGraphCollection};
 use crate::{Config, Sim};
 use common::SimConfig;
 use common::proto::{Character, Position};
@@ -52,7 +52,7 @@ pub struct Draw {
 
     /// Miscellany
     character_model: skid_steer::Asset<GltfScene>,
-    blt_graph: BltGraph,
+    blt_graph: BltGraphCollection,
 
     /// Drives async asset loading
     asset_loader: AssetLoader, // TODO: Make code more robust by not requiring this to be defined last (due to Drop order)
@@ -206,7 +206,7 @@ impl Draw {
                 path: "character.glb".into(),
             });
 
-            let blt_graph = BltGraph::new(asset_loader.inner_loader().clone());
+            let blt_graph = BltGraphCollection::new(asset_loader.inner_loader().clone());
 
             Self {
                 gfx,
