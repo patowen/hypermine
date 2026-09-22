@@ -555,10 +555,14 @@ impl BltGraphCollection {
             visited: FxHashSet::default(),
         };
         let mut reference_graph = Graph::new(12);
-        reference_graph.ensure_node_state(NodeId::ROOT);
-        result.extend_from_graph(&reference_graph);
-        let next_node = reference_graph.ensure_neighbor(NodeId::ROOT, Side::A);
-        reference_graph.ensure_node_state(next_node);
+        traversal::ensure_nearby(&mut reference_graph, &Position::origin(), 1.0);
+        let nodes: Vec<_> = traversal::nearby_nodes(&reference_graph, &Position::origin(), 1.0)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        for node in nodes {
+            reference_graph.ensure_node_state(node);
+        }
         result.extend_from_graph(&reference_graph);
         result
     }
