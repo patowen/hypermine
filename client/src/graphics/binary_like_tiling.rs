@@ -4,10 +4,15 @@ use common::{
     dodeca::Side,
     graph::{Graph, NodeId},
     math::{MDirection, MIsometry, MPoint, MVector, PermuteXYZ, sqr},
+    node::{Chunk, ChunkId},
     proto::Position,
     traversal,
+    voxel_math::Coords,
+    world,
+    worldgen::ChunkParams,
 };
 use fxhash::{FxHashMap, FxHashSet};
+use gltf::Material;
 use libm::{coshf, logf, sinhf, sqrtf, tanhf};
 
 use crate::graphics::{
@@ -338,7 +343,11 @@ fn add_voxel(
     transform: &MIsometry<f32>,
     geometry: &mut MeshGeometryDefinition,
     coords: na::Vector3<i32>,
+    material: world::Material,
 ) {
+    if material == world::Material::Void {
+        return;
+    }
     for x_axis in 0..3 {
         let t = na::Vector3::x().tuv_to_xyz(x_axis);
         let u = na::Vector3::y().tuv_to_xyz(x_axis);
@@ -356,7 +365,7 @@ fn add_voxel(
             transform,
             geometry,
             [coords, coords + t, coords + u, coords + t + u],
-            0,
+            material as usize - 1,
             brightness0,
         );
         add_quad(
@@ -370,7 +379,7 @@ fn add_voxel(
                 coords + t + v,
                 coords + t + u + v,
             ],
-            0,
+            material as usize - 1,
             brightness1,
         );
     }
@@ -741,7 +750,7 @@ impl BltGraph {
             vertices: Vec::new(),
             indices: Vec::new(),
         };
-        for x in (0..(self.layout.horizontal_size as i32)).step_by(2) {
+        /*for x in (0..(self.layout.horizontal_size as i32)).step_by(2) {
             for y in (0..(self.layout.horizontal_size as i32)).step_by(2) {
                 for z in (0..(self.layout.outer_vertical_size as i32)).step_by(2) {
                     add_voxel(
@@ -750,14 +759,85 @@ impl BltGraph {
                         &self.chunk_position(chunk).local,
                         &mut geometry,
                         na::Vector3::new(x, y, z),
+                        world::Material::Dirt,
                     );
                 }
             }
+        }*/
+        for x in 0..self.layout.horizontal_size {
+            for y in 0..self.layout.horizontal_size {
+                for z in 0..self.layout.outer_vertical_size {
+                    let chunk_pos = self.chunk_position(chunk);
+                    let node = chunk_pos.node;
+                    let local = chunk_pos.local
+                        * self.chunk(chunk).point_from_voxel(
+                            &self.layout,
+                            na::Vector3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5),
+                        );
+                    let material = self.get_shadow_graph_material(node, local);
+                    add_voxel(
+                        self.chunk(chunk),
+                        &self.layout,
+                        &self.chunk_position(chunk).local,
+                        &mut geometry,
+                        na::Vector3::new(x as i32, y as i32, z as i32),
+                        material,
+                    );
+                }
+            }
+        }
+        if geometry.indices.is_empty() {
+            // TODO: Trying to create an empty mesh runs into its own set of issues.
+            return;
         }
         self.meshes
             .entry(self.chunk_position(chunk).node)
             .or_default()
             .push(self.loader.load(BltChunkSurface { geometry }));
+    }
+
+    fn get_shadow_graph_material(
+        &mut self,
+        mut node: NodeId,
+        mut local: MPoint<f32>,
+    ) -> world::Material {
+        'outer: loop {
+            for side in Side::iter() {
+                if side.is_facing(&local) {
+                    local = side.reflection() * local;
+                    node = self.shadow_graph.ensure_neighbor(node, side);
+                    continue 'outer;
+                }
+            }
+            break;
+        }
+        let mut closest_vertex = common::dodeca::Vertex::A;
+        let mut closest_vertex_cosh_distance = f32::INFINITY;
+        for vertex in common::dodeca::Vertex::iter() {
+            let vertex_cosh_distance = (vertex.node_to_dual() * local).w;
+            if vertex_cosh_distance < closest_vertex_cosh_distance {
+                closest_vertex = vertex;
+                closest_vertex_cosh_distance = vertex_cosh_distance;
+            }
+        }
+        let chunk_vertex = closest_vertex;
+        let chunk_position = chunk_vertex.node_to_chunk() * na::Vector4::from(local);
+        let chunk = ChunkId::new(node, chunk_vertex);
+        if matches!(self.shadow_graph[chunk], Chunk::Fresh) {
+            let params = ChunkParams::new(&mut self.shadow_graph, chunk);
+            self.shadow_graph
+                .populate_chunk(chunk, params.generate_voxels());
+        }
+        self.shadow_graph
+            .get_material(
+                ChunkId::new(node, chunk_vertex),
+                Coords([
+                    chunk_position.x as u8,
+                    chunk_position.y as u8,
+                    chunk_position.z as u8,
+                ]),
+            )
+            .expect("Chunk must be generated")
     }
 
     fn ensure_outer(&mut self, inner: BltChunkId, index: QuadIndex) -> BltChunkId {
