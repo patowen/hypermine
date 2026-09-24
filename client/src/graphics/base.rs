@@ -29,6 +29,8 @@ pub struct Base {
     pub asset_loader_queue: vk::Queue,
     /// Information about the types of device-visible memory that can be allocated
     pub memory_properties: vk::PhysicalDeviceMemoryProperties,
+    /// Information about the physical device
+    pub device_properties: vk::PhysicalDeviceProperties,
     /// Cache used to speed up graphics pipeline construction
     pub pipeline_cache: vk::PipelineCache,
     /// Context in which the main rendering work occurs
@@ -264,6 +266,7 @@ impl Base {
                 graphics_queue,
                 asset_loader_queue,
                 memory_properties,
+                device_properties: physical_properties.properties,
                 pipeline_cache,
                 render_pass,
                 shader_data,

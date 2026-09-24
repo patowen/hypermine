@@ -15,9 +15,9 @@ tracing = "0.1.10"
 tracing-appender = "0.2.4"
 ash = { version = "0.38.0", default-features = false, features = ["loaded", "debug", "std"] }
 lahar = { git = "https://github.com/Ralith/lahar", rev = "67c190a000472720f7e9dc93899bcaaa72fe1574" }
-yakui = "0.3.0"
-yakui-vulkan = "0.3.0"
-winit = "0.30.4"
+yakui = { path = "../../yakui/crates/yakui" }
+yakui-vulkan = { path = "../../yakui/crates/yakui-vulkan" }
+winit = "0.30.13"
 ash-window = "0.13"
 raw-window-handle = "0.6"
 directories = "6.0.0"

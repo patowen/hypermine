@@ -61,7 +61,7 @@ const PIPELINE_DEPTH: u32 = 2;
 const TIMESTAMPS_PER_FRAME: u32 = 3;
 
 impl Draw {
-    pub fn new(gfx: Arc<Base>, cfg: Arc<Config>) -> Self {
+    pub fn new(gfx: Arc<Base>, cfg: Arc<Config>, yak: &mut yakui::Yakui) -> Self {
         let device = &*gfx.device;
         unsafe {
             // Allocate a command buffer for each frame state
@@ -189,17 +189,21 @@ impl Draw {
 
             gfx.save_pipeline_cache();
 
-            let mut yakui_vulkan_options = yakui_vulkan::Options::default();
-            yakui_vulkan_options.render_pass = gfx.render_pass;
-            yakui_vulkan_options.subpass = 1;
-            let mut yakui_vulkan = yakui_vulkan::YakuiVulkan::new(
-                &yakui_vulkan::VulkanContext::new(
-                    device,
-                    gfx.graphics_queue,
-                    gfx.memory_properties,
-                ),
-                yakui_vulkan_options,
+            let vulkan_context = yakui_vulkan::VulkanContext::new(
+                device,
+                gfx.graphics_queue,
+                gfx.memory_properties,
+                gfx.device_properties,
             );
+            let mut yakui_vulkan = yakui_vulkan::YakuiVulkan::new(
+                &vulkan_context,
+                yakui_vulkan::Options {
+                    render_pass: gfx.render_pass,
+                    subpass: 1,
+                    ..Default::default()
+                },
+            );
+            yakui_vulkan.set_paint_limits(&vulkan_context, yak);
             for _ in 0..PIPELINE_DEPTH {
                 yakui_vulkan.transfers_submitted();
             }
@@ -263,6 +267,7 @@ impl Draw {
                     device,
                     self.gfx.graphics_queue,
                     self.gfx.memory_properties,
+                    self.gfx.device_properties,
                 ));
             state.in_flight = false;
         }
@@ -311,6 +316,7 @@ impl Draw {
                 device,
                 self.gfx.graphics_queue,
                 self.gfx.memory_properties,
+                self.gfx.device_properties,
             );
 
             // We're using this state again, so put the fence back in the unsignaled state and compute

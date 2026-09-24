@@ -118,7 +118,7 @@ impl Window {
             self.window.inner_size(),
         ));
         // Construct the core rendering object
-        self.draw = Some(Draw::new(gfx, self.config.clone()));
+        self.draw = Some(Draw::new(gfx, self.config.clone(), &mut self.yak));
     }
 
     pub fn handle_device_event(&mut self, event: DeviceEvent) {
